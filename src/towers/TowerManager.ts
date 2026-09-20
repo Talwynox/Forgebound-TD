@@ -44,7 +44,9 @@ export class TowerManager {
   public vfx: VFXManager;
 
   public selectedTower: TowerInstance | null = null;
-  public rangeIndicator: THREE.Mesh | null = null;
+  public rangeIndicator: THREE.Group | null = null;
+  private rangeBorderMesh: THREE.Mesh | null = null;
+  private rangeFillMesh: THREE.Mesh | null = null;
 
   constructor(grid: Grid, pathfinder: Pathfinder, scene: THREE.Scene, vfx: VFXManager) {
     this.grid = grid;
@@ -56,17 +58,40 @@ export class TowerManager {
   }
 
   private createRangeIndicator() {
-    const geom = new THREE.RingGeometry(0.1, 1, 32);
-    geom.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
+    this.rangeIndicator = new THREE.Group();
+    this.rangeIndicator.position.y = 0.14; // Above island surface (y=0.10) & road slabs (y=0.09)
+    this.rangeIndicator.renderOrder = 30;
+
+    // 1. Soft glowing fill area covering the entire radius
+    const fillGeom = new THREE.CircleGeometry(1, 48);
+    fillGeom.rotateX(-Math.PI / 2);
+    const fillMat = new THREE.MeshBasicMaterial({
+      color: 0x0284c7,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide
+    });
+    this.rangeFillMesh = new THREE.Mesh(fillGeom, fillMat);
+    this.rangeFillMesh.renderOrder = 29;
+    this.rangeIndicator.add(this.rangeFillMesh);
+
+    // 2. High-contrast perimeter boundary ring
+    const ringGeom = new THREE.RingGeometry(0.85, 1, 48);
+    ringGeom.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
       transparent: true,
-      opacity: 0.35,
-      side: THREE.DoubleSide,
-      depthWrite: false
+      opacity: 0.85,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide
     });
-    this.rangeIndicator = new THREE.Mesh(geom, mat);
-    this.rangeIndicator.position.y = 0.08;
+    this.rangeBorderMesh = new THREE.Mesh(ringGeom, ringMat);
+    this.rangeBorderMesh.renderOrder = 30;
+    this.rangeIndicator.add(this.rangeBorderMesh);
+
     this.rangeIndicator.visible = false;
     this.scene.add(this.rangeIndicator);
   }
@@ -512,12 +537,19 @@ export class TowerManager {
   }
 
   showRange(tower: TowerInstance) {
-    if (!this.rangeIndicator) return;
+    if (!this.rangeIndicator || !this.rangeFillMesh || !this.rangeBorderMesh) return;
     const r = tower.effectiveRange;
-    this.rangeIndicator.geometry.dispose();
-    this.rangeIndicator.geometry = new THREE.RingGeometry(r - 0.15, r, 48);
-    this.rangeIndicator.geometry.rotateX(-Math.PI / 2);
-    this.rangeIndicator.position.set(tower.worldPos.x, 0.08, tower.worldPos.z);
+    this.rangeIndicator.position.set(tower.worldPos.x, 0.14, tower.worldPos.z);
+
+    // Update fill area scale
+    this.rangeFillMesh.scale.set(r, r, 1);
+
+    // Update outer perimeter boundary ring
+    this.rangeBorderMesh.geometry.dispose();
+    const ringGeom = new THREE.RingGeometry(Math.max(0.1, r - 0.15), r, 48);
+    ringGeom.rotateX(-Math.PI / 2);
+    this.rangeBorderMesh.geometry = ringGeom;
+
     this.rangeIndicator.visible = true;
   }
 

@@ -161,7 +161,17 @@ export class UIManager {
     });
   }
 
-  renderTowerPalette() {
+  private lastPlayerGold: number = 0;
+
+  isTowerCardOpen(): boolean {
+    return this.towerCardEl.style.display !== 'none';
+  }
+
+  renderTowerPalette(playerGold?: number) {
+    if (playerGold !== undefined) {
+      this.lastPlayerGold = playerGold;
+    }
+    const currentGold = this.lastPlayerGold;
     this.towerPaletteEl.innerHTML = '';
 
     const types = [
@@ -177,11 +187,14 @@ export class UIManager {
 
     types.forEach(type => {
       const def = TOWER_DEFINITIONS[type];
+      const canAfford = currentGold >= def.cost;
       const btn = document.createElement('div');
-      btn.className = `tower-btn ${this.selectedTowerTypeForPlacement === type ? 'active' : ''}`;
+      btn.className = `tower-btn ${this.selectedTowerTypeForPlacement === type ? 'active' : ''} ${!canAfford ? 'unaffordable' : ''}`;
+      // Clean short name: "The Rulebreaker" -> "Rulebreaker"
+      const displayName = def.name.replace(/^The\s+/, '').split(' ')[0];
       btn.innerHTML = `
-        <div class="tower-btn-title">${def.name.split(' ')[0]}</div>
-        <div class="tower-btn-cost">🪙 ${def.cost}g</div>
+        <div class="tower-btn-title">${displayName}</div>
+        <div class="tower-btn-cost ${!canAfford ? 'cost-locked' : ''}">🪙 ${def.cost}g</div>
         <div class="tower-tooltip">
           <strong>${def.name}</strong> (${def.cost}g)
           <div class="desc">${def.description}</div>
@@ -193,6 +206,10 @@ export class UIManager {
       `;
 
       btn.addEventListener('click', () => {
+        if (!canAfford && this.selectedTowerTypeForPlacement !== type) {
+          audio.playDefeat();
+          return;
+        }
         if (this.selectedTowerTypeForPlacement === type) {
           this.selectedTowerTypeForPlacement = null;
         } else {

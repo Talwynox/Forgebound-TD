@@ -51,7 +51,9 @@ class GameApp {
   private mouse = new THREE.Vector2();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private placementGhost: THREE.Mesh | null = null;
-  private ghostRangeRing: THREE.Mesh | null = null;
+  private ghostRangeRing: THREE.Group | null = null;
+  private ghostBorderMesh: THREE.Mesh | null = null;
+  private ghostFillMesh: THREE.Mesh | null = null;
 
   // Timing
   private lastFrameTime = performance.now();
@@ -105,16 +107,40 @@ class GameApp {
     this.placementGhost.visible = false;
     this.renderer.scene.add(this.placementGhost);
 
-    const rGeom = new THREE.RingGeometry(0.1, 3.5, 32);
-    rGeom.rotateX(-Math.PI / 2);
-    const rMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
+    this.ghostRangeRing = new THREE.Group();
+    this.ghostRangeRing.position.y = 0.14; // Above island (y=0.10) & road slabs (y=0.09)
+    this.ghostRangeRing.renderOrder = 30;
+
+    // 1. Soft shaded area fill
+    const fillGeom = new THREE.CircleGeometry(1, 48);
+    fillGeom.rotateX(-Math.PI / 2);
+    const fillMat = new THREE.MeshBasicMaterial({
+      color: 0x15803d,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.16,
+      depthWrite: false,
+      depthTest: true,
       side: THREE.DoubleSide
     });
-    this.ghostRangeRing = new THREE.Mesh(rGeom, rMat);
-    this.ghostRangeRing.position.y = 0.05;
+    this.ghostFillMesh = new THREE.Mesh(fillGeom, fillMat);
+    this.ghostFillMesh.renderOrder = 29;
+    this.ghostRangeRing.add(this.ghostFillMesh);
+
+    // 2. High-contrast perimeter boundary ring
+    const ringGeom = new THREE.RingGeometry(0.85, 1, 48);
+    ringGeom.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x22c55e,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide
+    });
+    this.ghostBorderMesh = new THREE.Mesh(ringGeom, ringMat);
+    this.ghostBorderMesh.renderOrder = 30;
+    this.ghostRangeRing.add(this.ghostBorderMesh);
+
     this.ghostRangeRing.visible = false;
     this.renderer.scene.add(this.ghostRangeRing);
   }
@@ -408,6 +434,14 @@ class GameApp {
       this.waveInProgress,
       phaseText
     );
+
+    // 1. Update bottom tower palette affordability in real time
+    this.ui.renderTowerPalette(this.playerGold);
+
+    // 2. If a tower is currently selected and its card is open, refresh affordability and stats in real time!
+    if (this.towerManager.selectedTower && this.ui.isTowerCardOpen()) {
+      this.openTowerCard(this.towerManager.selectedTower);
+    }
   }
 
   private setupMouseEvents() {
@@ -564,11 +598,22 @@ class GameApp {
         const ghostMat = this.placementGhost.material as THREE.MeshStandardMaterial;
         ghostMat.color.setHex(canBuild.allowed ? 0x22c55e : 0xef4444);
 
-        // Update range ring
-        this.ghostRangeRing.position.set(world.x, 0.05, world.z);
-        this.ghostRangeRing.geometry.dispose();
-        this.ghostRangeRing.geometry = new THREE.RingGeometry(def.range - 0.15, def.range, 32);
-        this.ghostRangeRing.geometry.rotateX(-Math.PI / 2);
+        // Update range ring (y = 0.14 above ground, dynamic color & radius)
+        const ringColor = canBuild.allowed ? 0x22c55e : 0xef4444;
+        const fillColor = canBuild.allowed ? 0x15803d : 0x991b1b;
+
+        this.ghostRangeRing.position.set(world.x, 0.14, world.z);
+        if (this.ghostFillMesh) {
+          (this.ghostFillMesh.material as THREE.MeshBasicMaterial).color.setHex(fillColor);
+          this.ghostFillMesh.scale.set(def.range, def.range, 1);
+        }
+        if (this.ghostBorderMesh) {
+          (this.ghostBorderMesh.material as THREE.MeshBasicMaterial).color.setHex(ringColor);
+          this.ghostBorderMesh.geometry.dispose();
+          const rGeom = new THREE.RingGeometry(Math.max(0.1, def.range - 0.15), def.range, 48);
+          rGeom.rotateX(-Math.PI / 2);
+          this.ghostBorderMesh.geometry = rGeom;
+        }
         this.ghostRangeRing.visible = true;
       } else {
         this.placementGhost.visible = false;
