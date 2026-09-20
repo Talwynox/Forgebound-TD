@@ -279,15 +279,15 @@ class GameApp {
       }
     }
 
-    // 2. Apply Slow Stacking Buffs to surviving friendly units!
-    const survivingFriendlies = this.unitManager.units.filter(u => u.isFriendly && !u.isDead);
-    for (const unit of survivingFriendlies) {
-      const buffs = unit.applyEndOfWeekBuffs();
-      if (buffs.length > 0) {
-        audio.playUpgrade();
-        this.vfx.spawnAscensionPillar(unit.worldPos, 0x22c55e);
-        this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 1.2, 0)), buffs.join(' | '), '#4ade80', 2.5);
-      }
+    // 2. Apply Slow Stacking Tower Growth at end of round!
+    const stackEvents = this.towerManager.applyRoundEndStacking();
+    for (const ev of stackEvents) {
+      audio.playUpgrade();
+      this.vfx.spawnAscensionPillar(ev.pos, 0x22c55e);
+      this.vfx.spawnFloatingText(ev.pos, ev.message, ev.color, 2.5);
+    }
+    if (this.towerManager.selectedTower) {
+      this.openTowerCard(this.towerManager.selectedTower);
     }
 
     this.currentWaveIndex++;

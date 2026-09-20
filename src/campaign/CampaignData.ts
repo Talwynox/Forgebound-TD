@@ -21,10 +21,10 @@ export interface CampaignMission {
 
 // 25 Progressive Waves for Mission 1
 const MISSION_1_WAVES: WaveDef[] = [
-  { waveNumber: 1, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 5, delayBetween: 0.8 }], rewardGold: 50 },
-  { waveNumber: 2, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 8, delayBetween: 0.7 }], rewardGold: 55 },
-  { waveNumber: 3, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 10, delayBetween: 0.6 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 2, delayBetween: 1.0 }], rewardGold: 65 },
-  { waveNumber: 4, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 12, delayBetween: 0.5 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 4, delayBetween: 0.9 }], rewardGold: 75 },
+  { waveNumber: 1, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 2, delayBetween: 1.2 }], rewardGold: 50 },
+  { waveNumber: 2, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 4, delayBetween: 1.0 }], rewardGold: 55 },
+  { waveNumber: 3, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 6, delayBetween: 0.8 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 1, delayBetween: 1.2 }], rewardGold: 65 },
+  { waveNumber: 4, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 8, delayBetween: 0.7 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 2, delayBetween: 1.0 }], rewardGold: 75 },
   { waveNumber: 5, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 1, delayBetween: 2.0 }, { enemyClass: EnemyClass.GOBLIN, count: 10, delayBetween: 0.5 }], rewardGold: 90 },
   { waveNumber: 6, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 8, delayBetween: 0.8 }], rewardGold: 80 },
   { waveNumber: 7, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 8, delayBetween: 0.8 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 4, delayBetween: 0.6 }], rewardGold: 90 },

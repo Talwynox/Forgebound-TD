@@ -22,6 +22,8 @@ export interface TowerInstance {
   auraBonusMultiplier: number;
   totalBuffApplied: number;
   totalHits: number;
+  accumulatedStackBonus: number; // Stacking bonus accumulated at the end of each round
+  roundsStacked: number; // How many rounds this tower has stacked
   // Dynamic visual parts for animation
   floatingElement?: THREE.Object3D;
   rotatingRing?: THREE.Object3D;
@@ -100,7 +102,9 @@ export class TowerManager {
       effectiveRange: def.range,
       auraBonusMultiplier: 0,
       totalBuffApplied: 0,
-      totalHits: 0
+      totalHits: 0,
+      accumulatedStackBonus: 0,
+      roundsStacked: 0
     };
 
     // Extract animated parts
@@ -282,6 +286,52 @@ export class TowerManager {
     }
   }
 
+  applyRoundEndStacking(): { towerId: number; message: string; color: string; pos: THREE.Vector3 }[] {
+    const results: { towerId: number; message: string; color: string; pos: THREE.Vector3 }[] = [];
+    for (const tower of this.towers.values()) {
+      if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
+        const curUpg = this.getCurrentUpgrade(tower);
+        if (!curUpg) continue;
+
+        let bonusGained = 0;
+        let statName = '';
+        let color = '#4ade80';
+
+        if (tower.type === TowerType.SHRINE && curUpg.stackingHpPerRound) {
+          bonusGained = curUpg.stackingHpPerRound;
+          statName = 'HP/hit';
+          color = '#4ade80';
+        } else if (tower.type === TowerType.FORGE && curUpg.stackingArmorPerRound) {
+          bonusGained = curUpg.stackingArmorPerRound;
+          statName = 'Armor/hit';
+          color = '#60a5fa';
+        } else if (tower.type === TowerType.OBELISK && curUpg.stackingAttackPerRound) {
+          bonusGained = curUpg.stackingAttackPerRound;
+          statName = 'Attack/hit';
+          color = '#fb923c';
+        }
+
+        if (bonusGained > 0) {
+          tower.accumulatedStackBonus += bonusGained;
+          tower.roundsStacked++;
+          const def = TOWER_DEFINITIONS[tower.type];
+          const baseVal = (tower.type === TowerType.SHRINE ? (curUpg.healAmount ?? def.healAmount ?? 1)
+            : tower.type === TowerType.FORGE ? (curUpg.armorAmount ?? def.armorAmount ?? 1)
+            : (curUpg.attackAmount ?? def.attackAmount ?? 1));
+          const totalVal = baseVal + tower.accumulatedStackBonus;
+
+          results.push({
+            towerId: tower.id,
+            message: `🌱 STACKED: +${bonusGained} ${statName} (Now: +${totalVal})`,
+            color,
+            pos: tower.worldPos.clone().add(new THREE.Vector3(0, 2.2, 0))
+          });
+        }
+      }
+    }
+    return results;
+  }
+
   getTowerStatsSummary(tower: TowerInstance): { currentEffect: string; lifetimeOutput: string } {
     const def = TOWER_DEFINITIONS[tower.type];
     const curUpg = this.getCurrentUpgrade(tower);
@@ -290,23 +340,32 @@ export class TowerManager {
 
     switch (tower.type) {
       case TowerType.SHRINE: {
-        const heal = curUpg?.healAmount ?? def.healAmount ?? 1;
-        const stackHp = curUpg?.stackingHpPerRound;
-        effectStr = `Heals: +${heal} HP per hit` + (stackHp ? ` (+${stackHp} Max HP round bonus)` : '');
+        const baseHeal = curUpg?.healAmount ?? def.healAmount ?? 1;
+        const totalHeal = baseHeal + tower.accumulatedStackBonus;
+        const stackText = tower.accumulatedStackBonus > 0
+          ? ` (+${tower.accumulatedStackBonus} from ${tower.roundsStacked} rounds stacked)`
+          : (curUpg?.stackingHpPerRound ? ` (Grows +${curUpg.stackingHpPerRound} HP/round)` : '');
+        effectStr = `Heals: +${totalHeal} HP per hit${stackText}`;
         lifetimeStr = `Total Healed: ${tower.totalBuffApplied} HP (${tower.totalHits} casts)`;
         break;
       }
       case TowerType.FORGE: {
-        const armor = curUpg?.armorAmount ?? def.armorAmount ?? 1;
-        const stackArmor = curUpg?.stackingArmorPerRound;
-        effectStr = `Armor: +${armor} Armor per hit` + (stackArmor ? ` (+${stackArmor} Armor round bonus)` : '');
+        const baseArmor = curUpg?.armorAmount ?? def.armorAmount ?? 1;
+        const totalArmor = baseArmor + tower.accumulatedStackBonus;
+        const stackText = tower.accumulatedStackBonus > 0
+          ? ` (+${tower.accumulatedStackBonus} from ${tower.roundsStacked} rounds stacked)`
+          : (curUpg?.stackingArmorPerRound ? ` (Grows +${curUpg.stackingArmorPerRound} Armor/round)` : '');
+        effectStr = `Armor: +${totalArmor} Armor per hit${stackText}`;
         lifetimeStr = `Total Armor Plated: +${tower.totalBuffApplied} (${tower.totalHits} casts)`;
         break;
       }
       case TowerType.OBELISK: {
-        const atk = curUpg?.attackAmount ?? def.attackAmount ?? 1;
-        const stackAtk = curUpg?.stackingAttackPerRound;
-        effectStr = `Attack: +${atk} Attack per hit` + (stackAtk ? ` (+${stackAtk} Attack round bonus)` : '');
+        const baseAtk = curUpg?.attackAmount ?? def.attackAmount ?? 1;
+        const totalAtk = baseAtk + tower.accumulatedStackBonus;
+        const stackText = tower.accumulatedStackBonus > 0
+          ? ` (+${tower.accumulatedStackBonus} from ${tower.roundsStacked} rounds stacked)`
+          : (curUpg?.stackingAttackPerRound ? ` (Grows +${curUpg.stackingAttackPerRound} Attack/round)` : '');
+        effectStr = `Attack: +${totalAtk} Attack per hit${stackText}`;
         lifetimeStr = `Total Attack Boosted: +${tower.totalBuffApplied} (${tower.totalHits} casts)`;
         break;
       }
@@ -426,51 +485,45 @@ export class TowerManager {
 
       switch (tower.type) {
         case TowerType.SHRINE: {
-          const heal = curUpg?.healAmount ?? def.healAmount ?? 1;
-          if (curUpg?.stackingHpPerRound) {
-            target.stackingLifebloom += curUpg.stackingHpPerRound;
-            this.vfx.spawnFloatingText(fireTo, `+Lifebloom (${target.stackingLifebloom} HP)`, '#86efac', 1.0);
-          }
+          const baseHeal = curUpg?.healAmount ?? def.healAmount ?? 1;
+          const heal = baseHeal + tower.accumulatedStackBonus;
           target.currentHp = Math.min(target.maxHp, target.currentHp + heal);
           tower.totalBuffApplied += heal;
           tower.totalHits++;
           audio.playHealBuff();
           this.vfx.spawnBeam(fireFrom, fireTo, 0x22c55e);
-          this.vfx.spawnFloatingText(fireTo, `+${heal} HP`, '#4ade80');
+          const stackNotice = tower.accumulatedStackBonus > 0 ? ` (+${tower.accumulatedStackBonus} stack)` : '';
+          this.vfx.spawnFloatingText(fireTo, `+${heal} HP${stackNotice}`, '#4ade80');
           target.recordBuff('Vitality Shrine');
           fired = true;
           break;
         }
 
         case TowerType.FORGE: {
-          const armor = curUpg?.armorAmount ?? def.armorAmount ?? 1;
-          if (curUpg?.stackingArmorPerRound) {
-            target.stackingArmor += curUpg.stackingArmorPerRound;
-            this.vfx.spawnFloatingText(fireTo, `+Tempered (${target.stackingArmor} Armor)`, '#93c5fd', 1.0);
-          }
+          const baseArmor = curUpg?.armorAmount ?? def.armorAmount ?? 1;
+          const armor = baseArmor + tower.accumulatedStackBonus;
           target.armor += armor;
           tower.totalBuffApplied += armor;
           tower.totalHits++;
           audio.playArmorBuff();
           this.vfx.spawnBeam(fireFrom, fireTo, 0x38bdf8);
-          this.vfx.spawnFloatingText(fireTo, `+${armor} Armor`, '#60a5fa');
+          const stackNotice = tower.accumulatedStackBonus > 0 ? ` (+${tower.accumulatedStackBonus} stack)` : '';
+          this.vfx.spawnFloatingText(fireTo, `+${armor} Armor${stackNotice}`, '#60a5fa');
           target.recordBuff('Iron Forge');
           fired = true;
           break;
         }
 
         case TowerType.OBELISK: {
-          const atk = curUpg?.attackAmount ?? def.attackAmount ?? 1;
-          if (curUpg?.stackingAttackPerRound) {
-            target.stackingAttack += curUpg.stackingAttackPerRound;
-            this.vfx.spawnFloatingText(fireTo, `+Frenzy (${target.stackingAttack} ATK)`, '#fdba74', 1.0);
-          }
+          const baseAtk = curUpg?.attackAmount ?? def.attackAmount ?? 1;
+          const atk = baseAtk + tower.accumulatedStackBonus;
           target.attack += atk;
           tower.totalBuffApplied += atk;
           tower.totalHits++;
           audio.playAttackBuff();
           this.vfx.spawnBeam(fireFrom, fireTo, 0xf97316);
-          this.vfx.spawnFloatingText(fireTo, `+${atk} Attack`, '#fb923c');
+          const stackNotice = tower.accumulatedStackBonus > 0 ? ` (+${tower.accumulatedStackBonus} stack)` : '';
+          this.vfx.spawnFloatingText(fireTo, `+${atk} Attack${stackNotice}`, '#fb923c');
           target.recordBuff('Flame Obelisk');
           fired = true;
           break;
