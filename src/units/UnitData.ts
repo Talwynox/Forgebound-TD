@@ -16,7 +16,9 @@ export enum FriendlyClass {
   CLERIC = 'CLERIC',
   PALADIN = 'PALADIN',
   ARCHMAGE = 'ARCHMAGE',
-  PYRO_GOLEM = 'PYRO_GOLEM'
+  PYRO_GOLEM = 'PYRO_GOLEM',
+  SOLDIER = 'SOLDIER',
+  ARCHER = 'ARCHER'
 }
 
 export enum EnemyClass {
@@ -47,7 +49,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
   [FriendlyClass.RECRUIT]: {
     name: 'Recruit',
     tier: UnitTier.TIER_1,
-    hp: 120,
+    hp: 250, // Base max HP of 250
     armor: 2,
     attack: 10,
     attackRate: 1.2,
@@ -151,6 +153,32 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     scale: 1.25,
     description: 'Gigantic elemental behemoth whose massive fists cleave all enemies.',
     passive: 'CLEAVE'
+  },
+  [FriendlyClass.SOLDIER]: {
+    name: 'Soldier',
+    tier: UnitTier.TIER_2,
+    hp: 1250, // Massively increased HP cap
+    armor: 16,
+    attack: 38,
+    attackRate: 1.0,
+    moveSpeed: 2.0,
+    range: 1.0,
+    color: 0x3b82f6, // Royal Champion Blue
+    scale: 0.95,
+    description: 'Melee champion forged at 250 HP with high HP cap, Armor Aura, and Critical Strike.'
+  },
+  [FriendlyClass.ARCHER]: {
+    name: 'Archer',
+    tier: UnitTier.TIER_2,
+    hp: 1000, // Massively increased HP cap
+    armor: 6,
+    attack: 42,
+    attackRate: 0.85,
+    moveSpeed: 2.2,
+    range: 5.5, // Long-range sharpshooter
+    color: 0x10b981, // Emerald Archer
+    scale: 0.9,
+    description: 'Ranged marksman forged at 250 HP with high HP cap, Multishot volleys, and Damage Aura.'
   }
 };
 

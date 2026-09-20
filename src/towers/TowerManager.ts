@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { Grid, GridCoord, TileType } from '../grid/Grid';
 import { Pathfinder } from '../grid/Pathfinder';
-import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, TowerUpgradeDef } from './TowerData';
+import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, TowerUpgradeDef, SOLDIER_ABILITIES, ARCHER_ABILITIES, EvoAbilityTier } from './TowerData';
 import { VFXManager } from '../vfx/VFXManager';
 import { audio } from '../engine/AudioSystem';
 import { Unit } from '../units/UnitManager';
+import { FriendlyClass } from '../units/UnitData';
 
 export interface TowerInstance {
   id: number;
@@ -24,6 +25,11 @@ export interface TowerInstance {
   totalHits: number;
   accumulatedStackBonus: number; // Stacking bonus accumulated at the end of each round
   roundsStacked: number; // How many rounds this tower has stacked
+  // Evolution Tower Special State
+  evoPath?: 'SOLDIER' | 'ARCHER';
+  ability1Level: number; // 0 to 3
+  ability2Level: number; // 0 to 3
+  hasEvolvedThisWave: boolean;
   // Dynamic visual parts for animation
   floatingElement?: THREE.Object3D;
   rotatingRing?: THREE.Object3D;
@@ -104,7 +110,11 @@ export class TowerManager {
       totalBuffApplied: 0,
       totalHits: 0,
       accumulatedStackBonus: 0,
-      roundsStacked: 0
+      roundsStacked: 0,
+      evoPath: undefined,
+      ability1Level: 0,
+      ability2Level: 0,
+      hasEvolvedThisWave: false
     };
 
     // Extract animated parts
@@ -152,6 +162,30 @@ export class TowerManager {
     const tower = this.towers.get(towerId);
     if (!tower) return { success: false, cost: 0, reason: 'Tower not found' };
 
+    const def = TOWER_DEFINITIONS[tower.type];
+
+    if (tower.type === TowerType.EVOLUTION) {
+      if (tower.currentBranch !== UpgradeBranch.NONE) {
+        return { success: false, cost: 0, reason: 'Path already chosen! Upgrade abilities below.' };
+      }
+      tower.currentBranch = branch;
+      tower.branchLevel = 1;
+      tower.evoPath = branch === UpgradeBranch.BRANCH_A ? 'SOLDIER' : 'ARCHER';
+      tower.level = 2;
+      const upgDef = branch === UpgradeBranch.BRANCH_A ? def.branchA[0] : def.branchB[0];
+      tower.totalCostInvested += upgDef.cost;
+      audio.playUpgrade();
+      const forgeColor = tower.evoPath === 'SOLDIER' ? 0x3b82f6 : 0x10b981;
+      this.vfx.spawnAscensionPillar(tower.worldPos, forgeColor);
+      this.vfx.spawnFloatingText(
+        tower.worldPos.clone().add(new THREE.Vector3(0, 2.5, 0)),
+        `FORGE CHOSEN: ${tower.evoPath}!`,
+        tower.evoPath === 'SOLDIER' ? '#60a5fa' : '#34d399',
+        1.8
+      );
+      return { success: true, cost: upgDef.cost };
+    }
+
     const next = this.getNextUpgrade(tower, branch);
     if (!next) return { success: false, cost: 0, reason: 'Tower is already at maximum upgrade rank!' };
 
@@ -170,8 +204,6 @@ export class TowerManager {
     tower.level++;
     tower.totalCostInvested += upgDef.cost;
     tower.effectiveRange = upgDef.range;
-
-    const def = TOWER_DEFINITIONS[tower.type];
 
     // Visual upgrade indicator: add or scale golden/arcane halo at top of mesh
     if (!tower.rotatingRing) {
@@ -204,6 +236,65 @@ export class TowerManager {
     this.vfx.spawnFloatingText(tower.worldPos.clone().add(new THREE.Vector3(0, 2.5, 0)), `UPGRADED: ${upgDef.name}`, '#facc15', 1.5);
 
     return { success: true, cost: upgDef.cost };
+  }
+
+  upgradeEvoAbility(towerId: number, abilityIndex: 1 | 2, playerGold: number): { success: boolean; cost: number; reason?: string } {
+    const tower = this.towers.get(towerId);
+    if (!tower) return { success: false, cost: 0, reason: 'Tower not found' };
+    if (tower.type !== TowerType.EVOLUTION || !tower.evoPath) {
+      return { success: false, cost: 0, reason: 'Must choose Soldier or Archer path first!' };
+    }
+
+    const currentLvl = abilityIndex === 1 ? tower.ability1Level : tower.ability2Level;
+    if (currentLvl >= 3) {
+      return { success: false, cost: 0, reason: 'Ability already at maximum Tier 3!' };
+    }
+
+    let tierDef: EvoAbilityTier | undefined;
+    if (tower.evoPath === 'SOLDIER') {
+      tierDef = abilityIndex === 1
+        ? SOLDIER_ABILITIES.armorAura[currentLvl]
+        : SOLDIER_ABILITIES.crit[currentLvl];
+    } else {
+      tierDef = abilityIndex === 1
+        ? ARCHER_ABILITIES.multishot[currentLvl]
+        : ARCHER_ABILITIES.damageAura[currentLvl];
+    }
+
+    if (!tierDef) {
+      return { success: false, cost: 0, reason: 'Invalid ability tier' };
+    }
+
+    if (playerGold < tierDef.cost) {
+      return { success: false, cost: 0, reason: `Need ${tierDef.cost}g to upgrade ${tierDef.name}.` };
+    }
+
+    if (abilityIndex === 1) {
+      tower.ability1Level++;
+    } else {
+      tower.ability2Level++;
+    }
+
+    tower.totalCostInvested += tierDef.cost;
+    audio.playUpgrade();
+    const color = tower.evoPath === 'SOLDIER' ? 0x3b82f6 : 0x10b981;
+    this.vfx.spawnBurstParticles(tower.worldPos.clone().add(new THREE.Vector3(0, 1.5, 0)), color, 12);
+    this.vfx.spawnFloatingText(
+      tower.worldPos.clone().add(new THREE.Vector3(0, 2.5, 0)),
+      `UPGRADED: ${tierDef.name}!`,
+      tower.evoPath === 'SOLDIER' ? '#60a5fa' : '#34d399',
+      1.5
+    );
+
+    return { success: true, cost: tierDef.cost };
+  }
+
+  resetWaveEvolutions() {
+    for (const tower of this.towers.values()) {
+      if (tower.type === TowerType.EVOLUTION) {
+        tower.hasEvolvedThisWave = false;
+      }
+    }
   }
 
   sellTower(towerId: number): number {
@@ -397,12 +488,22 @@ export class TowerManager {
         break;
       }
       case TowerType.EVOLUTION: {
-        effectStr = curUpg?.unlockTier3Evolution
-          ? 'Ascends units to Tier 2 & Tier 3 (Paladin, Colossus, Archmage)'
-          : (curUpg?.grantUnitPassive
-            ? `Ascends units & grants passive: ${curUpg.grantUnitPassive}`
-            : 'Ascends units to Tier 2 (Footman, Knight, Berserker, Cleric)');
-        lifetimeStr = `Total Champions Ascended: ${tower.totalHits}`;
+        if (!tower.evoPath) {
+          effectStr = 'Select Soldier or Archer path to forge champions (Requires 250 HP base units).';
+          lifetimeStr = 'Quota: 1 unit per wave | Individual building abilities';
+        } else if (tower.evoPath === 'SOLDIER') {
+          const quotaStr = tower.hasEvolvedThisWave
+            ? '🔒 1/1 Evolved this wave'
+            : '⚡ Ready to Evolve (Requires 250 HP)';
+          effectStr = `Forges Soldier (1,250 HP cap, Melee). Status: ${quotaStr}`;
+          lifetimeStr = `Armor Aura Lv.${tower.ability1Level}/3 | Crit Lv.${tower.ability2Level}/3 (${tower.totalHits} forged)`;
+        } else {
+          const quotaStr = tower.hasEvolvedThisWave
+            ? '🔒 1/1 Evolved this wave'
+            : '⚡ Ready to Evolve (Requires 250 HP)';
+          effectStr = `Forges Archer (1,000 HP cap, Ranged). Status: ${quotaStr}`;
+          lifetimeStr = `Multishot Lv.${tower.ability1Level}/3 | Damage Aura Lv.${tower.ability2Level}/3 (${tower.totalHits} forged)`;
+        }
         break;
       }
     }
@@ -464,6 +565,23 @@ export class TowerManager {
           const curUpg = this.getCurrentUpgrade(tower);
           const targetFixedHp = curUpg?.fixedHp ?? def.fixedHp ?? 15;
           if (u.currentHp >= targetFixedHp) {
+            return false;
+          }
+        }
+
+        // Special Evolution Spire logic:
+        // 1. One evolution per wave strictly!
+        // 2. Must have chosen a path (Soldier or Archer)
+        // 3. Unit must have reached max base HP (>= 250 HP)
+        // 4. Unit must not already be an evolved champion
+        if (tower.type === TowerType.EVOLUTION) {
+          if (tower.hasEvolvedThisWave || !tower.evoPath) {
+            return false;
+          }
+          if (u.currentHp < 250) {
+            return false;
+          }
+          if (u.unitClass === FriendlyClass.SOLDIER || u.unitClass === FriendlyClass.ARCHER) {
             return false;
           }
         }
@@ -577,19 +695,54 @@ export class TowerManager {
         }
 
         case TowerType.EVOLUTION: {
-          const allowTier3 = !!curUpg?.unlockTier3Evolution;
-          const evolved = target.checkAndEvolve(allowTier3);
-          if (evolved) {
-            if (curUpg?.grantUnitPassive) {
-              target.recordBuff(curUpg.grantUnitPassive);
+          if (tower.hasEvolvedThisWave || !tower.evoPath) break;
+          if (target.currentHp < 250) break;
+          if (target.unitClass === FriendlyClass.SOLDIER || target.unitClass === FriendlyClass.ARCHER) break;
+
+          const isSoldier = tower.evoPath === 'SOLDIER';
+          const newClass = isSoldier ? FriendlyClass.SOLDIER : FriendlyClass.ARCHER;
+
+          target.morphClass(newClass);
+
+          // Apply abilities bought in THIS SPECIFIC evo tower
+          if (isSoldier) {
+            if (tower.ability1Level > 0) {
+              const tier = SOLDIER_ABILITIES.armorAura[tower.ability1Level - 1];
+              target.armorAuraBonus = tier.bonus || 0;
+              target.recordBuff(`Armor Aura Lv.${tower.ability1Level} (+${tier.bonus} Armor)`);
             }
-            tower.totalHits++;
-            audio.playEvolution();
-            this.vfx.spawnBeam(fireFrom, fireTo, 0x8b5cf6, 0.3);
-            this.vfx.spawnAscensionPillar(target.worldPos, 0xa855f7);
-            this.vfx.spawnFloatingText(fireTo, `ASCENDED: ${target.stats.name.toUpperCase()}!`, '#c084fc', 2.0);
-            fired = true;
+            if (tower.ability2Level > 0) {
+              const tier = SOLDIER_ABILITIES.crit[tower.ability2Level - 1];
+              target.critChance = tier.chance || 0;
+              target.critMultiplier = tier.multiplier || 2.0;
+              target.recordBuff(`Crit Lv.${tower.ability2Level} (${Math.round((tier.chance || 0) * 100)}% @ ${tier.multiplier}x)`);
+            }
+          } else {
+            if (tower.ability1Level > 0) {
+              const tier = ARCHER_ABILITIES.multishot[tower.ability1Level - 1];
+              target.multishotChance = tier.chance || 0;
+              target.multishotTargets = tier.targets || 2;
+              target.recordBuff(`Multishot Lv.${tower.ability1Level} (${Math.round((tier.chance || 0) * 100)}% -> ${tier.targets} targets)`);
+            }
+            if (tower.ability2Level > 0) {
+              const tier = ARCHER_ABILITIES.damageAura[tower.ability2Level - 1];
+              target.damageAuraBonus = tier.bonus || 0;
+              target.recordBuff(`Damage Aura Lv.${tower.ability2Level} (+${tier.bonus} Attack)`);
+            }
           }
+
+          tower.hasEvolvedThisWave = true;
+          tower.totalHits++;
+          audio.playEvolution();
+          this.vfx.spawnBeam(fireFrom, fireTo, isSoldier ? 0x3b82f6 : 0x10b981, 0.4);
+          this.vfx.spawnAscensionPillar(target.worldPos, isSoldier ? 0x2563eb : 0x059669);
+          this.vfx.spawnFloatingText(
+            fireTo,
+            `⚡ FORGED ${target.stats.name.toUpperCase()}! (Max HP: ${target.maxHp})`,
+            isSoldier ? '#60a5fa' : '#34d399',
+            2.2
+          );
+          fired = true;
           break;
         }
       }

@@ -1,7 +1,8 @@
 import confetti from 'canvas-confetti';
-import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef } from '../towers/TowerData';
+import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, SOLDIER_ABILITIES, ARCHER_ABILITIES } from '../towers/TowerData';
 import { TowerInstance, TowerManager } from '../towers/TowerManager';
 import { Unit, UnitManager } from '../units/UnitManager';
+import { FriendlyClass } from '../units/UnitData';
 import { CAMPAIGN_MISSIONS, CampaignMission } from '../campaign/CampaignData';
 import { TechTreeManager } from '../campaign/TechTree';
 import { audio } from '../engine/AudioSystem';
@@ -204,12 +205,85 @@ export class UIManager {
     });
   }
 
-  showTowerCard(tower: TowerInstance, playerGold: number, onUpgrade: (branch: UpgradeBranch) => void, onSell: () => void) {
+  showTowerCard(
+    tower: TowerInstance,
+    playerGold: number,
+    onUpgrade: (branch: UpgradeBranch) => void,
+    onSell: () => void,
+    onUpgradeAbility?: (abilityIndex: 1 | 2) => void
+  ) {
     const def = TOWER_DEFINITIONS[tower.type];
+    const isEvo = tower.type === TowerType.EVOLUTION;
     const isUnbranched = tower.currentBranch === UpgradeBranch.NONE;
 
     let branchHTML = '';
-    if (isUnbranched) {
+    if (isEvo && tower.evoPath) {
+      // Specialized Evolution Spire Panel
+      const isSoldier = tower.evoPath === 'SOLDIER';
+      const pathTitle = isSoldier ? '⚔️ Soldier Forge' : '🏹 Archer Forge';
+      const pathBadge = isSoldier ? 'Melee Champion (1,250 HP Cap)' : 'Ranged Marksman (1,000 HP Cap)';
+      const quotaHTML = tower.hasEvolvedThisWave
+        ? `<div class="p-2 mb-2 rounded bg-amber-950/70 border border-amber-600/60 text-amber-300 text-xs font-semibold text-center">🔒 1/1 Unit Evolved this wave (Next wave recharges)</div>`
+        : `<div class="p-2 mb-2 rounded bg-emerald-950/70 border border-emerald-600/60 text-emerald-300 text-xs font-semibold text-center">⚡ Ready to evolve 1 unit (Requires 250 HP)</div>`;
+
+      // Ability 1 details
+      const ab1Name = isSoldier ? 'Armor Aura' : 'Multishot';
+      const ab1List = isSoldier ? SOLDIER_ABILITIES.armorAura : ARCHER_ABILITIES.multishot;
+      const ab1Level = tower.ability1Level;
+      const curAb1Desc = ab1Level === 0 ? 'Not Unlocked' : ab1List[ab1Level - 1].description;
+      const nextAb1 = ab1Level < 3 ? ab1List[ab1Level] : null;
+
+      // Ability 2 details
+      const ab2Name = isSoldier ? 'Critical Strike' : 'Damage Aura';
+      const ab2List = isSoldier ? SOLDIER_ABILITIES.crit : ARCHER_ABILITIES.damageAura;
+      const ab2Level = tower.ability2Level;
+      const curAb2Desc = ab2Level === 0 ? 'Not Unlocked' : ab2List[ab2Level - 1].description;
+      const nextAb2 = ab2Level < 3 ? ab2List[ab2Level] : null;
+
+      branchHTML = `
+        <div class="upgraded-badge mb-1">✨ Active Forge: ${pathTitle}</div>
+        <div class="text-[11px] text-slate-300 mb-2">${pathBadge}</div>
+        ${quotaHTML}
+        <div class="upgrade-header mt-2">Champion Abilities (Building Specific):</div>
+        <div class="upgrade-options">
+          <!-- Ability 1 -->
+          <div class="bg-slate-900/80 p-2.5 rounded-lg border border-slate-700/70">
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-sky-300">${ab1Name} (Lv. ${ab1Level}/3)</span>
+              ${ab1Level >= 3 ? '<span class="text-[10px] font-bold text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-700/50">MAX</span>' : ''}
+            </div>
+            <div class="text-[11px] text-slate-300 mb-2">${curAb1Desc}</div>
+            ${nextAb1 ? `
+              <button id="btn-evo-ab1" class="upgrade-btn w-full ${playerGold < nextAb1.cost ? 'disabled' : ''}">
+                <div class="flex justify-between items-center">
+                  <span class="upg-name text-xs font-bold">${nextAb1.name}</span>
+                  <span class="upg-cost text-xs font-bold">🪙 ${nextAb1.cost}g</span>
+                </div>
+                <div class="upg-desc text-[11px] mt-0.5">${nextAb1.description}</div>
+              </button>
+            ` : ''}
+          </div>
+
+          <!-- Ability 2 -->
+          <div class="bg-slate-900/80 p-2.5 rounded-lg border border-slate-700/70">
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-xs font-bold text-sky-300">${ab2Name} (Lv. ${ab2Level}/3)</span>
+              ${ab2Level >= 3 ? '<span class="text-[10px] font-bold text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-700/50">MAX</span>' : ''}
+            </div>
+            <div class="text-[11px] text-slate-300 mb-2">${curAb2Desc}</div>
+            ${nextAb2 ? `
+              <button id="btn-evo-ab2" class="upgrade-btn w-full ${playerGold < nextAb2.cost ? 'disabled' : ''}">
+                <div class="flex justify-between items-center">
+                  <span class="upg-name text-xs font-bold">${nextAb2.name}</span>
+                  <span class="upg-cost text-xs font-bold">🪙 ${nextAb2.cost}g</span>
+                </div>
+                <div class="upg-desc text-[11px] mt-0.5">${nextAb2.description}</div>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    } else if (isUnbranched) {
       const bA = def.branchA[0];
       const bB = def.branchB[0];
       branchHTML = `
@@ -296,7 +370,10 @@ export class UIManager {
       this.towerManager.selectTower(null);
     });
 
-    if (isUnbranched) {
+    if (isEvo && tower.evoPath) {
+      this.towerCardEl.querySelector('#btn-evo-ab1')?.addEventListener('click', () => onUpgradeAbility?.(1));
+      this.towerCardEl.querySelector('#btn-evo-ab2')?.addEventListener('click', () => onUpgradeAbility?.(2));
+    } else if (isUnbranched) {
       this.towerCardEl.querySelector('#btn-upg-a')?.addEventListener('click', () => onUpgrade(UpgradeBranch.BRANCH_A));
       this.towerCardEl.querySelector('#btn-upg-b')?.addEventListener('click', () => onUpgrade(UpgradeBranch.BRANCH_B));
     } else {
@@ -334,6 +411,26 @@ export class UIManager {
       `
       : '';
 
+    const championInfo = (unit.unitClass === FriendlyClass.SOLDIER || unit.unitClass === FriendlyClass.ARCHER)
+      ? `
+        <div class="bg-purple-950/40 p-2 rounded border border-purple-800/40 my-2 text-xs">
+          <div class="font-bold text-purple-300 mb-1">🌟 Champion Traits:</div>
+          ${unit.armorAuraBonus > 0 ? `<div class="text-sky-300 font-medium">🛡️ Armor Aura: +${unit.armorAuraBonus} to nearby allies</div>` : ''}
+          ${unit.critChance > 0 ? `<div class="text-amber-300 font-medium">💥 Crit Strike: ${Math.round(unit.critChance * 100)}% chance (${unit.critMultiplier}x dmg)</div>` : ''}
+          ${unit.multishotChance > 0 ? `<div class="text-emerald-300 font-medium">🏹 Multishot: ${Math.round(unit.multishotChance * 100)}% chance (${unit.multishotTargets} targets)</div>` : ''}
+          ${unit.damageAuraBonus > 0 ? `<div class="text-orange-300 font-medium">⚔️ Damage Aura: +${unit.damageAuraBonus} to nearby allies</div>` : ''}
+        </div>
+      `
+      : '';
+
+    const activeAuraInfo = (unit.combatAuraArmor > 0 || unit.combatAuraAttack > 0)
+      ? `
+        <div class="bg-blue-950/40 p-1.5 rounded border border-blue-800/40 my-1 text-[11px] text-blue-300 font-semibold">
+          ✨ Receiving Auras: ${unit.combatAuraArmor > 0 ? `+${unit.combatAuraArmor} Armor ` : ''}${unit.combatAuraAttack > 0 ? `+${unit.combatAuraAttack} Attack` : ''}
+        </div>
+      `
+      : '';
+
     this.unitCardEl.innerHTML = `
       <div class="card-header">
         <div class="card-title ${unit.isFriendly ? 'text-emerald-400' : 'text-red-400'}">
@@ -352,6 +449,8 @@ export class UIManager {
       </div>
       ${slowInfo}
       ${stackingInfo}
+      ${championInfo}
+      ${activeAuraInfo}
       <div class="buff-history-container">
         <div class="text-xs text-slate-400 mb-1">Applied Buffs:</div>
         <div>${buffsList}</div>

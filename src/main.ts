@@ -189,6 +189,7 @@ class GameApp {
     this.waveInProgress = true;
     this.waveCleared = false;
     this.wavePhase = 'MAZE_RUN';
+    this.towerManager.resetWaveEvolutions();
 
     // Prepare Friendly Army (6 to 12 Recruits per wave based on wave number)
     this.friendlyUnitsToSpawn = 5 + this.currentWaveIndex * 2;
@@ -290,6 +291,7 @@ class GameApp {
       this.openTowerCard(this.towerManager.selectedTower);
     }
 
+    this.towerManager.resetWaveEvolutions();
     this.currentWaveIndex++;
 
     // Clean up surviving friendly units from the completed wave so they don't attack next wave's waiting enemies!
@@ -524,6 +526,16 @@ class GameApp {
         this.rerouteActiveUnits();
         this.ui.hideTowerCard();
         this.updateHUD();
+      },
+      (abilityIndex: 1 | 2) => {
+        const res = this.towerManager.upgradeEvoAbility(tower.id, abilityIndex, this.playerGold);
+        if (res.success) {
+          this.playerGold -= res.cost;
+          this.updateHUD();
+          this.openTowerCard(tower);
+        } else if (res.reason) {
+          this.vfx.spawnFloatingText(tower.worldPos, res.reason, '#ef4444', 1.2);
+        }
       }
     );
   }

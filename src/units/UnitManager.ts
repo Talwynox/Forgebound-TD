@@ -45,6 +45,18 @@ export class Unit {
   public isDead: boolean = false;
   public lateralLaneOffset: number = 0;
 
+  // Evolution Champion Abilities (Soldier & Archer)
+  public armorAuraBonus: number = 0;
+  public critChance: number = 0;
+  public critMultiplier: number = 2.0;
+  public multishotChance: number = 0;
+  public multishotTargets: number = 1;
+  public damageAuraBonus: number = 0;
+
+  // Active Combat Aura Buffs (received from nearby champions)
+  public combatAuraArmor: number = 0;
+  public combatAuraAttack: number = 0;
+
   // Combat targeting
   public target: Unit | null = null;
   public lastAttackTime: number = 0;
@@ -202,17 +214,19 @@ export class Unit {
 
     if (newClass === FriendlyClass.PYRO_GOLEM) {
       this.bodyMesh.geometry = new THREE.BoxGeometry(0.9, 1.2, 0.9);
-    } else if (newClass === FriendlyClass.PALADIN) {
-      this.bodyMesh.geometry = new THREE.DodecahedronGeometry(0.55);
+    } else if (newClass === FriendlyClass.PALADIN || newClass === FriendlyClass.SOLDIER) {
+      this.bodyMesh.geometry = new THREE.DodecahedronGeometry(0.55 * newStats.scale);
+    } else if (newClass === FriendlyClass.ARCHER) {
+      this.bodyMesh.geometry = new THREE.OctahedronGeometry(0.5 * newStats.scale);
     } else {
       this.bodyMesh.geometry = new THREE.CapsuleGeometry(0.35 * newStats.scale, 0.6 * newStats.scale, 4, 8);
     }
 
     this.bodyMesh.material = new THREE.MeshStandardMaterial({
       color: newStats.color,
-      emissive: newClass === FriendlyClass.PALADIN ? 0xf59e0b : 0x000000,
-      emissiveIntensity: 0.3,
-      roughness: 0.4
+      emissive: newClass === FriendlyClass.SOLDIER ? 0x2563eb : newClass === FriendlyClass.ARCHER ? 0x059669 : (newClass === FriendlyClass.PALADIN ? 0xf59e0b : 0x000000),
+      emissiveIntensity: 0.35,
+      roughness: 0.3
     });
 
     this.hpBarBgMesh.position.y = 1.3 * newStats.scale;
@@ -370,7 +384,30 @@ export class UnitManager {
       unit.updateHpBar(this.camera);
     }
 
-    // 2. Unit-to-unit soft-collision separation to prevent stacking
+    // 2. Calculate Champion Combat Auras (Soldier Armor Aura & Archer Damage Aura)
+    for (const u of this.units) {
+      u.combatAuraArmor = 0;
+      u.combatAuraAttack = 0;
+    }
+    const combatFriendlies = this.units.filter(u => u.isFriendly && !u.isDead && u.inCombat);
+    for (const champ of combatFriendlies) {
+      if (champ.armorAuraBonus > 0) {
+        for (const ally of combatFriendlies) {
+          if (champ.worldPos.distanceTo(ally.worldPos) <= 4.5) {
+            ally.combatAuraArmor = Math.max(ally.combatAuraArmor, champ.armorAuraBonus);
+          }
+        }
+      }
+      if (champ.damageAuraBonus > 0) {
+        for (const ally of combatFriendlies) {
+          if (champ.worldPos.distanceTo(ally.worldPos) <= 4.5) {
+            ally.combatAuraAttack = Math.max(ally.combatAuraAttack, champ.damageAuraBonus);
+          }
+        }
+      }
+    }
+
+    // 3. Unit-to-unit soft-collision separation to prevent stacking
     for (let a = 0; a < this.units.length; a++) {
       const uA = this.units[a];
       if (uA.isDead) continue;
@@ -449,16 +486,54 @@ export class UnitManager {
   }
 
   private executeAttack(attacker: Unit, defender: Unit, onKillEnemy: (bounty: number) => void) {
-    const rawDmg = attacker.attack;
-    const finalDmg = calculateDamage(rawDmg, defender.armor);
+    let rawDmg = attacker.attack + attacker.combatAuraAttack;
+    let isCrit = false;
+
+    if (attacker.critChance > 0 && Math.random() < attacker.critChance) {
+      rawDmg = Math.round(rawDmg * attacker.critMultiplier);
+      isCrit = true;
+    }
+
+    const defenderArmor = defender.armor + defender.combatAuraArmor;
+    const finalDmg = calculateDamage(rawDmg, defenderArmor);
 
     defender.currentHp -= finalDmg;
 
     // Audio & VFX
     audio.playHit();
     const hitPos = defender.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
-    this.vfx.spawnFloatingText(hitPos, `-${finalDmg}`, attacker.isFriendly ? '#f87171' : '#fb923c', 0.8);
-    this.vfx.spawnBurstParticles(hitPos, attacker.isFriendly ? 0xf87171 : 0xef4444, 4);
+
+    if (isCrit) {
+      this.vfx.spawnBurstParticles(hitPos, 0xfacc15, 8);
+      this.vfx.spawnFloatingText(hitPos, `💥 CRIT! -${finalDmg}`, '#facc15', 1.2);
+    } else {
+      this.vfx.spawnBurstParticles(hitPos, attacker.isFriendly ? 0xf87171 : 0xef4444, 4);
+      this.vfx.spawnFloatingText(hitPos, `-${finalDmg}`, attacker.isFriendly ? '#f87171' : '#fb923c', 0.8);
+    }
+
+    // Archer Ranged Projectile / Beam
+    if (attacker.stats.range > 2.0) {
+      this.vfx.spawnBeam(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), hitPos, 0x10b981, 0.15);
+    }
+
+    // Archer Multishot Volley
+    if (attacker.multishotChance > 0 && Math.random() < attacker.multishotChance) {
+      const otherEnemies = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && u.id !== defender.id);
+      const targets = otherEnemies
+        .filter(u => attacker.worldPos.distanceTo(u.worldPos) <= attacker.stats.range)
+        .slice(0, attacker.multishotTargets - 1);
+
+      for (const t of targets) {
+        const extraDmg = calculateDamage(attacker.attack + attacker.combatAuraAttack, t.armor + t.combatAuraArmor);
+        t.currentHp -= extraDmg;
+        const extraHitPos = t.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
+        this.vfx.spawnBeam(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), extraHitPos, 0x34d399, 0.12);
+        this.vfx.spawnFloatingText(extraHitPos, `🏹 MULTISHOT -${extraDmg}`, '#34d399', 0.9);
+        if (t.currentHp <= 0) {
+          this.killUnit(t, onKillEnemy);
+        }
+      }
+    }
 
     // Passive Cleave for Pyro Golem
     if (attacker.stats.passive === 'CLEAVE') {

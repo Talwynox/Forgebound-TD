@@ -69,6 +69,43 @@ export interface TowerDef {
   branchB: TowerUpgradeDef[];
 }
 
+export interface EvoAbilityTier {
+  level: number;
+  cost: number;
+  name: string;
+  description: string;
+  bonus?: number; // Armor aura bonus or damage aura bonus
+  chance?: number; // Crit chance or multishot chance
+  multiplier?: number; // Crit multiplier
+  targets?: number; // Multishot target count
+}
+
+export const SOLDIER_ABILITIES = {
+  armorAura: [
+    { level: 1, cost: 40, name: 'Armor Aura I', description: 'Radiates +6 Armor to all surrounding allies in combat.', bonus: 6 },
+    { level: 2, cost: 75, name: 'Armor Aura II', description: 'Radiates +12 Armor to all surrounding allies in combat.', bonus: 12 },
+    { level: 3, cost: 120, name: 'Armor Aura III', description: 'Radiates +20 Armor to all surrounding allies in combat.', bonus: 20 }
+  ] as EvoAbilityTier[],
+  crit: [
+    { level: 1, cost: 40, name: 'Critical Strike I', description: '25% chance to deal 2.0x Critical Strike damage.', chance: 0.25, multiplier: 2.0 },
+    { level: 2, cost: 75, name: 'Critical Strike II', description: '35% chance to deal 2.5x Critical Strike damage.', chance: 0.35, multiplier: 2.5 },
+    { level: 3, cost: 120, name: 'Critical Strike III', description: '50% chance to deal 3.0x Critical Strike damage.', chance: 0.50, multiplier: 3.0 }
+  ] as EvoAbilityTier[]
+};
+
+export const ARCHER_ABILITIES = {
+  multishot: [
+    { level: 1, cost: 40, name: 'Multishot I', description: '30% chance to fire arrows at 2 targets simultaneously.', chance: 0.30, targets: 2 },
+    { level: 2, cost: 75, name: 'Multishot II', description: '50% chance to fire arrows at 3 targets simultaneously.', chance: 0.50, targets: 3 },
+    { level: 3, cost: 120, name: 'Multishot III', description: '75% chance to fire arrows at 4 targets simultaneously.', chance: 0.75, targets: 4 }
+  ] as EvoAbilityTier[],
+  damageAura: [
+    { level: 1, cost: 40, name: 'Damage Aura I', description: 'Radiates +6 Attack to all surrounding allies in combat.', bonus: 6 },
+    { level: 2, cost: 75, name: 'Damage Aura II', description: 'Radiates +14 Attack to all surrounding allies in combat.', bonus: 14 },
+    { level: 3, cost: 120, name: 'Damage Aura III', description: 'Radiates +24 Attack to all surrounding allies in combat.', bonus: 24 }
+  ] as EvoAbilityTier[]
+};
+
 export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
   [TowerType.SHRINE]: {
     type: TowerType.SHRINE,
@@ -603,69 +640,32 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
   [TowerType.EVOLUTION]: {
     type: TowerType.EVOLUTION,
     name: 'Evolution Spire',
-    cost: 130,
-    description: 'Ascends qualified units into higher combat classes (Footman -> Knight/Berserker/Cleric).',
+    cost: 100,
+    description: 'Evolves a single 250 HP unit per wave into a Soldier or Archer champion with upgraded abilities.',
     color: 0x8b5cf6, // Violet
     accentColor: 0xc4b5fd,
     range: 3.0,
-    rate: 1.6,
+    rate: 1.0,
     branchA: [
       {
-        name: 'Heroic Spire I',
-        cost: 75,
-        badge: 'Tier 3 Unlocked',
-        description: 'Enables Tier 3 ascensions into Paladin, Archmage, and Pyro Colossus with accelerated beam (1.4s rate).',
-        range: 3.3,
-        rate: 1.4,
-        unlockTier3Evolution: true
-      },
-      {
-        name: 'Heroic Spire II',
-        cost: 125,
-        badge: 'Tier 3 Unlocked',
-        description: 'Higher focus crucible (1.2s rate, 3.5 range) granting ascended champions +25 bonus starting HP.',
-        range: 3.5,
-        rate: 1.2,
-        unlockTier3Evolution: true
-      },
-      {
-        name: 'Heroic Spire III - Apex Crucible',
-        cost: 180,
-        badge: 'Tier 3 Unlocked',
-        description: 'Apex Crucible: rapid 1.0s ascension rate with +50 bonus starting HP to all ascended units.',
-        range: 3.8,
-        rate: 1.0,
-        unlockTier3Evolution: true
+        name: 'Soldier Forge',
+        cost: 0,
+        badge: 'Melee Champion',
+        description: 'Evolves 1 unit (at 250 HP) per wave into a Soldier (1,250 HP cap) with Armor Aura and Critical Strike.',
+        range: 3.0,
+        rate: 1.0
       }
     ],
     branchB: [
       {
-        name: 'Specialist Spire I',
-        cost: 70,
-        badge: 'Combat Passives',
-        description: 'Grants evolved units Swiftfoot (+20% movement speed in the arena).',
-        range: 3.2,
-        rate: 1.5,
-        grantUnitPassive: 'SWIFTFOOT'
-      },
-      {
-        name: 'Specialist Spire II',
-        cost: 120,
-        badge: 'Combat Passives',
-        description: 'Grants evolved units combat passives: Divine Shield and Whirlwind Cleave.',
-        range: 3.4,
-        rate: 1.35,
-        grantUnitPassive: 'HEROIC_AURA'
-      },
-      {
-        name: 'Specialist Spire III - Warlord Boon',
-        cost: 175,
-        badge: 'Combat Passives',
-        description: 'Warlord Boon: grants Divine Shield, Cleave, and Fireball artillery strikes!',
-        range: 3.6,
-        rate: 1.2,
-        grantUnitPassive: 'WARLORD_BOON'
+        name: 'Archer Forge',
+        cost: 0,
+        badge: 'Ranged Marksman',
+        description: 'Evolves 1 unit (at 250 HP) per wave into an Archer (1,000 HP cap) with Multishot and Damage Aura.',
+        range: 3.0,
+        rate: 1.0
       }
     ]
   }
 };
+
