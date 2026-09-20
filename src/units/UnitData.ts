@@ -251,3 +251,4 @@ export function calculateDamage(rawDmg: number, armor: number): number {
     return Math.max(1, Math.round(rawDmg * increase));
   }
 }
+

@@ -100,7 +100,8 @@ export class UIManager {
     enemyCitadelHp: number,
     enemyCitadelMaxHp: number,
     gameSpeed: number,
-    waveInProgress: boolean
+    waveInProgress: boolean,
+    phaseText: string = 'Prepare Maze'
   ) {
     const totalStars = this.techTree.getTotalStarsEarned();
 
@@ -108,6 +109,7 @@ export class UIManager {
       <div class="hud-group">
         <div class="hud-mission-title">${mission.title}</div>
         <div class="hud-badge wave-badge">Wave ${currentWave} / ${totalWaves}</div>
+        <div class="hud-badge phase-badge font-bold">${phaseText}</div>
       </div>
 
       <div class="hud-group resources">
@@ -120,7 +122,7 @@ export class UIManager {
       <div class="hud-group controls">
         <button id="btn-speed" class="hud-btn speed-btn">${gameSpeed === 0 ? '⏸️ PAUSED' : gameSpeed + 'x'}</button>
         <button id="btn-send-wave" class="hud-btn wave-btn ${waveInProgress ? 'disabled' : ''}">
-          ${waveInProgress ? '⚔️ In Combat' : '⚔️ Release Wave'}
+          ${waveInProgress ? '⚔️ Wave Active' : '⚔️ Release Wave'}
         </button>
         <button id="btn-tech" class="hud-btn icon-btn" title="Armory / Tech Tree">🛠️ Tech</button>
         <button id="btn-campaign" class="hud-btn icon-btn" title="Campaign Map">🗺️ Map</button>
@@ -236,12 +238,21 @@ export class UIManager {
     }
 
     const refund = Math.floor(tower.totalCostInvested * 0.75);
+    const summary = this.towerManager.getTowerStatsSummary(tower);
 
     this.towerCardEl.style.display = 'block';
     this.towerCardEl.innerHTML = `
       <div class="card-header">
         <div class="card-title">${def.name} (Tier ${tower.level})</div>
         <button id="btn-close-tower" class="close-btn">&times;</button>
+      </div>
+      <div class="tower-buff-display mb-3">
+        <div class="text-sm font-bold text-sky-400 bg-sky-950/60 p-2 rounded border border-sky-800/60 mb-1">
+          ✨ ${summary.currentEffect}
+        </div>
+        <div class="text-xs text-slate-400 font-medium">
+          📊 ${summary.lifetimeOutput}
+        </div>
       </div>
       <div class="card-stats">
         <div>Range: <strong>${tower.effectiveRange.toFixed(1)}</strong></div>
@@ -497,3 +508,4 @@ export class UIManager {
     });
   }
 }
+

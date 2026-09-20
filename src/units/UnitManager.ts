@@ -38,8 +38,11 @@ export class Unit {
   // Navigation
   public waypoints: THREE.Vector3[] = [];
   public currentWaypointIdx: number = 0;
+  public hasCompletedMaze: boolean = false;
+  public stagingPos: THREE.Vector3 | null = null;
   public inCombat: boolean = false;
   public isDead: boolean = false;
+  public lateralLaneOffset: number = 0;
 
   // Combat targeting
   public target: Unit | null = null;
@@ -66,11 +69,15 @@ export class Unit {
       : ENEMY_UNIT_STATS[unitClass as EnemyClass];
 
     this.maxHp = this.stats.hp;
-    this.currentHp = this.stats.hp;
+    // Core Pyro TD mechanic: friendly units spawn severely injured (1 HP) and need tower blessings!
+    this.currentHp = isFriendly ? 1 : this.stats.hp;
     this.armor = this.stats.armor;
     this.attack = this.stats.attack;
     this.attackRate = this.stats.attackRate;
     this.moveSpeed = this.stats.moveSpeed;
+
+    // Lateral offset across the maze lane so units don't walk in a single-file line
+    this.lateralLaneOffset = isFriendly ? ((id % 5) - 2) * 0.25 : ((id % 3) - 1) * 0.3;
 
     this.waypoints = waypoints;
     this.currentWaypointIdx = 0;
@@ -78,6 +85,9 @@ export class Unit {
     // 3D Object Group
     this.mesh = new THREE.Group();
     this.mesh.position.copy(startPos);
+    if (isFriendly) {
+      this.mesh.position.z += this.lateralLaneOffset;
+    }
 
     // Body Mesh
     const geom = isFriendly
@@ -170,13 +180,16 @@ export class Unit {
   }
 
   morphClass(newClass: FriendlyClass) {
+    const prevMax = this.stats.hp;
     this.unitClass = newClass;
     const newStats = FRIENDLY_UNIT_STATS[newClass];
     this.stats = newStats;
 
-    // Preserve accumulated bonuses on top of new class baseline!
-    this.maxHp = Math.max(this.maxHp, newStats.hp);
-    this.currentHp = Math.max(this.currentHp, newStats.hp);
+    // Increase max HP ceiling without full healing (preserve Pyro TD heal necessity)
+    const hpCeilingBonus = Math.max(0, newStats.hp - prevMax);
+    this.maxHp += hpCeilingBonus;
+    this.currentHp = Math.min(this.maxHp, this.currentHp + Math.round(hpCeilingBonus * 0.25));
+
     this.armor = Math.max(this.armor, newStats.armor);
     this.attack = Math.max(this.attack, newStats.attack);
     this.attackRate = newStats.attackRate;
@@ -219,7 +232,7 @@ export class Unit {
     const applied: string[] = [];
     if (this.stackingLifebloom > 0) {
       this.maxHp += this.stackingLifebloom;
-      this.currentHp = this.maxHp;
+      this.currentHp = Math.min(this.maxHp, this.currentHp + this.stackingLifebloom);
       applied.push(`+${this.stackingLifebloom} Max HP (Lifebloom)`);
     }
     if (this.stackingArmor > 0) {
@@ -262,7 +275,7 @@ export class UnitManager {
 
   spawnEnemy(enemyClass: EnemyClass, startPos: THREE.Vector3): Unit {
     const unit = new Unit(this.nextId++, false, enemyClass, startPos);
-    unit.inCombat = true; // Enemies spawn directly in the arena
+    unit.inCombat = true; // Enemies spawn ready for arena clash
     this.scene.add(unit.mesh);
     this.units.push(unit);
     return unit;
@@ -291,24 +304,41 @@ export class UnitManager {
 
       // Unit in Maze Pathing
       if (unit.isFriendly && !unit.inCombat) {
-        if (unit.currentWaypointIdx < unit.waypoints.length) {
-          const targetWp = unit.waypoints[unit.currentWaypointIdx];
-          const dir = new THREE.Vector3().subVectors(targetWp, unit.worldPos);
-          const dist = dir.length();
+        if (!unit.hasCompletedMaze) {
+          if (unit.currentWaypointIdx < unit.waypoints.length) {
+            const targetWp = unit.waypoints[unit.currentWaypointIdx].clone();
+            // Apply subtle lateral offset so units don't walk in a 1D pixel line
+            targetWp.z += unit.lateralLaneOffset;
 
-          if (dist < 0.25) {
-            unit.currentWaypointIdx++;
-            if (unit.currentWaypointIdx >= unit.waypoints.length) {
-              // Reached Maze Exit! Step into the Battlefield Arena!
-              unit.inCombat = true;
-              this.vfx.spawnFloatingText(unit.worldPos, 'ENTERING ARENA!', '#38bdf8', 1.5);
+            const dir = new THREE.Vector3().subVectors(targetWp, unit.worldPos);
+            const dist = dir.length();
+
+            if (dist < 0.35) {
+              unit.currentWaypointIdx++;
+              if (unit.currentWaypointIdx >= unit.waypoints.length) {
+                // Reached Maze Exit! Move to Staging Area
+                unit.hasCompletedMaze = true;
+                this.vfx.spawnFloatingText(unit.worldPos, 'ASSEMBLED!', '#38bdf8', 1.2);
+              }
+            } else {
+              dir.normalize();
+              unit.mesh.position.addScaledVector(dir, effectiveSpeed * dt);
+              unit.mesh.lookAt(targetWp.x, unit.worldPos.y, targetWp.z);
+              // Bobbing animation
+              unit.bodyMesh.position.y = (0.45 + Math.abs(Math.sin(time * 0.008 * effectiveSpeed)) * 0.1) * unit.stats.scale;
             }
-          } else {
+          }
+        } else if (unit.stagingPos) {
+          // Walk into orderly battalion formation at arena gate
+          const dir = new THREE.Vector3().subVectors(unit.stagingPos, unit.worldPos);
+          const dist = dir.length();
+          if (dist > 0.15) {
             dir.normalize();
             unit.mesh.position.addScaledVector(dir, effectiveSpeed * dt);
-            unit.mesh.lookAt(targetWp.x, unit.worldPos.y, targetWp.z);
-            // Bobbing animation
-            unit.bodyMesh.position.y = (0.45 + Math.abs(Math.sin(time * 0.008 * effectiveSpeed)) * 0.1) * unit.stats.scale;
+            unit.mesh.lookAt(unit.stagingPos.x, unit.worldPos.y, unit.stagingPos.z);
+          } else {
+            // Face forward into the arena
+            unit.mesh.rotation.y = -Math.PI / 2;
           }
         }
       }
@@ -320,6 +350,34 @@ export class UnitManager {
 
       // Update Health bar
       unit.updateHpBar(this.camera);
+    }
+
+    // 2. Unit-to-unit soft-collision separation to prevent stacking
+    for (let a = 0; a < this.units.length; a++) {
+      const uA = this.units[a];
+      if (uA.isDead) continue;
+
+      for (let b = a + 1; b < this.units.length; b++) {
+        const uB = this.units[b];
+        if (uB.isDead) continue;
+
+        const dx = uA.worldPos.x - uB.worldPos.x;
+        const dz = uA.worldPos.z - uB.worldPos.z;
+        const distSq = dx * dx + dz * dz;
+        const minRadius = (uA.stats.scale + uB.stats.scale) * 0.45;
+
+        if (distSq < minRadius * minRadius && distSq > 0.0001) {
+          const dist = Math.sqrt(distSq);
+          const overlap = (minRadius - dist) * 0.5;
+          const pushX = (dx / dist) * overlap * 3.5 * dt;
+          const pushZ = (dz / dist) * overlap * 3.5 * dt;
+
+          uA.mesh.position.x += pushX;
+          uA.mesh.position.z += pushZ;
+          uB.mesh.position.x -= pushX;
+          uB.mesh.position.z -= pushZ;
+        }
+      }
     }
   }
 
@@ -439,3 +497,4 @@ export class UnitManager {
     }
   }
 }
+

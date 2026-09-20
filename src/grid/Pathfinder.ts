@@ -118,16 +118,57 @@ export class Pathfinder {
   }
 
   /**
+   * Finds the full maze path through all checkpoints:
+   * Spawn -> CP1 -> CP2 -> CP3 -> Exit
+   */
+  getFullMazeGridPath(hypotheticalBlock?: GridCoord): GridCoord[] {
+    const waypoints: GridCoord[] = [
+      this.grid.spawnCoord,
+      ...this.grid.checkpoints,
+      this.grid.exitCoord
+    ];
+
+    const fullPath: GridCoord[] = [];
+
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const from = waypoints[i];
+      const to = waypoints[i + 1];
+
+      // If hypothetical block is on one of the required checkpoints or spawn/exit, invalid
+      if (hypotheticalBlock && hypotheticalBlock.x === to.x && hypotheticalBlock.z === to.z) {
+        return [];
+      }
+
+      const segment = this.findPath(from, to, hypotheticalBlock);
+      if (segment.length === 0) {
+        return []; // No valid route for this segment
+      }
+
+      // Add to fullPath, skipping duplicate start point
+      if (fullPath.length === 0) {
+        fullPath.push(...segment);
+      } else {
+        fullPath.push(...segment.slice(1));
+      }
+    }
+
+    return fullPath;
+  }
+
+  /**
    * Check if placing a tower at (x, z) would block the maze completely
    */
   canPlaceTower(x: number, z: number): boolean {
     if (!this.grid.isBuildable(x, z)) return false;
-    // Disallow placing on spawn or exit
+    // Disallow placing on spawn, checkpoints, or exit
     if (x === this.grid.spawnCoord.x && z === this.grid.spawnCoord.z) return false;
     if (x === this.grid.exitCoord.x && z === this.grid.exitCoord.z) return false;
+    for (const cp of this.grid.checkpoints) {
+      if (x === cp.x && z === cp.z) return false;
+    }
 
-    // Run hypothetical pathfinding
-    const path = this.findPath(this.grid.spawnCoord, this.grid.exitCoord, { x, z });
+    // Run hypothetical pathfinding across all checkpoints
+    const path = this.getFullMazeGridPath({ x, z });
     return path.length > 0;
   }
 
@@ -135,7 +176,7 @@ export class Pathfinder {
    * Converts grid coordinates into world-space waypoints for 3D units to walk.
    */
   getWorldPath(): THREE.Vector3[] {
-    const gridPath = this.findPath();
+    const gridPath = this.getFullMazeGridPath();
     return gridPath.map(coord => {
       const world = this.grid.gridToWorld(coord.x, coord.z);
       return new THREE.Vector3(world.x, 0.4, world.z);
@@ -174,3 +215,4 @@ export class Pathfinder {
     this.scene.add(this.pathLine);
   }
 }
+

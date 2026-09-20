@@ -19,6 +19,8 @@ export interface TowerInstance {
   effectiveRate: number; // Cast interval after Aura bonuses
   effectiveRange: number;
   auraBonusMultiplier: number;
+  totalBuffApplied: number;
+  totalHits: number;
   // Dynamic visual parts for animation
   floatingElement?: THREE.Object3D;
   rotatingRing?: THREE.Object3D;
@@ -94,7 +96,9 @@ export class TowerManager {
       lastActionTime: performance.now(),
       effectiveRate: def.rate,
       effectiveRange: def.range,
-      auraBonusMultiplier: 0
+      auraBonusMultiplier: 0,
+      totalBuffApplied: 0,
+      totalHits: 0
     };
 
     // Extract animated parts
@@ -243,6 +247,95 @@ export class TowerManager {
     }
   }
 
+  getTowerStatsSummary(tower: TowerInstance): { currentEffect: string; lifetimeOutput: string } {
+    const def = TOWER_DEFINITIONS[tower.type];
+    let effectStr = '';
+    let lifetimeStr = '';
+
+    switch (tower.type) {
+      case TowerType.SHRINE: {
+        const heal = tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? def.branchA.healAmount || 100
+          : tower.currentBranch === UpgradeBranch.BRANCH_B
+          ? def.branchB.healAmount || 30
+          : def.healAmount || 40;
+        effectStr = `Heals: +${heal} HP per hit`;
+        lifetimeStr = `Total Healed: ${tower.totalBuffApplied} HP (${tower.totalHits} casts)`;
+        break;
+      }
+      case TowerType.FORGE: {
+        const armor = tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? def.branchA.armorAmount || 15
+          : tower.currentBranch === UpgradeBranch.BRANCH_B
+          ? def.branchB.armorAmount || 4
+          : def.armorAmount || 5;
+        effectStr = `Armor: +${armor} Armor per hit`;
+        lifetimeStr = `Total Armor Plated: +${tower.totalBuffApplied} (${tower.totalHits} casts)`;
+        break;
+      }
+      case TowerType.OBELISK: {
+        const atk = tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? def.branchA.attackAmount || 22
+          : tower.currentBranch === UpgradeBranch.BRANCH_B
+          ? def.branchB.attackAmount || 5
+          : def.attackAmount || 8;
+        effectStr = `Attack: +${atk} Attack per hit`;
+        lifetimeStr = `Total Attack Boosted: +${tower.totalBuffApplied} (${tower.totalHits} casts)`;
+        break;
+      }
+      case TowerType.AURA: {
+        const haste = Math.round(((tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? def.branchA.auraSpeedBonus || 0.8
+          : tower.currentBranch === UpgradeBranch.BRANCH_B
+          ? def.branchB.auraSpeedBonus || 0.45
+          : def.auraSpeedBonus || 0.35)) * 100);
+        effectStr = `Aura Haste: +${haste}% Cast Speed to nearby towers`;
+        lifetimeStr = `Radius: ${tower.effectiveRange.toFixed(1)} tiles`;
+        break;
+      }
+      case TowerType.FROST: {
+        const slow = Math.round(((tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? def.branchA.slowPercent || 0.7
+          : tower.currentBranch === UpgradeBranch.BRANCH_B
+          ? def.branchB.slowPercent || 0.5
+          : def.slowPercent || 0.4)) * 100);
+        const dur = tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? def.branchA.slowDuration || 4.5
+          : def.slowDuration || 3.2;
+        effectStr = `Chill: -${slow}% Movement Speed for ${dur}s`;
+        lifetimeStr = `Total Units Slowed: ${tower.totalHits}`;
+        break;
+      }
+      case TowerType.RULEBREAKER: {
+        const hp = tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? def.branchA.fixedHp || 1200
+          : tower.currentBranch === UpgradeBranch.BRANCH_B
+          ? def.branchB.fixedHp || 750
+          : def.fixedHp || 500;
+        effectStr = `Reality Shift: Unit HP set directly to ${hp} HP`;
+        lifetimeStr = `Total Units Transmuted: ${tower.totalHits}`;
+        break;
+      }
+      case TowerType.GOLD: {
+        const g = tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? def.branchA.goldPerHit || 12
+          : def.goldPerHit || 4;
+        effectStr = `Income: +${g} Gold per hit`;
+        lifetimeStr = `Total Gold Minted: ${tower.totalBuffApplied}g (${tower.totalHits} hits)`;
+        break;
+      }
+      case TowerType.EVOLUTION: {
+        effectStr = tower.currentBranch === UpgradeBranch.BRANCH_A
+          ? 'Ascends units to Tier 2 & Tier 3 (Paladin, Colossus, Archmage)'
+          : 'Ascends units to Tier 2 (Footman, Knight, Berserker, Cleric)';
+        lifetimeStr = `Total Champions Ascended: ${tower.totalHits}`;
+        break;
+      }
+    }
+
+    return { currentEffect: effectStr, lifetimeOutput: lifetimeStr };
+  }
+
   showRange(tower: TowerInstance) {
     if (!this.rangeIndicator) return;
     const r = tower.effectiveRange;
@@ -315,6 +408,8 @@ export class TowerManager {
             this.vfx.spawnFloatingText(fireTo, `+Lifebloom (${target.stackingLifebloom} HP)`, '#86efac', 1.0);
           }
           target.currentHp = Math.min(target.maxHp, target.currentHp + heal);
+          tower.totalBuffApplied += heal;
+          tower.totalHits++;
           audio.playHealBuff();
           this.vfx.spawnBeam(fireFrom, fireTo, 0x22c55e);
           this.vfx.spawnFloatingText(fireTo, `+${heal} HP`, '#4ade80');
@@ -334,6 +429,8 @@ export class TowerManager {
             this.vfx.spawnFloatingText(fireTo, `+Tempered (${target.stackingArmor} Armor)`, '#93c5fd', 1.0);
           }
           target.armor += armor;
+          tower.totalBuffApplied += armor;
+          tower.totalHits++;
           audio.playArmorBuff();
           this.vfx.spawnBeam(fireFrom, fireTo, 0x38bdf8);
           this.vfx.spawnFloatingText(fireTo, `+${armor} Armor`, '#60a5fa');
@@ -353,6 +450,8 @@ export class TowerManager {
             this.vfx.spawnFloatingText(fireTo, `+Frenzy (${target.stackingAttack} ATK)`, '#fdba74', 1.0);
           }
           target.attack += atk;
+          tower.totalBuffApplied += atk;
+          tower.totalHits++;
           audio.playAttackBuff();
           this.vfx.spawnBeam(fireFrom, fireTo, 0xf97316);
           this.vfx.spawnFloatingText(fireTo, `+${atk} Attack`, '#fb923c');
@@ -372,6 +471,7 @@ export class TowerManager {
             duration = def.branchB.slowDuration || 3.8;
           }
           target.applySlow(slowPct, duration);
+          tower.totalHits++;
           audio.playFrostSlow();
           this.vfx.spawnBeam(fireFrom, fireTo, 0x06b6d4);
           this.vfx.spawnFloatingText(fireTo, `FROST SLOW -${Math.round(slowPct * 100)}%`, '#67e8f9');
@@ -391,6 +491,7 @@ export class TowerManager {
           }
           target.maxHp = fixedHp;
           target.currentHp = fixedHp;
+          tower.totalHits++;
           audio.playRulebreaker();
           this.vfx.spawnBeam(fireFrom, fireTo, 0xe11d48, 0.25);
           this.vfx.spawnAscensionPillar(target.worldPos, 0xe11d48);
@@ -406,6 +507,8 @@ export class TowerManager {
             goldGain = def.branchA.goldPerHit || 12;
           }
           addGoldCallback(goldGain);
+          tower.totalBuffApplied += goldGain;
+          tower.totalHits++;
           audio.playGoldGain();
           this.vfx.spawnBeam(fireFrom, fireTo, 0xeab308);
           this.vfx.spawnFloatingText(fireTo, `+${goldGain} Gold`, '#facc15');
@@ -417,6 +520,7 @@ export class TowerManager {
           const allowTier3 = tower.currentBranch === UpgradeBranch.BRANCH_A;
           const evolved = target.checkAndEvolve(allowTier3);
           if (evolved) {
+            tower.totalHits++;
             audio.playEvolution();
             this.vfx.spawnBeam(fireFrom, fireTo, 0x8b5cf6, 0.3);
             this.vfx.spawnAscensionPillar(target.worldPos, 0xa855f7);
@@ -659,3 +763,4 @@ export class TowerManager {
     return group;
   }
 }
+

@@ -42,6 +42,10 @@ class GameApp {
   private enemiesToSpawnQueue: { enemyClass: EnemyClass; delay: number }[] = [];
   private enemySpawnTimer: number = 0;
 
+  // Phase and Mission lifecycle
+  private wavePhase: 'IDLE' | 'MAZE_RUN' | 'ARENA_CLASH' = 'IDLE';
+  private missionEnded: boolean = false;
+
   // Raycasting & Mouse Interaction
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
@@ -120,6 +124,8 @@ class GameApp {
     this.currentWaveIndex = 0;
     this.waveInProgress = false;
     this.waveCleared = false;
+    this.missionEnded = false;
+    this.wavePhase = 'IDLE';
 
     // Starting gold + Tech Tree bonus
     this.playerGold = mission.startingGold + this.techTree.getBonusStartingGold();
@@ -145,13 +151,36 @@ class GameApp {
 
     this.waveInProgress = true;
     this.waveCleared = false;
-    const waveDef = this.currentMission.waves[this.currentWaveIndex];
+    this.wavePhase = 'MAZE_RUN';
 
-    // Prepare Friendly Army (8 to 14 Recruits per wave based on wave number)
-    this.friendlyUnitsToSpawn = 6 + this.currentWaveIndex * 2;
+    // Prepare Friendly Army (6 to 12 Recruits per wave based on wave number)
+    this.friendlyUnitsToSpawn = 5 + this.currentWaveIndex * 2;
     this.friendlySpawnTimer = 0;
 
-    // Prepare Enemy Queue
+    // Enemies remain waiting until friendly army completes the maze
+    this.enemiesToSpawnQueue = [];
+    this.enemySpawnTimer = 0;
+
+    audio.playBuild();
+    this.updateHUD();
+  }
+
+  private triggerArenaClash() {
+    this.wavePhase = 'ARENA_CLASH';
+    audio.playEvolution();
+    this.vfx.spawnFloatingText(new THREE.Vector3(12, 3, 0), '⚔️ ALL UNITS ASSEMBLED! CHARGE THE ARENA! ⚔️', '#facc15', 3.0);
+    this.vfx.spawnAscensionPillar(new THREE.Vector3(0, 0, 0), 0x38bdf8);
+
+    // Release all friendly units into combat
+    for (const u of this.unitManager.units) {
+      if (u.isFriendly && !u.isDead) {
+        u.inCombat = true;
+        u.stagingPos = null;
+      }
+    }
+
+    // Queue enemy spawns from the citadel
+    const waveDef = this.currentMission.waves[this.currentWaveIndex];
     this.enemiesToSpawnQueue = [];
     for (const group of waveDef.enemies) {
       for (let i = 0; i < group.count; i++) {
@@ -162,8 +191,6 @@ class GameApp {
       }
     }
     this.enemySpawnTimer = 0;
-
-    audio.playHit();
     this.updateHUD();
   }
 
@@ -178,7 +205,8 @@ class GameApp {
     const bonusHp = this.techTree.getBonusRecruitHp();
     const bonusArmor = this.techTree.getBonusRecruitArmor();
     unit.maxHp += bonusHp;
-    unit.currentHp += bonusHp;
+    // Core Pyro TD Mechanic: Recruits spawn severely wounded at 1 HP!
+    unit.currentHp = 1;
     unit.armor += bonusArmor;
   }
 
@@ -191,9 +219,29 @@ class GameApp {
     this.unitManager.spawnEnemy(enemyClass, startPos);
   }
 
+  private rerouteActiveUnits() {
+    const newPath = this.pathfinder.getWorldPath();
+    for (const u of this.unitManager.units) {
+      if (u.isFriendly && !u.hasCompletedMaze) {
+        u.waypoints = newPath;
+        let closestIdx = 0;
+        let minDist = Infinity;
+        for (let i = 0; i < newPath.length; i++) {
+          const d = u.worldPos.distanceTo(newPath[i]);
+          if (d < minDist) {
+            minDist = d;
+            closestIdx = i;
+          }
+        }
+        u.currentWaypointIdx = Math.min(newPath.length - 1, closestIdx + 1);
+      }
+    }
+  }
+
   private resolveWaveVictory() {
     this.waveInProgress = false;
     this.waveCleared = true;
+    this.wavePhase = 'IDLE';
 
     const waveDef = this.currentMission.waves[this.currentWaveIndex];
     this.playerGold += waveDef.rewardGold;
@@ -232,6 +280,11 @@ class GameApp {
   }
 
   private resolveMissionVictory() {
+    if (this.missionEnded) return;
+    this.missionEnded = true;
+    this.waveInProgress = false;
+    this.wavePhase = 'IDLE';
+
     let stars = 1; // 1 star for clearing
     if (this.castleHp >= this.castleMaxHp * 0.8) stars++;
     // Check if any unit achieved evolution
@@ -256,7 +309,18 @@ class GameApp {
     );
   }
 
+  private resolveMissionDefeat() {
+    if (this.missionEnded) return;
+    this.missionEnded = true;
+    this.waveInProgress = false;
+    this.wavePhase = 'IDLE';
+
+    this.ui.showDefeat(() => this.loadMission(this.currentMission));
+  }
+
   private checkCitadelDamage(dt: number) {
+    if (this.missionEnded) return;
+
     // If friendly units reach the right edge (enemy citadel), they bombard it
     for (const unit of this.unitManager.units) {
       if (unit.isFriendly && !unit.isDead && unit.inCombat) {
@@ -282,7 +346,7 @@ class GameApp {
           unit.isDead = true;
 
           if (this.castleHp <= 0) {
-            this.ui.showDefeat(() => this.loadMission(this.currentMission));
+            this.resolveMissionDefeat();
             return;
           }
         }
@@ -291,6 +355,17 @@ class GameApp {
   }
 
   private updateHUD() {
+    let phaseText = 'Prepare Maze';
+    if (this.waveInProgress) {
+      if (this.wavePhase === 'MAZE_RUN') {
+        const assembled = this.unitManager.units.filter(u => u.isFriendly && u.hasCompletedMaze).length;
+        const total = 5 + this.currentWaveIndex * 2;
+        phaseText = `🏃 Maze (${assembled}/${total})`;
+      } else {
+        phaseText = '⚔️ Arena Clash!';
+      }
+    }
+
     this.ui.renderTopBar(
       this.currentMission,
       Math.min(this.currentWaveIndex + 1, this.currentMission.waves.length),
@@ -301,7 +376,8 @@ class GameApp {
       this.enemyCitadelHp,
       this.enemyCitadelMaxHp,
       this.gameSpeed,
-      this.waveInProgress
+      this.waveInProgress,
+      phaseText
     );
   }
 
@@ -334,6 +410,7 @@ class GameApp {
                 this.ui.selectedTowerTypeForPlacement = null;
                 this.ui.renderTowerPalette();
                 this.updatePlacementGhost();
+                this.rerouteActiveUnits();
                 this.updateHUD();
               }
             } else {
@@ -372,6 +449,7 @@ class GameApp {
           () => {
             const refund = this.towerManager.sellTower(clickedTower.id);
             this.playerGold += refund;
+            this.rerouteActiveUnits();
             this.ui.hideTowerCard();
             this.updateHUD();
           }
@@ -467,37 +545,61 @@ class GameApp {
     // 1. Camera
     this.cameraCtrl.update(rawDt);
 
-    // 2. Wave Spawner
+    // 2. Wave Spawner & Phase Management
     if (this.waveInProgress && dt > 0) {
-      // Spawn friendly recruits
-      if (this.friendlyUnitsToSpawn > 0) {
-        this.friendlySpawnTimer += dt;
-        if (this.friendlySpawnTimer >= 1.2) {
-          this.friendlySpawnTimer = 0;
-          this.friendlyUnitsToSpawn--;
-          this.spawnFriendlyRecruit();
+      if (this.wavePhase === 'MAZE_RUN') {
+        // Spawn friendly recruits into the maze
+        if (this.friendlyUnitsToSpawn > 0) {
+          this.friendlySpawnTimer += dt;
+          if (this.friendlySpawnTimer >= 1.2) {
+            this.friendlySpawnTimer = 0;
+            this.friendlyUnitsToSpawn--;
+            this.spawnFriendlyRecruit();
+          }
         }
-      }
 
-      // Spawn enemy units
-      if (this.enemiesToSpawnQueue.length > 0) {
-        this.enemySpawnTimer += dt;
-        const next = this.enemiesToSpawnQueue[0];
-        if (this.enemySpawnTimer >= next.delay) {
-          this.enemySpawnTimer = 0;
-          this.enemiesToSpawnQueue.shift();
-          this.spawnEnemyUnit(next.enemyClass);
+        // Check friendly units assembling at the Arena gate
+        const livingFriendlies = this.unitManager.units.filter(u => u.isFriendly && !u.isDead);
+        let assembledCount = 0;
+
+        for (let i = 0; i < livingFriendlies.length; i++) {
+          const u = livingFriendlies[i];
+          if (u.hasCompletedMaze) {
+            assembledCount++;
+            if (!u.stagingPos) {
+              const row = Math.floor((assembledCount - 1) / 4);
+              const col = (assembledCount - 1) % 4;
+              u.stagingPos = new THREE.Vector3(2.5 + row * 1.3, 0.4, -3.5 + col * 2.2);
+            }
+          }
         }
-      }
 
-      // Check if all enemies in wave are defeated
-      if (
-        this.friendlyUnitsToSpawn === 0 &&
-        this.enemiesToSpawnQueue.length === 0
-      ) {
-        const remainingEnemies = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead);
-        if (remainingEnemies.length === 0 && !this.waveCleared) {
-          this.resolveWaveVictory();
+        // When all friendly recruits have finished running the maze and assembled at the gate:
+        if (
+          this.friendlyUnitsToSpawn === 0 &&
+          livingFriendlies.length > 0 &&
+          assembledCount === livingFriendlies.length
+        ) {
+          this.triggerArenaClash();
+        }
+      } else if (this.wavePhase === 'ARENA_CLASH') {
+        // Spawn enemy units from the Citadel
+        if (this.enemiesToSpawnQueue.length > 0) {
+          this.enemySpawnTimer += dt;
+          const next = this.enemiesToSpawnQueue[0];
+          if (this.enemySpawnTimer >= next.delay) {
+            this.enemySpawnTimer = 0;
+            this.enemiesToSpawnQueue.shift();
+            this.spawnEnemyUnit(next.enemyClass);
+          }
+        }
+
+        // Check if all enemies in wave are defeated
+        if (this.enemiesToSpawnQueue.length === 0) {
+          const remainingEnemies = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead);
+          if (remainingEnemies.length === 0 && !this.waveCleared) {
+            this.resolveWaveVictory();
+          }
         }
       }
     }
@@ -539,3 +641,4 @@ class GameApp {
 window.addEventListener('DOMContentLoaded', () => {
   new GameApp();
 });
+

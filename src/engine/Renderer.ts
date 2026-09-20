@@ -202,3 +202,4 @@ export class SceneRenderer {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
   }
 }
+

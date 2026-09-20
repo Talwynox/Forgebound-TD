@@ -7,7 +7,8 @@ export enum TileType {
   TOWER = 1,
   SPAWN = 2,
   EXIT = 3,
-  WALL = 4
+  WALL = 4,
+  CHECKPOINT = 5
 }
 
 export interface GridCoord {
@@ -22,6 +23,7 @@ export class Grid {
   public cells: TileType[][];
   public spawnCoord: GridCoord;
   public exitCoord: GridCoord;
+  public checkpoints: GridCoord[];
 
   // World offset so grid is centered / placed on the player's side
   public originX: number;
@@ -42,11 +44,24 @@ export class Grid {
       }
     }
 
-    // Default Spawn (left edge middle) and Exit (right edge middle)
-    this.spawnCoord = { x: 0, z: Math.floor(depth / 2) };
-    this.exitCoord = { x: width - 1, z: Math.floor(depth / 2) };
+    // Default Serpentine Path Coordinates:
+    // Spawn (top-left) -> CP1 (top-right) -> CP2 (mid-left) -> CP3 (bottom-right) -> Exit
+    this.spawnCoord = { x: 0, z: 1 };
+    this.checkpoints = [
+      { x: 8, z: 2 },
+      { x: 1, z: 5 },
+      { x: 8, z: 7 }
+    ];
+    this.exitCoord = { x: width - 1, z: 8 };
 
+    this.initTiles();
+  }
+
+  private initTiles() {
     this.cells[this.spawnCoord.x][this.spawnCoord.z] = TileType.SPAWN;
+    for (const cp of this.checkpoints) {
+      this.cells[cp.x][cp.z] = TileType.CHECKPOINT;
+    }
     this.cells[this.exitCoord.x][this.exitCoord.z] = TileType.EXIT;
   }
 
@@ -92,7 +107,7 @@ export class Grid {
         this.cells[x][z] = TileType.EMPTY;
       }
     }
-    this.cells[this.spawnCoord.x][this.spawnCoord.z] = TileType.SPAWN;
-    this.cells[this.exitCoord.x][this.exitCoord.z] = TileType.EXIT;
+    this.initTiles();
   }
 }
+
