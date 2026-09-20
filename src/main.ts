@@ -270,9 +270,9 @@ class GameApp {
     // 1. Calculate Vault Reserve Gold Towers Interest
     for (const tower of this.towerManager.towers.values()) {
       if (tower.type === TowerType.GOLD && tower.currentBranch === UpgradeBranch.BRANCH_B) {
-        const def = TOWER_DEFINITIONS[TowerType.GOLD].branchB;
-        const interest = Math.round(this.playerGold * (def.roundInterestPercent || 0.18));
-        const payout = Math.max(def.roundFlatGold || 50, interest);
+        const curUpg = this.towerManager.getCurrentUpgrade(tower) || TOWER_DEFINITIONS[TowerType.GOLD].branchB[0];
+        const interest = Math.round(this.playerGold * (curUpg.roundInterestPercent || 0.18));
+        const payout = Math.max(curUpg.roundFlatGold || 50, interest);
         this.playerGold += payout;
         audio.playGoldGain();
         this.vfx.spawnFloatingText(tower.worldPos.clone().add(new THREE.Vector3(0, 2, 0)), `VAULT INTEREST: +${payout}g`, '#facc15', 2.0);
@@ -465,28 +465,7 @@ class GameApp {
       }
 
       if (clickedTower) {
-        this.towerManager.selectTower(clickedTower);
-        this.ui.showTowerCard(
-          clickedTower,
-          this.playerGold,
-          (branch: UpgradeBranch) => {
-            const res = this.towerManager.upgradeTower(clickedTower.id, branch, this.playerGold);
-            if (res.success) {
-              this.playerGold -= res.cost;
-              this.updateHUD();
-              this.ui.showTowerCard(clickedTower, this.playerGold, () => {}, () => {});
-            } else if (res.reason) {
-              this.vfx.spawnFloatingText(clickedTower.worldPos, res.reason, '#ef4444', 1.2);
-            }
-          },
-          () => {
-            const refund = this.towerManager.sellTower(clickedTower.id);
-            this.playerGold += refund;
-            this.rerouteActiveUnits();
-            this.ui.hideTowerCard();
-            this.updateHUD();
-          }
-        );
+        this.openTowerCard(clickedTower);
         return;
       }
 
@@ -522,6 +501,31 @@ class GameApp {
         this.updatePlacementGhost();
       }
     });
+  }
+
+  private openTowerCard(tower: any) {
+    this.towerManager.selectTower(tower);
+    this.ui.showTowerCard(
+      tower,
+      this.playerGold,
+      (branch: UpgradeBranch) => {
+        const res = this.towerManager.upgradeTower(tower.id, branch, this.playerGold);
+        if (res.success) {
+          this.playerGold -= res.cost;
+          this.updateHUD();
+          this.openTowerCard(tower); // Re-render card with new rank & next upgrade available!
+        } else if (res.reason) {
+          this.vfx.spawnFloatingText(tower.worldPos, res.reason, '#ef4444', 1.2);
+        }
+      },
+      () => {
+        const refund = this.towerManager.sellTower(tower.id);
+        this.playerGold += refund;
+        this.rerouteActiveUnits();
+        this.ui.hideTowerCard();
+        this.updateHUD();
+      }
+    );
   }
 
   private updatePlacementGhost() {

@@ -185,8 +185,8 @@ export class UIManager {
           <strong>${def.name}</strong> (${def.cost}g)
           <div class="desc">${def.description}</div>
           <div class="branches">
-            <div>⚡ <em>${def.branchA.badge}</em>: ${def.branchA.name}</div>
-            <div>🌱 <em>${def.branchB.badge}</em>: ${def.branchB.name}</div>
+            <div>⚡ <em>${def.branchA[0].badge}</em>: ${def.branchA[0].name.replace(/ I$/, '')} (3 Ranks)</div>
+            <div>🌱 <em>${def.branchB[0].badge}</em>: ${def.branchB[0].name.replace(/ I$/, '')} (3 Ranks)</div>
           </div>
         </div>
       `;
@@ -206,23 +206,23 @@ export class UIManager {
 
   showTowerCard(tower: TowerInstance, playerGold: number, onUpgrade: (branch: UpgradeBranch) => void, onSell: () => void) {
     const def = TOWER_DEFINITIONS[tower.type];
-    const isUpgraded = tower.level > 1;
+    const isUnbranched = tower.currentBranch === UpgradeBranch.NONE;
 
     let branchHTML = '';
-    if (!isUpgraded) {
-      const bA = def.branchA;
-      const bB = def.branchB;
+    if (isUnbranched) {
+      const bA = def.branchA[0];
+      const bB = def.branchB[0];
       branchHTML = `
-        <div class="upgrade-header">Choose Branching Upgrade:</div>
+        <div class="upgrade-header">Choose Branching Path:</div>
         <div class="upgrade-options">
           <button id="btn-upg-a" class="upgrade-btn ${playerGold < bA.cost ? 'disabled' : ''}">
-            <div class="upg-badge">${bA.badge}</div>
+            <div class="upg-badge">${bA.badge} (Rank 1/3)</div>
             <div class="upg-name">${bA.name}</div>
             <div class="upg-cost">🪙 ${bA.cost}g</div>
             <div class="upg-desc">${bA.description}</div>
           </button>
           <button id="btn-upg-b" class="upgrade-btn ${playerGold < bB.cost ? 'disabled' : ''}">
-            <div class="upg-badge">${bB.badge}</div>
+            <div class="upg-badge">${bB.badge} (Rank 1/3)</div>
             <div class="upg-name">${bB.name}</div>
             <div class="upg-cost">🪙 ${bB.cost}g</div>
             <div class="upg-desc">${bB.description}</div>
@@ -230,10 +230,36 @@ export class UIManager {
         </div>
       `;
     } else {
-      const activeBranch = tower.currentBranch === UpgradeBranch.BRANCH_A ? def.branchA : def.branchB;
+      const curUpg = this.towerManager.getCurrentUpgrade(tower);
+      const next = this.towerManager.getNextUpgrade(tower);
+      const branchList = tower.currentBranch === UpgradeBranch.BRANCH_A ? def.branchA : def.branchB;
+      const totalRanks = branchList.length;
+
+      let nextUpgradeHTML = '';
+      if (next) {
+        nextUpgradeHTML = `
+          <div class="upgrade-header mt-2">Next Rank Upgrade (${tower.branchLevel + 1}/${totalRanks}):</div>
+          <div class="upgrade-options">
+            <button id="btn-upg-next" class="upgrade-btn ${playerGold < next.upg.cost ? 'disabled' : ''}">
+              <div class="upg-badge">${next.upg.badge} (Rank ${tower.branchLevel + 1}/${totalRanks})</div>
+              <div class="upg-name">${next.upg.name}</div>
+              <div class="upg-cost">🪙 ${next.upg.cost}g</div>
+              <div class="upg-desc">${next.upg.description}</div>
+            </button>
+          </div>
+        `;
+      } else {
+        nextUpgradeHTML = `
+          <div class="text-xs text-amber-300 font-bold bg-amber-950/40 p-2 rounded border border-amber-800/40 text-center mt-2">
+            🌟 Maximum Rank Achieved (${totalRanks}/${totalRanks})!
+          </div>
+        `;
+      }
+
       branchHTML = `
-        <div class="upgraded-badge">✨ Fully Upgraded: ${activeBranch.name} (${activeBranch.badge})</div>
-        <div class="upgraded-desc">${activeBranch.description}</div>
+        <div class="upgraded-badge">✨ Active Path: ${curUpg?.name || 'Upgraded'} (${curUpg?.badge} - Rank ${tower.branchLevel}/${totalRanks})</div>
+        <div class="upgraded-desc">${curUpg?.description || ''}</div>
+        ${nextUpgradeHTML}
       `;
     }
 
@@ -270,8 +296,12 @@ export class UIManager {
       this.towerManager.selectTower(null);
     });
 
-    this.towerCardEl.querySelector('#btn-upg-a')?.addEventListener('click', () => onUpgrade(UpgradeBranch.BRANCH_A));
-    this.towerCardEl.querySelector('#btn-upg-b')?.addEventListener('click', () => onUpgrade(UpgradeBranch.BRANCH_B));
+    if (isUnbranched) {
+      this.towerCardEl.querySelector('#btn-upg-a')?.addEventListener('click', () => onUpgrade(UpgradeBranch.BRANCH_A));
+      this.towerCardEl.querySelector('#btn-upg-b')?.addEventListener('click', () => onUpgrade(UpgradeBranch.BRANCH_B));
+    } else {
+      this.towerCardEl.querySelector('#btn-upg-next')?.addEventListener('click', () => onUpgrade(tower.currentBranch));
+    }
     this.towerCardEl.querySelector('#btn-sell')?.addEventListener('click', onSell);
   }
 

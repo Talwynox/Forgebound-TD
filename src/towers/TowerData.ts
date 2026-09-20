@@ -23,7 +23,7 @@ export interface TowerUpgradeDef {
   name: string;
   cost: number;
   description: string;
-  badge: string; // e.g., 'Standard' or 'Slow Stacking'
+  badge: string; // e.g., 'Burst Heal' or 'Slow Stacking'
   range: number;
   rate: number; // Attack/cast interval in seconds
   // Specific modifiers
@@ -64,229 +64,525 @@ export interface TowerDef {
   fixedHp?: number;
   goldPerHit?: number;
   roundInterestPercent?: number;
-  // Upgrades
-  branchA: TowerUpgradeDef;
-  branchB: TowerUpgradeDef;
+  // Branching Upgrades (3 ranks per branch)
+  branchA: TowerUpgradeDef[];
+  branchB: TowerUpgradeDef[];
 }
 
 export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
   [TowerType.SHRINE]: {
     type: TowerType.SHRINE,
     name: 'Vitality Shrine',
-    cost: 50,
-    description: 'Heals friendly units as they pass by.',
+    cost: 10,
+    description: 'Heals friendly units (+1 HP) as they pass by.',
     color: 0x22c55e, // Emerald Green
     accentColor: 0x86efac,
     range: 3.5,
     rate: 1.0,
-    healAmount: 40,
-    branchA: {
-      name: 'Radiant Sanctuary',
-      cost: 75,
-      badge: 'Burst Heal',
-      description: 'Massively increases instant healing per hit (+100 HP).',
-      range: 4.0,
-      rate: 0.85,
-      healAmount: 100
-    },
-    branchB: {
-      name: 'Lifebloom Grove',
-      cost: 70,
-      badge: 'Slow Stacking',
-      description: 'Heals moderately (+30 HP) and gives stacking Lifebloom: +60 Max HP added to the unit at the end of the round!',
-      range: 3.5,
-      rate: 1.1,
-      healAmount: 30,
-      stackingHpPerRound: 60
-    }
+    healAmount: 1,
+    branchA: [
+      {
+        name: 'Radiant Sanctuary I',
+        cost: 25,
+        badge: 'Burst Heal',
+        description: 'Increases instant healing to +4 HP per hit.',
+        range: 3.8,
+        rate: 0.9,
+        healAmount: 4
+      },
+      {
+        name: 'Radiant Sanctuary II',
+        cost: 55,
+        badge: 'Burst Heal',
+        description: 'Increases instant healing to +12 HP per hit.',
+        range: 4.0,
+        rate: 0.8,
+        healAmount: 12
+      },
+      {
+        name: 'Radiant Sanctuary III - Divine Font',
+        cost: 95,
+        badge: 'Burst Heal',
+        description: 'Master healing font: massive +30 HP burst healing per hit.',
+        range: 4.2,
+        rate: 0.7,
+        healAmount: 30
+      }
+    ],
+    branchB: [
+      {
+        name: 'Lifebloom Grove I',
+        cost: 20,
+        badge: 'Slow Stacking',
+        description: 'Heals +2 HP on hit, grants Lifebloom: +5 Max HP round bonus per stack.',
+        range: 3.5,
+        rate: 1.0,
+        healAmount: 2,
+        stackingHpPerRound: 5
+      },
+      {
+        name: 'Lifebloom Grove II',
+        cost: 45,
+        badge: 'Slow Stacking',
+        description: 'Heals +4 HP on hit, grants Lifebloom: +12 Max HP round bonus per stack.',
+        range: 3.6,
+        rate: 1.0,
+        healAmount: 4,
+        stackingHpPerRound: 12
+      },
+      {
+        name: 'Lifebloom Grove III - Yggdrasil',
+        cost: 85,
+        badge: 'Slow Stacking',
+        description: 'Elder Grove: heals +8 HP on hit, +25 Max HP round bonus per stack.',
+        range: 3.8,
+        rate: 0.95,
+        healAmount: 8,
+        stackingHpPerRound: 25
+      }
+    ]
   },
 
   [TowerType.FORGE]: {
     type: TowerType.FORGE,
     name: 'Iron Forge',
-    cost: 55,
-    description: 'Forges armor plating on passing units, mitigating physical damage.',
+    cost: 20,
+    description: 'Forges armor plating on passing units (+1 Armor), mitigating physical damage.',
     color: 0x64748b, // Slate Steel
     accentColor: 0x38bdf8,
     range: 3.2,
     rate: 1.2,
-    armorAmount: 5,
-    branchA: {
-      name: 'Reinforced Anvil',
-      cost: 80,
-      badge: 'Heavy Plating',
-      description: 'Instantly grants high flat armor per hit (+15 Armor).',
-      range: 3.5,
-      rate: 1.1,
-      armorAmount: 15
-    },
-    branchB: {
-      name: 'Tempered Bastion',
-      cost: 75,
-      badge: 'Slow Stacking',
-      description: 'Grants +4 Armor on hit, and stacks Tempered steel: +10 bonus Armor added at the end of the round!',
-      range: 3.2,
-      rate: 1.3,
-      armorAmount: 4,
-      stackingArmorPerRound: 10
-    }
+    armorAmount: 1,
+    branchA: [
+      {
+        name: 'Reinforced Anvil I',
+        cost: 30,
+        badge: 'Heavy Plating',
+        description: 'Forges +3 Armor per hit.',
+        range: 3.4,
+        rate: 1.1,
+        armorAmount: 3
+      },
+      {
+        name: 'Reinforced Anvil II',
+        cost: 65,
+        badge: 'Heavy Plating',
+        description: 'Heavy forging: +7 Armor per hit.',
+        range: 3.6,
+        rate: 1.0,
+        armorAmount: 7
+      },
+      {
+        name: 'Reinforced Anvil III - Adamant Citadel',
+        cost: 110,
+        badge: 'Heavy Plating',
+        description: 'Adamant plating: +15 Armor per hit.',
+        range: 3.8,
+        rate: 0.9,
+        armorAmount: 15
+      }
+    ],
+    branchB: [
+      {
+        name: 'Tempered Bastion I',
+        cost: 25,
+        badge: 'Slow Stacking',
+        description: 'Grants +2 Armor on hit, +3 bonus Armor round end per stack.',
+        range: 3.2,
+        rate: 1.2,
+        armorAmount: 2,
+        stackingArmorPerRound: 3
+      },
+      {
+        name: 'Tempered Bastion II',
+        cost: 55,
+        badge: 'Slow Stacking',
+        description: 'Grants +3 Armor on hit, +7 bonus Armor round end per stack.',
+        range: 3.4,
+        rate: 1.1,
+        armorAmount: 3,
+        stackingArmorPerRound: 7
+      },
+      {
+        name: 'Tempered Bastion III - Eternal Bulwark',
+        cost: 95,
+        badge: 'Slow Stacking',
+        description: 'Eternal Bulwark: +5 Armor on hit, +15 bonus Armor round end per stack.',
+        range: 3.6,
+        rate: 1.0,
+        armorAmount: 5,
+        stackingArmorPerRound: 15
+      }
+    ]
   },
 
   [TowerType.OBELISK]: {
     type: TowerType.OBELISK,
     name: 'Flame Obelisk',
-    cost: 60,
-    description: 'Infuses weapons with flame, increasing unit attack damage.',
+    cost: 20,
+    description: 'Infuses weapons with flame, increasing unit attack damage (+1 Attack).',
     color: 0xf97316, // Fire Orange
     accentColor: 0xfde047,
     range: 3.5,
     rate: 1.1,
-    attackAmount: 8,
-    branchA: {
-      name: 'War Pillar',
-      cost: 85,
-      badge: 'High Impact',
-      description: 'Increases unit attack damage significantly (+22 Attack).',
-      range: 3.8,
-      rate: 1.0,
-      attackAmount: 22
-    },
-    branchB: {
-      name: 'Frenzy Monolith',
-      cost: 80,
-      badge: 'Slow Stacking',
-      description: 'Grants +5 Attack on hit, plus Frenzy stacks: +14 bonus Attack added at the end of the round!',
-      range: 3.5,
-      rate: 1.2,
-      attackAmount: 5,
-      stackingAttackPerRound: 14
-    }
+    attackAmount: 1,
+    branchA: [
+      {
+        name: 'War Pillar I',
+        cost: 30,
+        badge: 'High Impact',
+        description: 'Infuses +4 Attack damage per hit.',
+        range: 3.6,
+        rate: 1.0,
+        attackAmount: 4
+      },
+      {
+        name: 'War Pillar II',
+        cost: 65,
+        badge: 'High Impact',
+        description: 'Blazing edge: +10 Attack damage per hit.',
+        range: 3.8,
+        rate: 0.9,
+        attackAmount: 10
+      },
+      {
+        name: 'War Pillar III - Inferno Monolith',
+        cost: 115,
+        badge: 'High Impact',
+        description: 'Inferno Pillar: massive +22 Attack damage per hit.',
+        range: 4.0,
+        rate: 0.8,
+        attackAmount: 22
+      }
+    ],
+    branchB: [
+      {
+        name: 'Frenzy Monolith I',
+        cost: 25,
+        badge: 'Slow Stacking',
+        description: 'Grants +2 Attack on hit, +3 bonus Attack round end per stack.',
+        range: 3.5,
+        rate: 1.1,
+        attackAmount: 2,
+        stackingAttackPerRound: 3
+      },
+      {
+        name: 'Frenzy Monolith II',
+        cost: 55,
+        badge: 'Slow Stacking',
+        description: 'Grants +3 Attack on hit, +7 bonus Attack round end per stack.',
+        range: 3.6,
+        rate: 1.05,
+        attackAmount: 3,
+        stackingAttackPerRound: 7
+      },
+      {
+        name: 'Frenzy Monolith III - Bloodfire Core',
+        cost: 95,
+        badge: 'Slow Stacking',
+        description: 'Bloodfire Core: +5 Attack on hit, +15 bonus Attack round end per stack.',
+        range: 3.8,
+        rate: 0.95,
+        attackAmount: 5,
+        stackingAttackPerRound: 15
+      }
+    ]
   },
 
   [TowerType.AURA]: {
     type: TowerType.AURA,
     name: 'Aura Spire',
-    cost: 80,
-    description: 'Emits a haste field that increases the attack/cast speed of all towers in range.',
+    cost: 50,
+    description: 'Emits a haste field that increases the attack/cast speed of all towers in range (+35% haste).',
     color: 0xa855f7, // Arcane Purple
     accentColor: 0xf472b6,
     range: 4.2,
     rate: 2.0,
     auraSpeedBonus: 0.35, // +35% cast speed to nearby towers
-    branchA: {
-      name: 'Clockwork Overdrive',
-      cost: 110,
-      badge: 'Hyper-Haste',
-      description: 'Concentrated aura providing +80% attack speed to adjacent towers!',
-      range: 3.2,
-      rate: 2.0,
-      auraSpeedBonus: 0.80
-    },
-    branchB: {
-      name: 'Expansive Resonance',
-      cost: 100,
-      badge: 'Wide Field',
-      description: 'Broadened aura zone (range 6.5) boosting all towers in a wide area by +45% attack speed.',
-      range: 6.5,
-      rate: 2.0,
-      auraSpeedBonus: 0.45
-    }
+    branchA: [
+      {
+        name: 'Clockwork Overdrive I',
+        cost: 60,
+        badge: 'Hyper-Haste',
+        description: 'Concentrated aura providing +55% attack speed to nearby towers.',
+        range: 3.4,
+        rate: 2.0,
+        auraSpeedBonus: 0.55
+      },
+      {
+        name: 'Clockwork Overdrive II',
+        cost: 100,
+        badge: 'Hyper-Haste',
+        description: 'Overcharged field: +80% attack speed to nearby towers.',
+        range: 3.6,
+        rate: 2.0,
+        auraSpeedBonus: 0.80
+      },
+      {
+        name: 'Clockwork Overdrive III - Temporal Singularity',
+        cost: 160,
+        badge: 'Hyper-Haste',
+        description: 'Temporal Singularity: +120% attack speed to nearby towers!',
+        range: 3.8,
+        rate: 2.0,
+        auraSpeedBonus: 1.20
+      }
+    ],
+    branchB: [
+      {
+        name: 'Expansive Resonance I',
+        cost: 55,
+        badge: 'Wide Field',
+        description: 'Broadened aura zone (range 5.5) boosting all towers by +40% attack speed.',
+        range: 5.5,
+        rate: 2.0,
+        auraSpeedBonus: 0.40
+      },
+      {
+        name: 'Expansive Resonance II',
+        cost: 95,
+        badge: 'Wide Field',
+        description: 'Expansive pulse (range 6.8) boosting all towers by +50% attack speed.',
+        range: 6.8,
+        rate: 2.0,
+        auraSpeedBonus: 0.50
+      },
+      {
+        name: 'Expansive Resonance III - Harmonic Beacon',
+        cost: 150,
+        badge: 'Wide Field',
+        description: 'Harmonic Beacon (range 8.2) boosting all towers across the island by +65% attack speed.',
+        range: 8.2,
+        rate: 2.0,
+        auraSpeedBonus: 0.65
+      }
+    ]
   },
 
   [TowerType.FROST]: {
     type: TowerType.FROST,
     name: 'Frost Monolith',
     cost: 65,
-    description: 'Chills passing friendly units to slow movement, keeping them in the maze longer for more buffs!',
+    description: 'Chills passing friendly units (40% slow for 3.2s) to keep them in the maze longer for more buffs!',
     color: 0x06b6d4, // Cyan Ice
     accentColor: 0xa5f3fc,
     range: 3.8,
     rate: 1.4,
     slowPercent: 0.40, // 40% slow
     slowDuration: 3.2,
-    branchA: {
-      name: 'Deep Freeze',
-      cost: 90,
-      badge: 'Maximum Dwell',
-      description: 'Super-chills units with a 70% slow for 4.5s for extreme buff exposure.',
-      range: 4.0,
-      rate: 1.2,
-      slowPercent: 0.70,
-      slowDuration: 4.5
-    },
-    branchB: {
-      name: 'Blizzard Zone',
-      cost: 85,
-      badge: 'AoE Chill',
-      description: 'Blizzard pulse that continuously keeps all passing units slowed by 50%.',
-      range: 5.2,
-      rate: 1.0,
-      slowPercent: 0.50,
-      slowDuration: 3.8
-    }
+    branchA: [
+      {
+        name: 'Deep Freeze I',
+        cost: 50,
+        badge: 'Maximum Dwell',
+        description: 'Chills units with a 55% slow for 3.8s for increased buff exposure.',
+        range: 4.0,
+        rate: 1.3,
+        slowPercent: 0.55,
+        slowDuration: 3.8
+      },
+      {
+        name: 'Deep Freeze II',
+        cost: 85,
+        badge: 'Maximum Dwell',
+        description: 'Super-chills units with a 70% slow for 4.5s for extreme buff exposure.',
+        range: 4.2,
+        rate: 1.2,
+        slowPercent: 0.70,
+        slowDuration: 4.5
+      },
+      {
+        name: 'Deep Freeze III - Absolute Zero',
+        cost: 130,
+        badge: 'Maximum Dwell',
+        description: 'Absolute Zero: 82% movement freeze for 5.5s!',
+        range: 4.4,
+        rate: 1.0,
+        slowPercent: 0.82,
+        slowDuration: 5.5
+      }
+    ],
+    branchB: [
+      {
+        name: 'Blizzard Zone I',
+        cost: 45,
+        badge: 'AoE Chill',
+        description: 'Pulsing blizzard zone (range 4.8) keeping units slowed by 45%.',
+        range: 4.8,
+        rate: 1.2,
+        slowPercent: 0.45,
+        slowDuration: 3.5
+      },
+      {
+        name: 'Blizzard Zone II',
+        cost: 80,
+        badge: 'AoE Chill',
+        description: 'Expanded blizzard (range 5.6) keeping units slowed by 55%.',
+        range: 5.6,
+        rate: 1.0,
+        slowPercent: 0.55,
+        slowDuration: 4.0
+      },
+      {
+        name: 'Blizzard Zone III - Frostbite Tempest',
+        cost: 125,
+        badge: 'AoE Chill',
+        description: 'Frostbite Tempest: broad 65% chilling tempest with rapid pulse (0.8s, range 6.5).',
+        range: 6.5,
+        rate: 0.8,
+        slowPercent: 0.65,
+        slowDuration: 4.5
+      }
+    ]
   },
 
   [TowerType.RULEBREAKER]: {
     type: TowerType.RULEBREAKER,
     name: 'The Rulebreaker',
-    cost: 120,
-    description: 'Rewrites unit reality, directly setting passing unit HP to a fixed 500 HP.',
+    cost: 35,
+    description: 'Rewrites unit reality, directly setting passing unit HP to a fixed 15 HP.',
     color: 0xe11d48, // Crimson Arcane
     accentColor: 0xf43f5e,
     range: 3.0,
     rate: 1.5,
-    fixedHp: 500,
-    branchA: {
-      name: 'Titan Core',
-      cost: 150,
-      badge: 'Massive HP',
-      description: 'Sets passing unit HP directly to 1,200 HP! Instantly primes units for colossal Tier 3 evolutions.',
-      range: 3.2,
-      rate: 1.4,
-      fixedHp: 1200
-    },
-    branchB: {
-      name: 'Equalizer Core',
-      cost: 130,
-      badge: 'HP + Armor',
-      description: 'Sets unit HP to 750 HP and permanently grants +20 Armor.',
-      range: 3.0,
-      rate: 1.4,
-      fixedHp: 750,
-      armorAmount: 20
-    }
+    fixedHp: 15,
+    branchA: [
+      {
+        name: 'Titan Core I',
+        cost: 45,
+        badge: 'Massive HP',
+        description: 'Sets passing unit HP directly to 40 HP.',
+        range: 3.0,
+        rate: 1.4,
+        fixedHp: 40
+      },
+      {
+        name: 'Titan Core II',
+        cost: 85,
+        badge: 'Massive HP',
+        description: 'Sets passing unit HP directly to 80 HP.',
+        range: 3.1,
+        rate: 1.35,
+        fixedHp: 80
+      },
+      {
+        name: 'Titan Core III - Colossus Forge',
+        cost: 150,
+        badge: 'Massive HP',
+        description: 'Sets passing unit HP directly to 120 HP! Instantly primes units for colossal Tier 3 evolutions.',
+        range: 3.2,
+        rate: 1.3,
+        fixedHp: 120
+      }
+    ],
+    branchB: [
+      {
+        name: 'Equalizer Core I',
+        cost: 40,
+        badge: 'HP + Armor',
+        description: 'Sets unit HP to 30 HP and permanently grants +6 Armor.',
+        range: 3.0,
+        rate: 1.4,
+        fixedHp: 30,
+        armorAmount: 6
+      },
+      {
+        name: 'Equalizer Core II',
+        cost: 75,
+        badge: 'HP + Armor',
+        description: 'Sets unit HP to 50 HP and permanently grants +12 Armor.',
+        range: 3.0,
+        rate: 1.35,
+        fixedHp: 50,
+        armorAmount: 12
+      },
+      {
+        name: 'Equalizer Core III - Aegis Matrix',
+        cost: 130,
+        badge: 'HP + Armor',
+        description: 'Sets unit HP to 75 HP and permanently grants +20 Armor.',
+        range: 3.0,
+        rate: 1.3,
+        fixedHp: 75,
+        armorAmount: 20
+      }
+    ]
   },
 
   [TowerType.GOLD]: {
     type: TowerType.GOLD,
     name: 'Gold Spire',
-    cost: 70,
-    description: 'Generates extra gold to fuel your defensive economy.',
+    cost: 30,
+    description: 'Generates extra gold (+4g on hit) to fuel your defensive economy.',
     color: 0xeab308, // Gold
     accentColor: 0xfef08a,
     range: 3.5,
     rate: 1.2,
     goldPerHit: 4,
-    branchA: {
-      name: 'Midas Siphon',
-      cost: 95,
-      badge: 'Gold on Hit',
-      description: 'Generates +12 Gold every time it hits a passing unit!',
-      range: 3.8,
-      rate: 0.95,
-      goldPerHit: 12
-    },
-    branchB: {
-      name: 'Vault Reserve',
-      cost: 90,
-      badge: 'Round Interest',
-      description: 'Generates +2 Gold on hit, plus pays out +18% bonus interest (min 50g) at the end of each round!',
-      range: 3.2,
-      rate: 1.3,
-      goldPerHit: 2,
-      roundInterestPercent: 0.18,
-      roundFlatGold: 50
-    }
+    branchA: [
+      {
+        name: 'Midas Siphon I',
+        cost: 45,
+        badge: 'Gold on Hit',
+        description: 'Generates +8 Gold every time it hits a passing unit.',
+        range: 3.6,
+        rate: 1.1,
+        goldPerHit: 8
+      },
+      {
+        name: 'Midas Siphon II',
+        cost: 80,
+        badge: 'Gold on Hit',
+        description: 'Generates +14 Gold every time it hits a passing unit.',
+        range: 3.8,
+        rate: 0.95,
+        goldPerHit: 14
+      },
+      {
+        name: 'Midas Siphon III - Philosopher Touch',
+        cost: 125,
+        badge: 'Gold on Hit',
+        description: 'Generates +22 Gold on rapid hit (+22g every 0.8s)!',
+        range: 4.0,
+        rate: 0.8,
+        goldPerHit: 22
+      }
+    ],
+    branchB: [
+      {
+        name: 'Vault Reserve I',
+        cost: 40,
+        badge: 'Round Interest',
+        description: 'Generates +2 Gold on hit + 12% round interest (min 25g) at round end.',
+        range: 3.2,
+        rate: 1.3,
+        goldPerHit: 2,
+        roundInterestPercent: 0.12,
+        roundFlatGold: 25
+      },
+      {
+        name: 'Vault Reserve II',
+        cost: 75,
+        badge: 'Round Interest',
+        description: 'Generates +3 Gold on hit + 18% round interest (min 50g) at round end.',
+        range: 3.4,
+        rate: 1.2,
+        goldPerHit: 3,
+        roundInterestPercent: 0.18,
+        roundFlatGold: 50
+      },
+      {
+        name: 'Vault Reserve III - Imperial Treasury',
+        cost: 120,
+        badge: 'Round Interest',
+        description: 'Generates +4 Gold on hit + 25% compound round interest (min 80g) at round end.',
+        range: 3.5,
+        rate: 1.1,
+        goldPerHit: 4,
+        roundInterestPercent: 0.25,
+        roundFlatGold: 80
+      }
+    ]
   },
 
   [TowerType.EVOLUTION]: {
@@ -298,24 +594,63 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     accentColor: 0xc4b5fd,
     range: 3.0,
     rate: 1.6,
-    branchA: {
-      name: 'Heroic Spire',
-      cost: 160,
-      badge: 'Tier 3 Unlocked',
-      description: 'Enables Tier 3 ascensions into Paladin, Archmage, and Pyro Golem when units have 600+ HP or high stats!',
-      range: 3.5,
-      rate: 1.4,
-      unlockTier3Evolution: true
-    },
-    branchB: {
-      name: 'Specialist Spire',
-      cost: 140,
-      badge: 'Passive Auras',
-      description: 'Grants evolved units combat passives: Divine Shield, Whirlwind Cleave, and Fireball bursts!',
-      range: 3.2,
-      rate: 1.5,
-      grantUnitPassive: 'HEROIC_AURA'
-    }
+    branchA: [
+      {
+        name: 'Heroic Spire I',
+        cost: 75,
+        badge: 'Tier 3 Unlocked',
+        description: 'Enables Tier 3 ascensions into Paladin, Archmage, and Pyro Colossus with accelerated beam (1.4s rate).',
+        range: 3.3,
+        rate: 1.4,
+        unlockTier3Evolution: true
+      },
+      {
+        name: 'Heroic Spire II',
+        cost: 125,
+        badge: 'Tier 3 Unlocked',
+        description: 'Higher focus crucible (1.2s rate, 3.5 range) granting ascended champions +25 bonus starting HP.',
+        range: 3.5,
+        rate: 1.2,
+        unlockTier3Evolution: true
+      },
+      {
+        name: 'Heroic Spire III - Apex Crucible',
+        cost: 180,
+        badge: 'Tier 3 Unlocked',
+        description: 'Apex Crucible: rapid 1.0s ascension rate with +50 bonus starting HP to all ascended units.',
+        range: 3.8,
+        rate: 1.0,
+        unlockTier3Evolution: true
+      }
+    ],
+    branchB: [
+      {
+        name: 'Specialist Spire I',
+        cost: 70,
+        badge: 'Combat Passives',
+        description: 'Grants evolved units Swiftfoot (+20% movement speed in the arena).',
+        range: 3.2,
+        rate: 1.5,
+        grantUnitPassive: 'SWIFTFOOT'
+      },
+      {
+        name: 'Specialist Spire II',
+        cost: 120,
+        badge: 'Combat Passives',
+        description: 'Grants evolved units combat passives: Divine Shield and Whirlwind Cleave.',
+        range: 3.4,
+        rate: 1.35,
+        grantUnitPassive: 'HEROIC_AURA'
+      },
+      {
+        name: 'Specialist Spire III - Warlord Boon',
+        cost: 175,
+        badge: 'Combat Passives',
+        description: 'Warlord Boon: grants Divine Shield, Cleave, and Fireball artillery strikes!',
+        range: 3.6,
+        rate: 1.2,
+        grantUnitPassive: 'WARLORD_BOON'
+      }
+    ]
   }
 };
-

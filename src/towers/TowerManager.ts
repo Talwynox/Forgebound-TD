@@ -13,8 +13,9 @@ export interface TowerInstance {
   worldPos: THREE.Vector3;
   mesh: THREE.Group;
   currentBranch: UpgradeBranch;
+  branchLevel: number; // 0 = unbranched, 1 = rank 1, 2 = rank 2, 3 = rank 3...
   totalCostInvested: number;
-  level: number; // 1 = base, 2 = upgraded
+  level: number; // 1 = base, 2 = rank 1, 3 = rank 2, 4 = rank 3...
   lastActionTime: number;
   effectiveRate: number; // Cast interval after Aura bonuses
   effectiveRange: number;
@@ -91,6 +92,7 @@ export class TowerManager {
       worldPos,
       mesh,
       currentBranch: UpgradeBranch.NONE,
+      branchLevel: 0,
       totalCostInvested: def.cost,
       level: 1,
       lastActionTime: performance.now(),
@@ -120,36 +122,75 @@ export class TowerManager {
     return tower;
   }
 
+  getCurrentUpgrade(tower: TowerInstance): TowerUpgradeDef | null {
+    if (tower.currentBranch === UpgradeBranch.NONE || tower.branchLevel === 0) return null;
+    const def = TOWER_DEFINITIONS[tower.type];
+    const list = tower.currentBranch === UpgradeBranch.BRANCH_A ? def.branchA : def.branchB;
+    const idx = Math.min(tower.branchLevel - 1, list.length - 1);
+    return list[idx] || null;
+  }
+
+  getNextUpgrade(tower: TowerInstance, branchChoice?: UpgradeBranch): { upg: TowerUpgradeDef; branch: UpgradeBranch } | null {
+    const def = TOWER_DEFINITIONS[tower.type];
+    if (tower.currentBranch === UpgradeBranch.NONE) {
+      const branch = branchChoice || UpgradeBranch.BRANCH_A;
+      const list = branch === UpgradeBranch.BRANCH_A ? def.branchA : def.branchB;
+      return list[0] ? { upg: list[0], branch } : null;
+    }
+    const list = tower.currentBranch === UpgradeBranch.BRANCH_A ? def.branchA : def.branchB;
+    if (tower.branchLevel < list.length) {
+      return { upg: list[tower.branchLevel], branch: tower.currentBranch };
+    }
+    return null;
+  }
+
   upgradeTower(towerId: number, branch: UpgradeBranch, playerGold: number): { success: boolean; cost: number; reason?: string } {
     const tower = this.towers.get(towerId);
     if (!tower) return { success: false, cost: 0, reason: 'Tower not found' };
-    if (tower.level > 1) return { success: false, cost: 0, reason: 'Tower is already fully upgraded!' };
 
-    const def = TOWER_DEFINITIONS[tower.type];
-    const upgDef: TowerUpgradeDef = branch === UpgradeBranch.BRANCH_A ? def.branchA : def.branchB;
+    const next = this.getNextUpgrade(tower, branch);
+    if (!next) return { success: false, cost: 0, reason: 'Tower is already at maximum upgrade rank!' };
 
+    const upgDef = next.upg;
     if (playerGold < upgDef.cost) {
       return { success: false, cost: 0, reason: `Need ${upgDef.cost}g to upgrade.` };
     }
 
-    tower.currentBranch = branch;
-    tower.level = 2;
+    if (tower.currentBranch === UpgradeBranch.NONE) {
+      tower.currentBranch = branch;
+      tower.branchLevel = 1;
+    } else {
+      tower.branchLevel++;
+    }
+
+    tower.level++;
     tower.totalCostInvested += upgDef.cost;
     tower.effectiveRange = upgDef.range;
 
-    // Visual upgrade indicator: add golden/arcane halo at top of mesh
-    const haloGeom = new THREE.TorusGeometry(0.5, 0.06, 8, 24);
-    haloGeom.rotateX(Math.PI / 2);
-    const haloMat = new THREE.MeshStandardMaterial({
-      color: branch === UpgradeBranch.BRANCH_A ? 0xfacc15 : 0xa855f7,
-      emissive: branch === UpgradeBranch.BRANCH_A ? 0xeab308 : 0x7e22ce,
-      emissiveIntensity: 0.6
-    });
-    const haloMesh = new THREE.Mesh(haloGeom, haloMat);
-    haloMesh.position.y = 2.4;
-    haloMesh.name = 'rotating';
-    tower.mesh.add(haloMesh);
-    tower.rotatingRing = haloMesh;
+    const def = TOWER_DEFINITIONS[tower.type];
+
+    // Visual upgrade indicator: add or scale golden/arcane halo at top of mesh
+    if (!tower.rotatingRing) {
+      const haloGeom = new THREE.TorusGeometry(0.5, 0.06, 8, 24);
+      haloGeom.rotateX(Math.PI / 2);
+      const haloMat = new THREE.MeshStandardMaterial({
+        color: tower.currentBranch === UpgradeBranch.BRANCH_A ? 0xfacc15 : 0xa855f7,
+        emissive: tower.currentBranch === UpgradeBranch.BRANCH_A ? 0xeab308 : 0x7e22ce,
+        emissiveIntensity: 0.6
+      });
+      const haloMesh = new THREE.Mesh(haloGeom, haloMat);
+      haloMesh.position.y = 2.4;
+      haloMesh.name = 'rotating';
+      tower.mesh.add(haloMesh);
+      tower.rotatingRing = haloMesh;
+    } else {
+      const scale = 1.0 + (tower.branchLevel - 1) * 0.25;
+      tower.rotatingRing.scale.set(scale, scale, scale);
+      const mat = (tower.rotatingRing as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      if (mat) {
+        mat.emissiveIntensity = 0.6 + tower.branchLevel * 0.25;
+      }
+    }
 
     this.recalculateAuras();
     this.showRange(tower);
@@ -209,14 +250,9 @@ export class TowerManager {
       if (auraTower.type !== TowerType.AURA) continue;
 
       const def = TOWER_DEFINITIONS[TowerType.AURA];
-      let bonus = def.auraSpeedBonus || 0.3;
-      let range = auraTower.effectiveRange;
-
-      if (auraTower.currentBranch === UpgradeBranch.BRANCH_A) {
-        bonus = def.branchA.auraSpeedBonus || 0.8;
-      } else if (auraTower.currentBranch === UpgradeBranch.BRANCH_B) {
-        bonus = def.branchB.auraSpeedBonus || 0.45;
-      }
+      const curUpg = this.getCurrentUpgrade(auraTower);
+      const bonus = curUpg?.auraSpeedBonus ?? def.auraSpeedBonus ?? 0.35;
+      const range = auraTower.effectiveRange;
 
       for (const targetTower of this.towers.values()) {
         if (targetTower.id === auraTower.id) continue;
@@ -230,9 +266,8 @@ export class TowerManager {
     // Apply final effectiveRate = baseRate / (1 + totalAuraBonus)
     for (const tower of this.towers.values()) {
       const def = TOWER_DEFINITIONS[tower.type];
-      let baseRate = def.rate;
-      if (tower.currentBranch === UpgradeBranch.BRANCH_A) baseRate = def.branchA.rate;
-      if (tower.currentBranch === UpgradeBranch.BRANCH_B) baseRate = def.branchB.rate;
+      const curUpg = this.getCurrentUpgrade(tower);
+      const baseRate = curUpg?.rate ?? def.rate;
 
       tower.effectiveRate = baseRate / (1 + tower.auraBonusMultiplier);
     }
@@ -249,85 +284,65 @@ export class TowerManager {
 
   getTowerStatsSummary(tower: TowerInstance): { currentEffect: string; lifetimeOutput: string } {
     const def = TOWER_DEFINITIONS[tower.type];
+    const curUpg = this.getCurrentUpgrade(tower);
     let effectStr = '';
     let lifetimeStr = '';
 
     switch (tower.type) {
       case TowerType.SHRINE: {
-        const heal = tower.currentBranch === UpgradeBranch.BRANCH_A
-          ? def.branchA.healAmount || 100
-          : tower.currentBranch === UpgradeBranch.BRANCH_B
-          ? def.branchB.healAmount || 30
-          : def.healAmount || 40;
-        effectStr = `Heals: +${heal} HP per hit`;
+        const heal = curUpg?.healAmount ?? def.healAmount ?? 1;
+        const stackHp = curUpg?.stackingHpPerRound;
+        effectStr = `Heals: +${heal} HP per hit` + (stackHp ? ` (+${stackHp} Max HP round bonus)` : '');
         lifetimeStr = `Total Healed: ${tower.totalBuffApplied} HP (${tower.totalHits} casts)`;
         break;
       }
       case TowerType.FORGE: {
-        const armor = tower.currentBranch === UpgradeBranch.BRANCH_A
-          ? def.branchA.armorAmount || 15
-          : tower.currentBranch === UpgradeBranch.BRANCH_B
-          ? def.branchB.armorAmount || 4
-          : def.armorAmount || 5;
-        effectStr = `Armor: +${armor} Armor per hit`;
+        const armor = curUpg?.armorAmount ?? def.armorAmount ?? 1;
+        const stackArmor = curUpg?.stackingArmorPerRound;
+        effectStr = `Armor: +${armor} Armor per hit` + (stackArmor ? ` (+${stackArmor} Armor round bonus)` : '');
         lifetimeStr = `Total Armor Plated: +${tower.totalBuffApplied} (${tower.totalHits} casts)`;
         break;
       }
       case TowerType.OBELISK: {
-        const atk = tower.currentBranch === UpgradeBranch.BRANCH_A
-          ? def.branchA.attackAmount || 22
-          : tower.currentBranch === UpgradeBranch.BRANCH_B
-          ? def.branchB.attackAmount || 5
-          : def.attackAmount || 8;
-        effectStr = `Attack: +${atk} Attack per hit`;
+        const atk = curUpg?.attackAmount ?? def.attackAmount ?? 1;
+        const stackAtk = curUpg?.stackingAttackPerRound;
+        effectStr = `Attack: +${atk} Attack per hit` + (stackAtk ? ` (+${stackAtk} Attack round bonus)` : '');
         lifetimeStr = `Total Attack Boosted: +${tower.totalBuffApplied} (${tower.totalHits} casts)`;
         break;
       }
       case TowerType.AURA: {
-        const haste = Math.round(((tower.currentBranch === UpgradeBranch.BRANCH_A
-          ? def.branchA.auraSpeedBonus || 0.8
-          : tower.currentBranch === UpgradeBranch.BRANCH_B
-          ? def.branchB.auraSpeedBonus || 0.45
-          : def.auraSpeedBonus || 0.35)) * 100);
+        const haste = Math.round((curUpg?.auraSpeedBonus ?? def.auraSpeedBonus ?? 0.35) * 100);
         effectStr = `Aura Haste: +${haste}% Cast Speed to nearby towers`;
         lifetimeStr = `Radius: ${tower.effectiveRange.toFixed(1)} tiles`;
         break;
       }
       case TowerType.FROST: {
-        const slow = Math.round(((tower.currentBranch === UpgradeBranch.BRANCH_A
-          ? def.branchA.slowPercent || 0.7
-          : tower.currentBranch === UpgradeBranch.BRANCH_B
-          ? def.branchB.slowPercent || 0.5
-          : def.slowPercent || 0.4)) * 100);
-        const dur = tower.currentBranch === UpgradeBranch.BRANCH_A
-          ? def.branchA.slowDuration || 4.5
-          : def.slowDuration || 3.2;
-        effectStr = `Chill: -${slow}% Movement Speed for ${dur}s`;
+        const slow = Math.round((curUpg?.slowPercent ?? def.slowPercent ?? 0.40) * 100);
+        const dur = curUpg?.slowDuration ?? def.slowDuration ?? 3.2;
+        effectStr = `Chill: -${slow}% Movement Speed for ${dur.toFixed(1)}s`;
         lifetimeStr = `Total Units Slowed: ${tower.totalHits}`;
         break;
       }
       case TowerType.RULEBREAKER: {
-        const hp = tower.currentBranch === UpgradeBranch.BRANCH_A
-          ? def.branchA.fixedHp || 1200
-          : tower.currentBranch === UpgradeBranch.BRANCH_B
-          ? def.branchB.fixedHp || 750
-          : def.fixedHp || 500;
-        effectStr = `Reality Shift: Unit HP set directly to ${hp} HP`;
+        const hp = curUpg?.fixedHp ?? def.fixedHp ?? 15;
+        const armor = curUpg?.armorAmount ? ` (+${curUpg.armorAmount} Armor)` : '';
+        effectStr = `Reality Shift: Sets unit HP to ${hp} HP${armor} (Skips units with ≥${hp} HP)`;
         lifetimeStr = `Total Units Transmuted: ${tower.totalHits}`;
         break;
       }
       case TowerType.GOLD: {
-        const g = tower.currentBranch === UpgradeBranch.BRANCH_A
-          ? def.branchA.goldPerHit || 12
-          : def.goldPerHit || 4;
-        effectStr = `Income: +${g} Gold per hit`;
+        const g = curUpg?.goldPerHit ?? def.goldPerHit ?? 4;
+        const interest = curUpg?.roundInterestPercent ? ` + ${Math.round(curUpg.roundInterestPercent * 100)}% round interest` : '';
+        effectStr = `Income: +${g} Gold per hit${interest}`;
         lifetimeStr = `Total Gold Minted: ${tower.totalBuffApplied}g (${tower.totalHits} hits)`;
         break;
       }
       case TowerType.EVOLUTION: {
-        effectStr = tower.currentBranch === UpgradeBranch.BRANCH_A
+        effectStr = curUpg?.unlockTier3Evolution
           ? 'Ascends units to Tier 2 & Tier 3 (Paladin, Colossus, Archmage)'
-          : 'Ascends units to Tier 2 (Footman, Knight, Berserker, Cleric)';
+          : (curUpg?.grantUnitPassive
+            ? `Ascends units & grants passive: ${curUpg.grantUnitPassive}`
+            : 'Ascends units to Tier 2 (Footman, Knight, Berserker, Cleric)');
         lifetimeStr = `Total Champions Ascended: ${tower.totalHits}`;
         break;
       }
@@ -382,7 +397,19 @@ export class TowerManager {
       const targetsInRange = units.filter(u => {
         if (!u.isFriendly || u.isDead || u.inCombat) return false;
         const dist = tower.worldPos.distanceTo(u.worldPos);
-        return dist <= tower.effectiveRange;
+        if (dist > tower.effectiveRange) return false;
+
+        // Special Rulebreaker logic:
+        // Do not attack a unit which already has more (or equal) HP than what this tower sets it to!
+        if (tower.type === TowerType.RULEBREAKER) {
+          const curUpg = this.getCurrentUpgrade(tower);
+          const targetFixedHp = curUpg?.fixedHp ?? def.fixedHp ?? 15;
+          if (u.currentHp >= targetFixedHp) {
+            return false;
+          }
+        }
+
+        return true;
       });
 
       if (targetsInRange.length === 0) continue;
@@ -392,19 +419,16 @@ export class TowerManager {
       const fireFrom = tower.worldPos.clone().add(new THREE.Vector3(0, 1.6, 0));
       const fireTo = target.worldPos.clone().add(new THREE.Vector3(0, 0.5, 0));
       const def = TOWER_DEFINITIONS[tower.type];
+      const curUpg = this.getCurrentUpgrade(tower);
 
       // Perform Tower Effect
       let fired = false;
 
       switch (tower.type) {
         case TowerType.SHRINE: {
-          let heal = def.healAmount || 40;
-          if (tower.currentBranch === UpgradeBranch.BRANCH_A) {
-            heal = def.branchA.healAmount || 100;
-          } else if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
-            heal = def.branchB.healAmount || 30;
-            const stackHp = def.branchB.stackingHpPerRound || 60;
-            target.stackingLifebloom += stackHp;
+          const heal = curUpg?.healAmount ?? def.healAmount ?? 1;
+          if (curUpg?.stackingHpPerRound) {
+            target.stackingLifebloom += curUpg.stackingHpPerRound;
             this.vfx.spawnFloatingText(fireTo, `+Lifebloom (${target.stackingLifebloom} HP)`, '#86efac', 1.0);
           }
           target.currentHp = Math.min(target.maxHp, target.currentHp + heal);
@@ -419,13 +443,9 @@ export class TowerManager {
         }
 
         case TowerType.FORGE: {
-          let armor = def.armorAmount || 5;
-          if (tower.currentBranch === UpgradeBranch.BRANCH_A) {
-            armor = def.branchA.armorAmount || 15;
-          } else if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
-            armor = def.branchB.armorAmount || 4;
-            const stackArmor = def.branchB.stackingArmorPerRound || 10;
-            target.stackingArmor += stackArmor;
+          const armor = curUpg?.armorAmount ?? def.armorAmount ?? 1;
+          if (curUpg?.stackingArmorPerRound) {
+            target.stackingArmor += curUpg.stackingArmorPerRound;
             this.vfx.spawnFloatingText(fireTo, `+Tempered (${target.stackingArmor} Armor)`, '#93c5fd', 1.0);
           }
           target.armor += armor;
@@ -440,13 +460,9 @@ export class TowerManager {
         }
 
         case TowerType.OBELISK: {
-          let atk = def.attackAmount || 8;
-          if (tower.currentBranch === UpgradeBranch.BRANCH_A) {
-            atk = def.branchA.attackAmount || 22;
-          } else if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
-            atk = def.branchB.attackAmount || 5;
-            const stackAtk = def.branchB.stackingAttackPerRound || 14;
-            target.stackingAttack += stackAtk;
+          const atk = curUpg?.attackAmount ?? def.attackAmount ?? 1;
+          if (curUpg?.stackingAttackPerRound) {
+            target.stackingAttack += curUpg.stackingAttackPerRound;
             this.vfx.spawnFloatingText(fireTo, `+Frenzy (${target.stackingAttack} ATK)`, '#fdba74', 1.0);
           }
           target.attack += atk;
@@ -461,15 +477,8 @@ export class TowerManager {
         }
 
         case TowerType.FROST: {
-          let slowPct = def.slowPercent || 0.4;
-          let duration = def.slowDuration || 3.0;
-          if (tower.currentBranch === UpgradeBranch.BRANCH_A) {
-            slowPct = def.branchA.slowPercent || 0.7;
-            duration = def.branchA.slowDuration || 4.5;
-          } else if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
-            slowPct = def.branchB.slowPercent || 0.5;
-            duration = def.branchB.slowDuration || 3.8;
-          }
+          const slowPct = curUpg?.slowPercent ?? def.slowPercent ?? 0.40;
+          const duration = curUpg?.slowDuration ?? def.slowDuration ?? 3.2;
           target.applySlow(slowPct, duration);
           tower.totalHits++;
           audio.playFrostSlow();
@@ -480,17 +489,18 @@ export class TowerManager {
         }
 
         case TowerType.RULEBREAKER: {
-          let fixedHp = def.fixedHp || 500;
-          let extraArmor = 0;
-          if (tower.currentBranch === UpgradeBranch.BRANCH_A) {
-            fixedHp = def.branchA.fixedHp || 1200;
-          } else if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
-            fixedHp = def.branchB.fixedHp || 750;
-            extraArmor = def.branchB.armorAmount || 20;
+          const fixedHp = curUpg?.fixedHp ?? def.fixedHp ?? 15;
+          const extraArmor = curUpg?.armorAmount ?? 0;
+
+          if (target.currentHp >= fixedHp) {
+            break; // Skip units that already have >= fixedHp
+          }
+
+          target.maxHp = Math.max(target.maxHp, fixedHp);
+          target.currentHp = fixedHp;
+          if (extraArmor > 0) {
             target.armor += extraArmor;
           }
-          target.maxHp = fixedHp;
-          target.currentHp = fixedHp;
           tower.totalHits++;
           audio.playRulebreaker();
           this.vfx.spawnBeam(fireFrom, fireTo, 0xe11d48, 0.25);
@@ -502,10 +512,7 @@ export class TowerManager {
         }
 
         case TowerType.GOLD: {
-          let goldGain = def.goldPerHit || 4;
-          if (tower.currentBranch === UpgradeBranch.BRANCH_A) {
-            goldGain = def.branchA.goldPerHit || 12;
-          }
+          const goldGain = curUpg?.goldPerHit ?? def.goldPerHit ?? 4;
           addGoldCallback(goldGain);
           tower.totalBuffApplied += goldGain;
           tower.totalHits++;
@@ -517,9 +524,12 @@ export class TowerManager {
         }
 
         case TowerType.EVOLUTION: {
-          const allowTier3 = tower.currentBranch === UpgradeBranch.BRANCH_A;
+          const allowTier3 = !!curUpg?.unlockTier3Evolution;
           const evolved = target.checkAndEvolve(allowTier3);
           if (evolved) {
+            if (curUpg?.grantUnitPassive) {
+              target.recordBuff(curUpg.grantUnitPassive);
+            }
             tower.totalHits++;
             audio.playEvolution();
             this.vfx.spawnBeam(fireFrom, fireTo, 0x8b5cf6, 0.3);
