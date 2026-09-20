@@ -325,8 +325,8 @@ export class TowerManager {
       }
       case TowerType.RULEBREAKER: {
         const hp = curUpg?.fixedHp ?? def.fixedHp ?? 15;
-        const armor = curUpg?.armorAmount ? ` (+${curUpg.armorAmount} Armor)` : '';
-        effectStr = `Reality Shift: Sets unit HP to ${hp} HP${armor} (Skips units with ≥${hp} HP)`;
+        const speed = curUpg?.rate ?? def.rate;
+        effectStr = `Reality Shift: Sets unit HP to ${hp} HP (Cast: ${speed.toFixed(2)}s | Skips units ≥${hp} HP)`;
         lifetimeStr = `Total Units Transmuted: ${tower.totalHits}`;
         break;
       }

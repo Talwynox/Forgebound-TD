@@ -185,8 +185,8 @@ export class UIManager {
           <strong>${def.name}</strong> (${def.cost}g)
           <div class="desc">${def.description}</div>
           <div class="branches">
-            <div>⚡ <em>${def.branchA[0].badge}</em>: ${def.branchA[0].name.replace(/ I$/, '')} (3 Ranks)</div>
-            <div>🌱 <em>${def.branchB[0].badge}</em>: ${def.branchB[0].name.replace(/ I$/, '')} (3 Ranks)</div>
+            <div>⚡ <em>${def.branchA[0].badge}</em>: ${def.branchA[0].name.replace(/ I$/, '')} (${def.branchA.length} Ranks)</div>
+            <div>🌱 <em>${def.branchB[0].badge}</em>: ${def.branchB[0].name.replace(/ I$/, '')} (${def.branchB.length} Ranks)</div>
           </div>
         </div>
       `;
@@ -216,13 +216,13 @@ export class UIManager {
         <div class="upgrade-header">Choose Branching Path:</div>
         <div class="upgrade-options">
           <button id="btn-upg-a" class="upgrade-btn ${playerGold < bA.cost ? 'disabled' : ''}">
-            <div class="upg-badge">${bA.badge} (Rank 1/3)</div>
+            <div class="upg-badge">${bA.badge} (Rank 1/${def.branchA.length})</div>
             <div class="upg-name">${bA.name}</div>
             <div class="upg-cost">🪙 ${bA.cost}g</div>
             <div class="upg-desc">${bA.description}</div>
           </button>
           <button id="btn-upg-b" class="upgrade-btn ${playerGold < bB.cost ? 'disabled' : ''}">
-            <div class="upg-badge">${bB.badge} (Rank 1/3)</div>
+            <div class="upg-badge">${bB.badge} (Rank 1/${def.branchB.length})</div>
             <div class="upg-name">${bB.name}</div>
             <div class="upg-cost">🪙 ${bB.cost}g</div>
             <div class="upg-desc">${bB.description}</div>

@@ -362,7 +362,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
   [TowerType.FROST]: {
     type: TowerType.FROST,
     name: 'Frost Monolith',
-    cost: 65,
+    cost: 25,
     description: 'Chills passing friendly units (40% slow for 3.2s) to keep them in the maze longer for more buffs!',
     color: 0x06b6d4, // Cyan Ice
     accentColor: 0xa5f3fc,
@@ -449,62 +449,77 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     branchA: [
       {
         name: 'Titan Core I',
-        cost: 45,
-        badge: 'Massive HP',
-        description: 'Sets passing unit HP directly to 40 HP.',
+        cost: 50,
+        badge: 'Aggressive HP',
+        description: 'Aggressive HP surge: directly sets passing unit HP to 75 HP (slow 1.5s cast rate).',
         range: 3.0,
-        rate: 1.4,
-        fixedHp: 40
+        rate: 1.5,
+        fixedHp: 75
       },
       {
         name: 'Titan Core II',
-        cost: 85,
-        badge: 'Massive HP',
-        description: 'Sets passing unit HP directly to 80 HP.',
+        cost: 100,
+        badge: 'Aggressive HP',
+        description: 'Titanic leap: directly sets passing unit HP to 160 HP (slow 1.5s cast rate).',
         range: 3.1,
-        rate: 1.35,
-        fixedHp: 80
+        rate: 1.5,
+        fixedHp: 160
       },
       {
         name: 'Titan Core III - Colossus Forge',
-        cost: 150,
-        badge: 'Massive HP',
-        description: 'Sets passing unit HP directly to 120 HP! Instantly primes units for colossal Tier 3 evolutions.',
+        cost: 175,
+        badge: 'Aggressive HP',
+        description: 'Colossus Forge: sets unit HP to 250 HP cap (slow 1.5s cast rate)! Primes units for Tier 3 ascensions.',
         range: 3.2,
-        rate: 1.3,
-        fixedHp: 120
+        rate: 1.5,
+        fixedHp: 250
       }
     ],
     branchB: [
       {
-        name: 'Equalizer Core I',
-        cost: 40,
-        badge: 'HP + Armor',
-        description: 'Sets unit HP to 30 HP and permanently grants +6 Armor.',
+        name: 'Chrono Transmuter I',
+        cost: 45,
+        badge: 'Rapid Cast',
+        description: 'Accelerated shift: sets unit HP to 40 HP with faster 1.20s cast rate.',
         range: 3.0,
-        rate: 1.4,
-        fixedHp: 30,
-        armorAmount: 6
+        rate: 1.20,
+        fixedHp: 40
       },
       {
-        name: 'Equalizer Core II',
+        name: 'Chrono Transmuter II',
         cost: 75,
-        badge: 'HP + Armor',
-        description: 'Sets unit HP to 50 HP and permanently grants +12 Armor.',
-        range: 3.0,
-        rate: 1.35,
-        fixedHp: 50,
-        armorAmount: 12
+        badge: 'Rapid Cast',
+        description: 'Rapid transmuter: sets unit HP to 80 HP with swift 0.95s cast rate.',
+        range: 3.1,
+        rate: 0.95,
+        fixedHp: 80
       },
       {
-        name: 'Equalizer Core III - Aegis Matrix',
-        cost: 130,
-        badge: 'HP + Armor',
-        description: 'Sets unit HP to 75 HP and permanently grants +20 Armor.',
-        range: 3.0,
-        rate: 1.3,
-        fixedHp: 75,
-        armorAmount: 20
+        name: 'Chrono Transmuter III',
+        cost: 115,
+        badge: 'Rapid Cast',
+        description: 'High-speed reality warping: sets unit HP to 130 HP with rapid 0.75s cast rate.',
+        range: 3.2,
+        rate: 0.75,
+        fixedHp: 130
+      },
+      {
+        name: 'Chrono Transmuter IV',
+        cost: 165,
+        badge: 'Rapid Cast',
+        description: 'Blistering shift: sets unit HP to 190 HP with ultra-fast 0.60s cast rate.',
+        range: 3.3,
+        rate: 0.60,
+        fixedHp: 190
+      },
+      {
+        name: 'Chrono Transmuter V - Singularity',
+        cost: 230,
+        badge: 'Rapid Cast',
+        description: 'Temporal Singularity: caps at 250 HP with hyper-speed 0.45s cast rate, transmuting entire passing battalions!',
+        range: 3.4,
+        rate: 0.45,
+        fixedHp: 250
       }
     ]
   },
