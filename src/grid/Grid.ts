@@ -1,14 +1,14 @@
 /**
- * Grid: Represents the isometric tile map for the Player Maze and Battlefield.
+ * Grid: Represents the isometric tile map for the Player Maze Island.
+ * Features a distinct paved serpentine road with dedicated buildable plots lining both sides.
  */
 
 export enum TileType {
-  EMPTY = 0,
-  TOWER = 1,
-  SPAWN = 2,
-  EXIT = 3,
-  WALL = 4,
-  CHECKPOINT = 5
+  EMPTY = 0,    // Buildable plot next to the road
+  TOWER = 1,    // Built tower
+  SPAWN = 2,    // Player Barracks / Spawn gate
+  PORTAL = 3,   // Teleportation gate to Arena
+  ROAD = 4      // Paved unit walking road (cannot build on road)
 }
 
 export interface GridCoord {
@@ -23,13 +23,13 @@ export class Grid {
   public cells: TileType[][];
   public spawnCoord: GridCoord;
   public exitCoord: GridCoord;
-  public checkpoints: GridCoord[];
+  public roadCoords: GridCoord[] = [];
 
-  // World offset so grid is centered / placed on the player's side
+  // World offset for the Maze Island
   public originX: number;
   public originZ: number;
 
-  constructor(width: number = 10, depth: number = 10, tileSize: number = 2, originX: number = -14, originZ: number = 0) {
+  constructor(width: number = 11, depth: number = 11, tileSize: number = 2, originX: number = -22, originZ: number = 0) {
     this.width = width;
     this.depth = depth;
     this.tileSize = tileSize;
@@ -44,25 +44,59 @@ export class Grid {
       }
     }
 
-    // Default Serpentine Path Coordinates:
-    // Spawn (top-left) -> CP1 (top-right) -> CP2 (mid-left) -> CP3 (bottom-right) -> Exit
     this.spawnCoord = { x: 0, z: 1 };
-    this.checkpoints = [
-      { x: 8, z: 2 },
-      { x: 1, z: 5 },
-      { x: 8, z: 7 }
-    ];
-    this.exitCoord = { x: width - 1, z: 8 };
+    this.exitCoord = { x: 10, z: 9 };
 
-    this.initTiles();
+    this.initRoadLayout();
   }
 
-  private initTiles() {
+  /**
+   * Generates an authentic, winding serpentine road with building plots on all sides.
+   */
+  private initRoadLayout() {
+    this.roadCoords = [];
+
+    const addRoad = (x: number, z: number) => {
+      if (this.isValid(x, z)) {
+        this.cells[x][z] = TileType.ROAD;
+        this.roadCoords.push({ x, z });
+      }
+    };
+
+    // 1. Row z = 1: east from 0 to 9
+    for (let x = 0; x <= 9; x++) addRoad(x, 1);
+
+    // 2. Turn down: x = 9, z = 2..3
+    addRoad(9, 2);
+    addRoad(9, 3);
+
+    // 3. Row z = 3: west from 8 down to 1
+    for (let x = 8; x >= 1; x--) addRoad(x, 3);
+
+    // 4. Turn down: x = 1, z = 4..5
+    addRoad(1, 4);
+    addRoad(1, 5);
+
+    // 5. Row z = 5: east from 2 to 9
+    for (let x = 2; x <= 9; x++) addRoad(x, 5);
+
+    // 6. Turn down: x = 9, z = 6..7
+    addRoad(9, 6);
+    addRoad(9, 7);
+
+    // 7. Row z = 7: west from 8 down to 1
+    for (let x = 8; x >= 1; x--) addRoad(x, 7);
+
+    // 8. Turn down: x = 1, z = 8..9
+    addRoad(1, 8);
+    addRoad(1, 9);
+
+    // 9. Row z = 9: east from 2 to 10 (Teleporter Gate!)
+    for (let x = 2; x <= 10; x++) addRoad(x, 9);
+
+    // Set spawn and teleporter exit
     this.cells[this.spawnCoord.x][this.spawnCoord.z] = TileType.SPAWN;
-    for (const cp of this.checkpoints) {
-      this.cells[cp.x][cp.z] = TileType.CHECKPOINT;
-    }
-    this.cells[this.exitCoord.x][this.exitCoord.z] = TileType.EXIT;
+    this.cells[this.exitCoord.x][this.exitCoord.z] = TileType.PORTAL;
   }
 
   isValid(x: number, z: number): boolean {
@@ -71,6 +105,7 @@ export class Grid {
 
   isBuildable(x: number, z: number): boolean {
     if (!this.isValid(x, z)) return false;
+    // Only EMPTY plots (adjacent to road) can have towers built on them
     return this.cells[x][z] === TileType.EMPTY;
   }
 
@@ -81,7 +116,7 @@ export class Grid {
   }
 
   getTile(x: number, z: number): TileType {
-    if (!this.isValid(x, z)) return TileType.WALL;
+    if (!this.isValid(x, z)) return TileType.ROAD;
     return this.cells[x][z];
   }
 
@@ -107,7 +142,6 @@ export class Grid {
         this.cells[x][z] = TileType.EMPTY;
       }
     }
-    this.initTiles();
+    this.initRoadLayout();
   }
 }
-

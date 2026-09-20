@@ -41,6 +41,7 @@ export class Unit {
   public hasCompletedMaze: boolean = false;
   public stagingPos: THREE.Vector3 | null = null;
   public inCombat: boolean = false;
+  public isWaitingInArena: boolean = false;
   public isDead: boolean = false;
   public lateralLaneOffset: number = 0;
 
@@ -273,9 +274,11 @@ export class UnitManager {
     return unit;
   }
 
-  spawnEnemy(enemyClass: EnemyClass, startPos: THREE.Vector3): Unit {
+  spawnEnemy(enemyClass: EnemyClass, startPos: THREE.Vector3, isWaiting: boolean = true): Unit {
     const unit = new Unit(this.nextId++, false, enemyClass, startPos);
-    unit.inCombat = true; // Enemies spawn ready for arena clash
+    unit.isWaitingInArena = isWaiting;
+    unit.inCombat = !isWaiting; // If waiting, inCombat is false until gates open
+    unit.mesh.rotation.y = Math.PI / 2; // Face towards the friendly arrival side
     this.scene.add(unit.mesh);
     this.units.push(unit);
     return unit;
@@ -302,12 +305,19 @@ export class UnitManager {
       // Calculate effective movement speed
       const effectiveSpeed = unit.moveSpeed * (1 - unit.slowFactor);
 
+      // Enemy waiting in formation in arena
+      if (!unit.isFriendly && unit.isWaitingInArena) {
+        // Idle breathing bob
+        unit.bodyMesh.position.y = (0.45 + Math.sin(time * 0.003 + unit.id) * 0.04) * unit.stats.scale;
+        unit.updateHpBar(this.camera);
+        continue;
+      }
+
       // Unit in Maze Pathing
       if (unit.isFriendly && !unit.inCombat) {
         if (!unit.hasCompletedMaze) {
           if (unit.currentWaypointIdx < unit.waypoints.length) {
             const targetWp = unit.waypoints[unit.currentWaypointIdx].clone();
-            // Apply subtle lateral offset so units don't walk in a 1D pixel line
             targetWp.z += unit.lateralLaneOffset;
 
             const dir = new THREE.Vector3().subVectors(targetWp, unit.worldPos);
@@ -316,9 +326,17 @@ export class UnitManager {
             if (dist < 0.35) {
               unit.currentWaypointIdx++;
               if (unit.currentWaypointIdx >= unit.waypoints.length) {
-                // Reached Maze Exit! Move to Staging Area
+                // Reached Teleportation Gate! Beam directly to Arena Arrival Pad!
+                audio.playTeleport();
+                this.vfx.spawnBurstParticles(unit.worldPos, 0x38bdf8, 14);
+
+                // Teleport directly to Arrival Pad on the Arena Island!
+                const arrivalPadPos = new THREE.Vector3(2, 0.4, 0);
+                unit.mesh.position.copy(arrivalPadPos);
+                this.vfx.spawnAscensionPillar(arrivalPadPos, 0x38bdf8);
+                this.vfx.spawnFloatingText(arrivalPadPos, 'WARPED TO ARENA!', '#38bdf8', 1.4);
+
                 unit.hasCompletedMaze = true;
-                this.vfx.spawnFloatingText(unit.worldPos, 'ASSEMBLED!', '#38bdf8', 1.2);
               }
             } else {
               dir.normalize();
@@ -337,7 +355,7 @@ export class UnitManager {
             unit.mesh.position.addScaledVector(dir, effectiveSpeed * dt);
             unit.mesh.lookAt(unit.stagingPos.x, unit.worldPos.y, unit.stagingPos.z);
           } else {
-            // Face forward into the arena
+            // Face forward into the arena towards enemies
             unit.mesh.rotation.y = -Math.PI / 2;
           }
         }

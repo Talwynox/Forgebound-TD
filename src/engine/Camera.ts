@@ -6,9 +6,9 @@ export class CameraController {
   private domElement: HTMLElement;
 
   // Camera settings
-  private distance: number = 38;
+  private distance: number = 44;
   private minDistance: number = 18;
-  private maxDistance: number = 60;
+  private maxDistance: number = 75;
   private pitch: number = 52 * (Math.PI / 180); // Isometric tilt
   private yaw: number = 0; // Top-down / side-view
 
@@ -22,7 +22,7 @@ export class CameraController {
 
   constructor(domElement: HTMLElement) {
     this.domElement = domElement;
-    this.target = new THREE.Vector3(0, 0, 0);
+    this.target = new THREE.Vector3(-6, 0, 0);
 
     const aspect = domElement.clientWidth / domElement.clientHeight;
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.5, 500);
@@ -65,8 +65,8 @@ export class CameraController {
       this.target.z -= dy * panSpeed;
 
       // Clamp bounds
-      this.target.x = Math.max(-35, Math.min(35, this.target.x));
-      this.target.z = Math.max(-20, Math.min(20, this.target.z));
+      this.target.x = Math.max(-45, Math.min(38, this.target.x));
+      this.target.z = Math.max(-25, Math.min(25, this.target.z));
 
       this.updateCameraPosition();
     });

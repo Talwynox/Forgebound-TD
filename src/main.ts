@@ -140,9 +140,46 @@ class GameApp {
       this.towerManager.sellTower(id);
     }
     this.grid.resetGrid();
+    this.renderer.buildRoadVisuals(this.grid);
     this.pathfinder.updatePathVisual();
 
+    // Pre-spawn enemy army in the arena so player can inspect their stats during preparation!
+    this.prepareWaveEnemiesInArena();
+
     this.updateHUD();
+  }
+
+  /**
+   * Pre-spawns the enemy battalion for the current wave in battle formation in the arena.
+   * Units wait idle and are fully clickable for stat inspection!
+   */
+  private prepareWaveEnemiesInArena() {
+    // Remove previous enemy units
+    for (let i = this.unitManager.units.length - 1; i >= 0; i--) {
+      const u = this.unitManager.units[i];
+      if (!u.isFriendly) {
+        this.renderer.scene.remove(u.mesh);
+        this.unitManager.units.splice(i, 1);
+      }
+    }
+
+    if (this.currentWaveIndex >= this.currentMission.waves.length) return;
+    const waveDef = this.currentMission.waves[this.currentWaveIndex];
+
+    let enemyIndex = 0;
+    for (const group of waveDef.enemies) {
+      for (let i = 0; i < group.count; i++) {
+        // Arrange in 2 to 3 ranks on the enemy side of the arena (X = 18..23, Z = -6..6)
+        const row = Math.floor(enemyIndex / 6);
+        const col = (enemyIndex % 6);
+        const posX = 19 + row * 1.6;
+        const posZ = -5 + col * 2.0;
+
+        const startPos = new THREE.Vector3(posX, 0.4, posZ);
+        this.unitManager.spawnEnemy(group.enemyClass, startPos, true); // true = waiting mode
+        enemyIndex++;
+      }
+    }
   }
 
   private startWave() {
@@ -157,10 +194,6 @@ class GameApp {
     this.friendlyUnitsToSpawn = 5 + this.currentWaveIndex * 2;
     this.friendlySpawnTimer = 0;
 
-    // Enemies remain waiting until friendly army completes the maze
-    this.enemiesToSpawnQueue = [];
-    this.enemySpawnTimer = 0;
-
     audio.playBuild();
     this.updateHUD();
   }
@@ -168,8 +201,9 @@ class GameApp {
   private triggerArenaClash() {
     this.wavePhase = 'ARENA_CLASH';
     audio.playEvolution();
-    this.vfx.spawnFloatingText(new THREE.Vector3(12, 3, 0), '⚔️ ALL UNITS ASSEMBLED! CHARGE THE ARENA! ⚔️', '#facc15', 3.0);
-    this.vfx.spawnAscensionPillar(new THREE.Vector3(0, 0, 0), 0x38bdf8);
+    this.vfx.spawnFloatingText(new THREE.Vector3(13, 3, 0), '⚔️ THE ARENA CLASH BEGINS! CHARGE! ⚔️', '#facc15', 3.0);
+    this.vfx.spawnAscensionPillar(new THREE.Vector3(2, 0, 0), 0x38bdf8);
+    this.vfx.spawnAscensionPillar(new THREE.Vector3(22, 0, 0), 0xef4444);
 
     // Release all friendly units into combat
     for (const u of this.unitManager.units) {
@@ -179,18 +213,14 @@ class GameApp {
       }
     }
 
-    // Queue enemy spawns from the citadel
-    const waveDef = this.currentMission.waves[this.currentWaveIndex];
-    this.enemiesToSpawnQueue = [];
-    for (const group of waveDef.enemies) {
-      for (let i = 0; i < group.count; i++) {
-        this.enemiesToSpawnQueue.push({
-          enemyClass: group.enemyClass,
-          delay: group.delayBetween
-        });
+    // Unleash all waiting enemies in the arena
+    for (const u of this.unitManager.units) {
+      if (!u.isFriendly && !u.isDead) {
+        u.isWaitingInArena = false;
+        u.inCombat = true;
       }
     }
-    this.enemySpawnTimer = 0;
+
     this.updateHUD();
   }
 
@@ -208,15 +238,6 @@ class GameApp {
     // Core Pyro TD Mechanic: Recruits spawn severely wounded at 1 HP!
     unit.currentHp = 1;
     unit.armor += bonusArmor;
-  }
-
-  private spawnEnemyUnit(enemyClass: EnemyClass) {
-    // Spawn on the right edge of the battlefield arena
-    const startX = 22 + (Math.random() - 0.5) * 2;
-    const startZ = (Math.random() - 0.5) * 8;
-    const startPos = new THREE.Vector3(startX, 0.4, startZ);
-
-    this.unitManager.spawnEnemy(enemyClass, startPos);
   }
 
   private rerouteActiveUnits() {
@@ -275,6 +296,8 @@ class GameApp {
     if (this.currentWaveIndex >= this.currentMission.waves.length) {
       this.resolveMissionVictory();
     } else {
+      // Pre-spawn next wave's enemies immediately into the arena for player inspection!
+      this.prepareWaveEnemiesInArena();
       this.updateHUD();
     }
   }
@@ -324,10 +347,10 @@ class GameApp {
     // If friendly units reach the right edge (enemy citadel), they bombard it
     for (const unit of this.unitManager.units) {
       if (unit.isFriendly && !unit.isDead && unit.inCombat) {
-        if (unit.worldPos.x >= 23) {
+        if (unit.worldPos.x >= 25) {
           const dmg = Math.round(unit.attack * dt * 2);
           this.enemyCitadelHp = Math.max(0, this.enemyCitadelHp - dmg);
-          this.vfx.spawnBurstParticles(new THREE.Vector3(25, 2, 0), 0xef4444, 3);
+          this.vfx.spawnBurstParticles(new THREE.Vector3(27, 2, 0), 0xef4444, 3);
           if (this.enemyCitadelHp <= 0) {
             // Citadel Destroyed!
             this.resolveMissionVictory();
@@ -336,13 +359,13 @@ class GameApp {
         }
       }
 
-      // If enemy units breach left (past portal into player castle)
+      // If enemy units breach left (past arrival pad into abyss)
       if (!unit.isFriendly && !unit.isDead) {
-        if (unit.worldPos.x <= -4) {
+        if (unit.worldPos.x <= 1) {
           const breachDmg = unit.stats.attack;
           this.castleHp = Math.max(0, this.castleHp - breachDmg);
           audio.playDefeat();
-          this.vfx.spawnFloatingText(new THREE.Vector3(-14, 2, 0), `CASTLE DAMAGED: -${breachDmg}`, '#ef4444', 1.5);
+          this.vfx.spawnFloatingText(new THREE.Vector3(2, 2, 0), `CASTLE DAMAGED: -${breachDmg}`, '#ef4444', 1.5);
           unit.isDead = true;
 
           if (this.castleHp <= 0) {
@@ -401,6 +424,12 @@ class GameApp {
         if (this.raycaster.ray.intersectPlane(this.groundPlane, point)) {
           const coord = this.grid.worldToGrid(point.x, point.z);
           if (coord) {
+            const tile = this.grid.getTile(coord.x, coord.z);
+            if (tile === TileType.ROAD) {
+              this.vfx.spawnFloatingText(point, 'Road tile! Build alongside the path.', '#ef4444', 1.5);
+              return;
+            }
+
             const check = this.towerManager.canBuild(coord, this.ui.selectedTowerTypeForPlacement, this.playerGold);
             if (check.allowed) {
               const def = TOWER_DEFINITIONS[this.ui.selectedTowerTypeForPlacement];
@@ -569,7 +598,7 @@ class GameApp {
             if (!u.stagingPos) {
               const row = Math.floor((assembledCount - 1) / 4);
               const col = (assembledCount - 1) % 4;
-              u.stagingPos = new THREE.Vector3(2.5 + row * 1.3, 0.4, -3.5 + col * 2.2);
+              u.stagingPos = new THREE.Vector3(4.5 + row * 1.4, 0.4, -3.5 + col * 2.2);
             }
           }
         }
@@ -583,23 +612,10 @@ class GameApp {
           this.triggerArenaClash();
         }
       } else if (this.wavePhase === 'ARENA_CLASH') {
-        // Spawn enemy units from the Citadel
-        if (this.enemiesToSpawnQueue.length > 0) {
-          this.enemySpawnTimer += dt;
-          const next = this.enemiesToSpawnQueue[0];
-          if (this.enemySpawnTimer >= next.delay) {
-            this.enemySpawnTimer = 0;
-            this.enemiesToSpawnQueue.shift();
-            this.spawnEnemyUnit(next.enemyClass);
-          }
-        }
-
         // Check if all enemies in wave are defeated
-        if (this.enemiesToSpawnQueue.length === 0) {
-          const remainingEnemies = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead);
-          if (remainingEnemies.length === 0 && !this.waveCleared) {
-            this.resolveWaveVictory();
-          }
+        const remainingEnemies = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead);
+        if (remainingEnemies.length === 0 && !this.waveCleared) {
+          this.resolveWaveVictory();
         }
       }
     }
