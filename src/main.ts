@@ -60,7 +60,7 @@ class GameApp {
     this.container = document.getElementById('canvas-container')!;
     this.renderer = new SceneRenderer(this.container);
     this.cameraCtrl = new CameraController(this.container);
-    this.grid = new Grid(10, 10, 2, -14, 0);
+    this.grid = new Grid(11, 11, 2, -22, 0);
     this.pathfinder = new Pathfinder(this.grid);
     this.pathfinder.setScene(this.renderer.scene);
     this.vfx = new VFXManager(this.renderer.scene, this.cameraCtrl.camera, this.container);

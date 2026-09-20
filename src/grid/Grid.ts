@@ -45,7 +45,7 @@ export class Grid {
     }
 
     this.spawnCoord = { x: 0, z: 1 };
-    this.exitCoord = { x: 10, z: 9 };
+    this.exitCoord = { x: this.width - 1, z: Math.min(9, this.depth - 2) };
 
     this.initRoadLayout();
   }
@@ -63,40 +63,46 @@ export class Grid {
       }
     };
 
-    // 1. Row z = 1: east from 0 to 9
-    for (let x = 0; x <= 9; x++) addRoad(x, 1);
+    const maxX = this.width - 2;
 
-    // 2. Turn down: x = 9, z = 2..3
-    addRoad(9, 2);
-    addRoad(9, 3);
+    // 1. Row z = 1: east from 0 to maxX
+    for (let x = 0; x <= maxX; x++) addRoad(x, 1);
 
-    // 3. Row z = 3: west from 8 down to 1
-    for (let x = 8; x >= 1; x--) addRoad(x, 3);
+    // 2. Turn down: x = maxX, z = 2..3
+    addRoad(maxX, 2);
+    addRoad(maxX, 3);
+
+    // 3. Row z = 3: west from maxX - 1 down to 1
+    for (let x = maxX - 1; x >= 1; x--) addRoad(x, 3);
 
     // 4. Turn down: x = 1, z = 4..5
     addRoad(1, 4);
     addRoad(1, 5);
 
-    // 5. Row z = 5: east from 2 to 9
-    for (let x = 2; x <= 9; x++) addRoad(x, 5);
+    // 5. Row z = 5: east from 2 to maxX
+    for (let x = 2; x <= maxX; x++) addRoad(x, 5);
 
-    // 6. Turn down: x = 9, z = 6..7
-    addRoad(9, 6);
-    addRoad(9, 7);
+    // 6. Turn down: x = maxX, z = 6..7
+    addRoad(maxX, 6);
+    addRoad(maxX, 7);
 
-    // 7. Row z = 7: west from 8 down to 1
-    for (let x = 8; x >= 1; x--) addRoad(x, 7);
+    // 7. Row z = 7: west from maxX - 1 down to 1
+    for (let x = maxX - 1; x >= 1; x--) addRoad(x, 7);
 
     // 8. Turn down: x = 1, z = 8..9
     addRoad(1, 8);
     addRoad(1, 9);
 
-    // 9. Row z = 9: east from 2 to 10 (Teleporter Gate!)
-    for (let x = 2; x <= 10; x++) addRoad(x, 9);
+    // 9. Row z = 9: east from 2 to this.width - 1 (Teleporter Gate!)
+    for (let x = 2; x < this.width; x++) addRoad(x, 9);
 
-    // Set spawn and teleporter exit
-    this.cells[this.spawnCoord.x][this.spawnCoord.z] = TileType.SPAWN;
-    this.cells[this.exitCoord.x][this.exitCoord.z] = TileType.PORTAL;
+    // Set spawn and teleporter exit safely
+    if (this.isValid(this.spawnCoord.x, this.spawnCoord.z)) {
+      this.cells[this.spawnCoord.x][this.spawnCoord.z] = TileType.SPAWN;
+    }
+    if (this.isValid(this.exitCoord.x, this.exitCoord.z)) {
+      this.cells[this.exitCoord.x][this.exitCoord.z] = TileType.PORTAL;
+    }
   }
 
   isValid(x: number, z: number): boolean {
