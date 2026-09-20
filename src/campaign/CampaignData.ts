@@ -19,40 +19,50 @@ export interface CampaignMission {
   starObjectives: [string, string, string];
 }
 
+// 25 Progressive Waves for Mission 1
+const MISSION_1_WAVES: WaveDef[] = [
+  { waveNumber: 1, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 5, delayBetween: 0.8 }], rewardGold: 50 },
+  { waveNumber: 2, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 8, delayBetween: 0.7 }], rewardGold: 55 },
+  { waveNumber: 3, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 10, delayBetween: 0.6 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 2, delayBetween: 1.0 }], rewardGold: 65 },
+  { waveNumber: 4, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 12, delayBetween: 0.5 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 4, delayBetween: 0.9 }], rewardGold: 75 },
+  { waveNumber: 5, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 1, delayBetween: 2.0 }, { enemyClass: EnemyClass.GOBLIN, count: 10, delayBetween: 0.5 }], rewardGold: 90 },
+  { waveNumber: 6, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 8, delayBetween: 0.8 }], rewardGold: 80 },
+  { waveNumber: 7, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 8, delayBetween: 0.8 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 4, delayBetween: 0.6 }], rewardGold: 90 },
+  { waveNumber: 8, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 10, delayBetween: 0.7 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 6, delayBetween: 0.6 }], rewardGold: 100 },
+  { waveNumber: 9, enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 10, delayBetween: 0.5 }], rewardGold: 110 },
+  { waveNumber: 10, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 2, delayBetween: 1.8 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 10, delayBetween: 0.6 }], rewardGold: 130 },
+  { waveNumber: 11, enemies: [{ enemyClass: EnemyClass.SKELETON_ARCHER, count: 12, delayBetween: 0.5 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 6, delayBetween: 0.7 }], rewardGold: 120 },
+  { waveNumber: 12, enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 12, delayBetween: 0.5 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 6, delayBetween: 0.7 }], rewardGold: 130 },
+  { waveNumber: 13, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 14, delayBetween: 0.6 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 8, delayBetween: 0.5 }], rewardGold: 145 },
+  { waveNumber: 14, enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 14, delayBetween: 0.5 }, { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 3, delayBetween: 1.5 }], rewardGold: 160 },
+  { waveNumber: 15, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 4, delayBetween: 1.5 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 12, delayBetween: 0.6 }], rewardGold: 180 },
+  { waveNumber: 16, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 16, delayBetween: 0.5 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 10, delayBetween: 0.5 }], rewardGold: 175 },
+  { waveNumber: 17, enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 18, delayBetween: 0.4 }], rewardGold: 190 },
+  { waveNumber: 18, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 6, delayBetween: 1.2 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 10, delayBetween: 0.6 }], rewardGold: 210 },
+  { waveNumber: 19, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 7, delayBetween: 1.2 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 10, delayBetween: 0.5 }], rewardGold: 225 },
+  { waveNumber: 20, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 8, delayBetween: 1.0 }, { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 12, delayBetween: 0.4 }], rewardGold: 250 },
+  { waveNumber: 21, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 18, delayBetween: 0.5 }, { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 12, delayBetween: 0.4 }], rewardGold: 260 },
+  { waveNumber: 22, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 9, delayBetween: 1.0 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 14, delayBetween: 0.4 }], rewardGold: 280 },
+  { waveNumber: 23, enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 20, delayBetween: 0.4 }, { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 6, delayBetween: 1.2 }], rewardGold: 300 },
+  { waveNumber: 24, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 12, delayBetween: 0.9 }], rewardGold: 330 },
+  { waveNumber: 25, enemies: [{ enemyClass: EnemyClass.BOSS_LORD_IGNIS, count: 1, delayBetween: 2.5 }, { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 6, delayBetween: 1.2 }, { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 12, delayBetween: 0.4 }], rewardGold: 500 }
+];
+
 export const CAMPAIGN_MISSIONS: CampaignMission[] = [
   {
     id: 1,
     title: 'Mission 1: The Frontier Outpost',
-    subtitle: 'Forest Vale - Goblin Incursion',
-    description: 'Establish basic mazing tactics using Vitality Shrines and Flame Obelisks.',
-    briefing: 'Commander, Goblin skirmishers are raiding our frontier. Set up a maze with Vitality Shrines and Flame Obelisks so our recruits are heavily buffed before charging into the arena!',
-    startingGold: 220,
+    subtitle: 'Forest Vale - The 25 Waves of Valor',
+    description: 'Establish your master maze and survive 25 escalating waves of goblin raiders, orc hordes, and siege crushers.',
+    briefing: 'Commander, the enemy vanguard is launching a massive 25-wave siege against our frontier outpost! Build a winding maze with Vitality Shrines, Iron Forges, and Flame Obelisks to empower your recruits, and prepare for the final overlord in Wave 25!',
+    startingGold: 250,
     castleMaxHp: 100,
-    enemyCitadelHp: 300,
-    waves: [
-      {
-        waveNumber: 1,
-        enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 6, delayBetween: 0.8 }],
-        rewardGold: 50
-      },
-      {
-        waveNumber: 2,
-        enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 10, delayBetween: 0.6 }],
-        rewardGold: 70
-      },
-      {
-        waveNumber: 3,
-        enemies: [
-          { enemyClass: EnemyClass.GOBLIN, count: 8, delayBetween: 0.5 },
-          { enemyClass: EnemyClass.ORC_WARRIOR, count: 2, delayBetween: 1.2 }
-        ],
-        rewardGold: 100
-      }
-    ],
+    enemyCitadelHp: 3000,
+    waves: MISSION_1_WAVES,
     starObjectives: [
-      'Defeat all 3 enemy waves',
-      'Maintain Citadel HP above 80%',
-      'Achieve at least 1 Unit Evolution'
+      'Survive and defeat all 25 enemy waves',
+      'Maintain Citadel HP above 75%',
+      'Achieve at least 2 Unit Evolutions (Tier 2 or Tier 3)'
     ]
   },
   {
@@ -61,39 +71,14 @@ export const CAMPAIGN_MISSIONS: CampaignMission[] = [
     subtitle: 'Rocky Crags - Armored Marauders',
     description: 'Deploy Iron Forges for heavy armor plating and Aura Spires to accelerate nearby towers.',
     briefing: 'Heavy Orc Marauders are marching down the crag. Their axes cut deep — build Iron Forges to grant your units armor mitigation, and place Aura Spires to supercharge your buff towers!',
-    startingGold: 260,
+    startingGold: 280,
     castleMaxHp: 120,
-    enemyCitadelHp: 500,
+    enemyCitadelHp: 3500,
     waves: [
-      {
-        waveNumber: 1,
-        enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 5, delayBetween: 1.0 }],
-        rewardGold: 60
-      },
-      {
-        waveNumber: 2,
-        enemies: [
-          { enemyClass: EnemyClass.ORC_WARRIOR, count: 6, delayBetween: 0.9 },
-          { enemyClass: EnemyClass.SKELETON_ARCHER, count: 4, delayBetween: 0.7 }
-        ],
-        rewardGold: 80
-      },
-      {
-        waveNumber: 3,
-        enemies: [
-          { enemyClass: EnemyClass.ORC_WARRIOR, count: 8, delayBetween: 0.8 },
-          { enemyClass: EnemyClass.SKELETON_ARCHER, count: 6, delayBetween: 0.6 }
-        ],
-        rewardGold: 110
-      },
-      {
-        waveNumber: 4,
-        enemies: [
-          { enemyClass: EnemyClass.ORC_WARRIOR, count: 10, delayBetween: 0.7 },
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 2, delayBetween: 2.0 }
-        ],
-        rewardGold: 150
-      }
+      { waveNumber: 1, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 6, delayBetween: 1.0 }], rewardGold: 65 },
+      { waveNumber: 2, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 8, delayBetween: 0.9 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 4, delayBetween: 0.7 }], rewardGold: 85 },
+      { waveNumber: 3, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 10, delayBetween: 0.8 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 6, delayBetween: 0.6 }], rewardGold: 115 },
+      { waveNumber: 4, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 12, delayBetween: 0.7 }, { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 3, delayBetween: 1.8 }], rewardGold: 160 }
     ],
     starObjectives: [
       'Repel the Orc Marauder assault',
@@ -107,39 +92,17 @@ export const CAMPAIGN_MISSIONS: CampaignMission[] = [
     subtitle: 'Sunken Mines - Economic Dominance',
     description: 'Utilize Gold Spires (Midas on Hit vs Vault Interest) and Frost Monoliths to slow unit pacing.',
     briefing: 'We need enormous gold reserves to fund our war campaign! Build Gold Spires to generate currency, and place Frost Monoliths to slow your units down so surrounding towers can hit them dozens of times!',
-    startingGold: 280,
+    startingGold: 300,
     castleMaxHp: 150,
-    enemyCitadelHp: 750,
+    enemyCitadelHp: 4000,
     waves: [
-      {
-        waveNumber: 1,
-        enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 12, delayBetween: 0.5 }],
-        rewardGold: 70
-      },
-      {
-        waveNumber: 2,
-        enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 8, delayBetween: 0.7 }],
-        rewardGold: 90
-      },
-      {
-        waveNumber: 3,
-        enemies: [
-          { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 10, delayBetween: 0.6 },
-          { enemyClass: EnemyClass.SKELETON_ARCHER, count: 6, delayBetween: 0.6 }
-        ],
-        rewardGold: 130
-      },
-      {
-        waveNumber: 4,
-        enemies: [
-          { enemyClass: EnemyClass.ORC_WARRIOR, count: 10, delayBetween: 0.7 },
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 3, delayBetween: 1.5 }
-        ],
-        rewardGold: 180
-      }
+      { waveNumber: 1, enemies: [{ enemyClass: EnemyClass.GOBLIN, count: 12, delayBetween: 0.5 }], rewardGold: 75 },
+      { waveNumber: 2, enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 9, delayBetween: 0.7 }], rewardGold: 95 },
+      { waveNumber: 3, enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 12, delayBetween: 0.6 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 6, delayBetween: 0.6 }], rewardGold: 135 },
+      { waveNumber: 4, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 12, delayBetween: 0.7 }, { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 4, delayBetween: 1.5 }], rewardGold: 190 }
     ],
     starObjectives: [
-      'Clear all 4 waves of agile assassins',
+      'Clear all waves of agile assassins',
       'Amass over 400 Gold in reserve',
       'Evolve a Fire Berserker (High Attack)'
     ]
@@ -150,46 +113,15 @@ export const CAMPAIGN_MISSIONS: CampaignMission[] = [
     subtitle: 'Arcane Rift - Rewriting Reality',
     description: 'Use The Rulebreaker to force fixed 500-1200 HP on units and unlock Tier 3 Paladins.',
     briefing: 'The enemy has unleashed heavy Ironclad Crushers that shrug off basic strikes. Harness the forbidden "Rulebreaker" tower to instantly rewrite your units\' HP to titanic levels and ascend them into Sun Paladins and Colossi!',
-    startingGold: 320,
+    startingGold: 350,
     castleMaxHp: 180,
-    enemyCitadelHp: 1000,
+    enemyCitadelHp: 5000,
     waves: [
-      {
-        waveNumber: 1,
-        enemies: [
-          { enemyClass: EnemyClass.ORC_WARRIOR, count: 8, delayBetween: 0.8 },
-          { enemyClass: EnemyClass.SKELETON_ARCHER, count: 4, delayBetween: 0.6 }
-        ],
-        rewardGold: 80
-      },
-      {
-        waveNumber: 2,
-        enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 12, delayBetween: 0.5 }],
-        rewardGold: 110
-      },
-      {
-        waveNumber: 3,
-        enemies: [
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 4, delayBetween: 1.8 },
-          { enemyClass: EnemyClass.ORC_WARRIOR, count: 8, delayBetween: 0.7 }
-        ],
-        rewardGold: 150
-      },
-      {
-        waveNumber: 4,
-        enemies: [
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 6, delayBetween: 1.5 },
-          { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 8, delayBetween: 0.6 }
-        ],
-        rewardGold: 200
-      },
-      {
-        waveNumber: 5,
-        enemies: [
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 8, delayBetween: 1.4 }
-        ],
-        rewardGold: 250
-      }
+      { waveNumber: 1, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 9, delayBetween: 0.8 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 5, delayBetween: 0.6 }], rewardGold: 85 },
+      { waveNumber: 2, enemies: [{ enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 14, delayBetween: 0.5 }], rewardGold: 115 },
+      { waveNumber: 3, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 5, delayBetween: 1.8 }, { enemyClass: EnemyClass.ORC_WARRIOR, count: 10, delayBetween: 0.7 }], rewardGold: 160 },
+      { waveNumber: 4, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 7, delayBetween: 1.5 }, { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 10, delayBetween: 0.6 }], rewardGold: 210 },
+      { waveNumber: 5, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 10, delayBetween: 1.4 }], rewardGold: 270 }
     ],
     starObjectives: [
       'Survive the Ironclad Crusher onslaught',
@@ -203,51 +135,15 @@ export const CAMPAIGN_MISSIONS: CampaignMission[] = [
     subtitle: 'Molten Core - Final Showdown',
     description: 'Face Lord Ignis in a legendary battle combining all towers, branching upgrades, and evolutions.',
     briefing: 'Lord Ignis has risen from the molten depths. His hellfire aura burns all who approach unprepared. Construct your master maze with full branching synergies and slow-stacking enhancements to vanquish the Demon Lord!',
-    startingGold: 400,
+    startingGold: 450,
     castleMaxHp: 200,
-    enemyCitadelHp: 1500,
+    enemyCitadelHp: 6000,
     waves: [
-      {
-        waveNumber: 1,
-        enemies: [
-          { enemyClass: EnemyClass.ORC_WARRIOR, count: 10, delayBetween: 0.7 },
-          { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 8, delayBetween: 0.5 }
-        ],
-        rewardGold: 100
-      },
-      {
-        waveNumber: 2,
-        enemies: [
-          { enemyClass: EnemyClass.SKELETON_ARCHER, count: 12, delayBetween: 0.5 },
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 4, delayBetween: 1.5 }
-        ],
-        rewardGold: 140
-      },
-      {
-        waveNumber: 3,
-        enemies: [
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 7, delayBetween: 1.2 },
-          { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 10, delayBetween: 0.5 }
-        ],
-        rewardGold: 190
-      },
-      {
-        waveNumber: 4,
-        enemies: [
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 10, delayBetween: 1.0 },
-          { enemyClass: EnemyClass.SKELETON_ARCHER, count: 10, delayBetween: 0.5 }
-        ],
-        rewardGold: 250
-      },
-      {
-        waveNumber: 5,
-        enemies: [
-          { enemyClass: EnemyClass.BOSS_LORD_IGNIS, count: 1, delayBetween: 3.0 },
-          { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 4, delayBetween: 1.5 },
-          { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 8, delayBetween: 0.5 }
-        ],
-        rewardGold: 400
-      }
+      { waveNumber: 1, enemies: [{ enemyClass: EnemyClass.ORC_WARRIOR, count: 12, delayBetween: 0.7 }, { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 9, delayBetween: 0.5 }], rewardGold: 110 },
+      { waveNumber: 2, enemies: [{ enemyClass: EnemyClass.SKELETON_ARCHER, count: 14, delayBetween: 0.5 }, { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 5, delayBetween: 1.5 }], rewardGold: 150 },
+      { waveNumber: 3, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 8, delayBetween: 1.2 }, { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 12, delayBetween: 0.5 }], rewardGold: 200 },
+      { waveNumber: 4, enemies: [{ enemyClass: EnemyClass.IRONCLAD_OGRE, count: 12, delayBetween: 1.0 }, { enemyClass: EnemyClass.SKELETON_ARCHER, count: 12, delayBetween: 0.5 }], rewardGold: 270 },
+      { waveNumber: 5, enemies: [{ enemyClass: EnemyClass.BOSS_LORD_IGNIS, count: 1, delayBetween: 3.0 }, { enemyClass: EnemyClass.IRONCLAD_OGRE, count: 6, delayBetween: 1.5 }, { enemyClass: EnemyClass.SHADOW_ASSASSIN, count: 10, delayBetween: 0.5 }], rewardGold: 450 }
     ],
     starObjectives: [
       'Vanquish Lord Ignis and destroy the Molten Citadel',
@@ -256,4 +152,3 @@ export const CAMPAIGN_MISSIONS: CampaignMission[] = [
     ]
   }
 ];
-

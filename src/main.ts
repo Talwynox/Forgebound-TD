@@ -292,11 +292,20 @@ class GameApp {
 
     this.currentWaveIndex++;
 
-    // Check if Mission Complete
+    // Clean up surviving friendly units from the completed wave so they don't attack next wave's waiting enemies!
+    for (let i = this.unitManager.units.length - 1; i >= 0; i--) {
+      const u = this.unitManager.units[i];
+      if (u.isFriendly) {
+        this.renderer.scene.remove(u.mesh);
+        this.unitManager.units.splice(i, 1);
+      }
+    }
+
+    // Check if Mission Complete (all 25 waves survived and defeated!)
     if (this.currentWaveIndex >= this.currentMission.waves.length) {
       this.resolveMissionVictory();
     } else {
-      // Pre-spawn next wave's enemies immediately into the arena for player inspection!
+      // Pre-spawn next wave's enemies immediately into the arena for player inspection during prep!
       this.prepareWaveEnemiesInArena();
       this.updateHUD();
     }
@@ -308,9 +317,9 @@ class GameApp {
     this.waveInProgress = false;
     this.wavePhase = 'IDLE';
 
-    let stars = 1; // 1 star for clearing
-    if (this.castleHp >= this.castleMaxHp * 0.8) stars++;
-    // Check if any unit achieved evolution
+    let stars = 1; // 1 star for clearing all waves
+    if (this.castleHp >= this.castleMaxHp * 0.75) stars++;
+    // Check if any unit achieved evolution during the mission
     const hasEvolved = this.unitManager.units.some(u => u.isFriendly && u.stats.tier >= 2);
     if (hasEvolved) stars++;
 
@@ -344,18 +353,13 @@ class GameApp {
   private checkCitadelDamage(dt: number) {
     if (this.missionEnded) return;
 
-    // If friendly units reach the right edge (enemy citadel), they bombard it
+    // Friendly units attack enemy citadel during arena clash
     for (const unit of this.unitManager.units) {
       if (unit.isFriendly && !unit.isDead && unit.inCombat) {
         if (unit.worldPos.x >= 25) {
           const dmg = Math.round(unit.attack * dt * 2);
           this.enemyCitadelHp = Math.max(0, this.enemyCitadelHp - dmg);
           this.vfx.spawnBurstParticles(new THREE.Vector3(27, 2, 0), 0xef4444, 3);
-          if (this.enemyCitadelHp <= 0) {
-            // Citadel Destroyed!
-            this.resolveMissionVictory();
-            return;
-          }
         }
       }
 
