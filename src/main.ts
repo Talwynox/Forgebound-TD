@@ -1327,12 +1327,15 @@ class GameApp {
     return null;
   }
 
+  private setPointer(clientX: number, clientY: number) {
+    const rect = this.container.getBoundingClientRect();
+    this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
   private setupMouseEvents() {
     window.addEventListener('mousemove', (e: MouseEvent) => {
-      const rect = this.container.getBoundingClientRect();
-      this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
+      this.setPointer(e.clientX, e.clientY);
       this.updatePlacementGhost();
 
       const point = this.raycastGround();
@@ -1344,7 +1347,11 @@ class GameApp {
 
     this.container.addEventListener('click', (e: MouseEvent) => {
       if (e.button !== 0) return;
+      // The click that ends a touch pan/pinch is not a tap on the battlefield
+      if (this.cameraCtrl.consumeDragGesture()) return;
 
+      // Touch devices have no hover, so take the position from the tap itself
+      this.setPointer(e.clientX, e.clientY);
       this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
 
       if (this.isFocusFireMode) {

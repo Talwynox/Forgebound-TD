@@ -2633,6 +2633,209 @@ body, html {
   bottom: 82px;
 }
 
+/* --- Overlays follow the real HUD size (set by UIManager.trackHudInsets) --- */
+.grand-boss-bar,
+.hud-focus-banner {
+  top: var(--hud-top-offset, 72px);
+}
+
+.achievement-toast {
+  top: var(--hud-top-offset, 68px);
+}
+
+/* --- Touch devices --- */
+#canvas-container {
+  touch-action: none;
+}
+
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: none) {
+  /* No hover on touch: tooltips would stick open, keyboard hotkeys don't apply */
+  .tower-tooltip,
+  .tower-btn-hotkey,
+  .hud-top-bar .key-badge {
+    display: none !important;
+  }
+
+  .tower-btn {
+    justify-content: center;
+    padding-bottom: 0;
+  }
+
+  .tower-btn:hover:not(.unaffordable) {
+    transform: none;
+  }
+}
+
+/* --- Phones & small tablets --- */
+@media (max-width: 900px), (max-height: 520px) {
+  .hud-top-bar {
+    top: max(6px, env(safe-area-inset-top));
+    left: max(6px, env(safe-area-inset-left));
+    right: max(6px, env(safe-area-inset-right));
+    height: auto;
+    padding: 6px;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .hud-top-bar .hud-group {
+    gap: 5px;
+  }
+
+  /* Controls become a swipeable strip */
+  .hud-top-bar .hud-group.controls {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .hud-top-bar .hud-group.controls::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hud-top-bar .hud-btn,
+  .hud-top-bar .hud-stat,
+  .hud-top-bar .hud-badge {
+    flex: 0 0 auto;
+    height: 34px;
+    min-width: 34px;
+    padding: 4px 9px;
+    font-size: 12.5px;
+  }
+
+  .hud-top-bar .hud-badge {
+    height: 28px;
+  }
+
+  .hud-top-bar .btn-label,
+  .hud-top-bar .minor-key,
+  .hud-mission-title,
+  .hud-divider,
+  .hud-stat[title="Campaign Stars"] {
+    display: none;
+  }
+
+  /* The call to arms comes first so it's always on screen */
+  .hud-top-bar .wave-btn {
+    order: -1;
+  }
+
+  /* Tower palette: full-width swipeable strip */
+  .hud-tower-palette {
+    left: max(6px, env(safe-area-inset-left));
+    right: max(6px, env(safe-area-inset-right));
+    bottom: max(6px, env(safe-area-inset-bottom));
+    transform: none;
+    padding: 6px;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .hud-tower-palette::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tower-btn {
+    flex: 0 0 auto;
+    width: 76px;
+    height: 58px;
+  }
+
+  .tower-btn-title {
+    font-size: 10px;
+  }
+
+  /* Tower / unit / guardian cards become bottom sheets above the palette */
+  .hud-card {
+    left: max(6px, env(safe-area-inset-left)) !important;
+    right: max(6px, env(safe-area-inset-right)) !important;
+    width: auto !important;
+    bottom: var(--hud-bottom-offset, 80px);
+    max-height: calc(100vh - var(--hud-bottom-offset, 80px) - var(--hud-top-offset, 80px));
+    padding: 12px;
+  }
+
+  .grand-boss-bar,
+  .hud-focus-banner {
+    max-width: calc(100vw - 12px);
+  }
+
+  /* Modals fill the screen comfortably */
+  .modal-backdrop {
+    align-items: flex-start;
+    padding: max(8px, env(safe-area-inset-top)) 8px 8px;
+    overflow-y: auto;
+  }
+
+  .modal-card,
+  .mp-dialog,
+  .tutorial-modal,
+  .trophies-modal,
+  .campaign-modal,
+  .tech-modal,
+  .wave-intel-modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100vh - 16px);
+    padding: 14px;
+  }
+
+  .tutorial-headline {
+    font-size: 16px;
+  }
+
+  .tutorial-grid,
+  .trophy-grid,
+  .intel-battalions-grid,
+  .mp-rosters {
+    grid-template-columns: 1fr !important;
+    flex-direction: column;
+  }
+
+  .modal-actions {
+    flex-wrap: wrap;
+  }
+
+  .modal-actions > button {
+    flex: 1 1 auto;
+    min-height: 42px;
+  }
+}
+
+/* Landscape phones: keep the top bar to a single swipeable row */
+@media (max-height: 520px) {
+  .hud-top-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .hud-top-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hud-top-bar .hud-group,
+  .hud-top-bar .hud-group.controls {
+    flex: 0 0 auto;
+    width: auto;
+    overflow: visible;
+  }
+
+  .tower-btn {
+    height: 50px;
+  }
+}
+
 /* --- Floating combat text: embossed, readable over the dark battlefield --- */
 .floating-combat-text {
   font-family: var(--df-title-font) !important;

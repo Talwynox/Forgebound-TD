@@ -81,6 +81,7 @@ export class UIManager {
     this.towerPaletteEl.className = 'hud-tower-palette';
     this.domContainer.appendChild(this.towerPaletteEl);
     this.renderTowerPalette();
+    this.trackHudInsets();
 
     // 3. Selected Tower Card (Bottom left)
     this.towerCardEl = document.createElement('div');
@@ -164,6 +165,25 @@ export class UIManager {
   private lastTotalRecruits: number = 10;
   private lastRecruitCost: number = 25;
   private lastCanBuyRecruit: boolean = true;
+
+  /**
+   * Publishes how much screen the top bar and tower palette occupy (CSS vars --hud-top-offset /
+   * --hud-bottom-offset) so overlays and cards never collide with them, whatever the layout wraps to.
+   */
+  private trackHudInsets() {
+    const root = document.documentElement;
+    const update = () => {
+      const top = this.topBarEl.getBoundingClientRect();
+      const bottom = this.towerPaletteEl.getBoundingClientRect();
+      root.style.setProperty('--hud-top-offset', `${Math.round(top.bottom + 8)}px`);
+      root.style.setProperty('--hud-bottom-offset', `${Math.round(window.innerHeight - bottom.top + 8)}px`);
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(this.topBarEl);
+    observer.observe(this.towerPaletteEl);
+    window.addEventListener('resize', update);
+    update();
+  }
 
   initMultiplayer(network: NetworkManager) {
     this.networkManager = network;
