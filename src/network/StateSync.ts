@@ -32,7 +32,7 @@ export function encodeUnit(u: Unit): UnitState {
   if (u.hasCompletedMaze) flags |= UNIT_FLAG.COMPLETED_MAZE;
   if (u.isWaitingInArena) flags |= UNIT_FLAG.WAITING_IN_ARENA;
   if (u.magmaShieldActive) flags |= UNIT_FLAG.MAGMA_SHIELD;
-  if (u.isMercenary) flags |= UNIT_FLAG.MERCENARY;
+  if (u.team === 'MOON') flags |= UNIT_FLAG.TEAM_MOON;
 
   return [
     u.id,
@@ -62,17 +62,18 @@ export function applyUnitStates(unitManager: UnitManager, states: UnitState[], o
   for (const [id, unitClass, flags, x, y, z, yaw, hp, maxHp, armor, attack, mana] of states) {
     seen.add(id);
     const isFriendly = (flags & UNIT_FLAG.FRIENDLY) !== 0;
+    const team = (flags & UNIT_FLAG.TEAM_MOON) !== 0 ? 'MOON' : 'SUN';
     const cls = unitClass as FriendlyClass | EnemyClass;
     const pos = new THREE.Vector3(x / 100, y / 100, z / 100);
 
     let unit = byId.get(id);
-    if (unit && unit.isFriendly !== isFriendly) {
+    if (unit && (unit.isFriendly !== isFriendly || unit.team !== team)) {
       unitManager.despawnUnit(unit);
       unit = undefined;
     }
     if (!unit) {
       if (flags & UNIT_FLAG.DYING) continue; // Never saw it alive; skip the death animation
-      unit = unitManager.spawnNetworkUnit(id, isFriendly, cls, pos);
+      unit = unitManager.spawnNetworkUnit(id, isFriendly, cls, pos, team);
       unit.mesh.rotation.set(0, yaw / 100, 0);
     }
 
@@ -95,7 +96,6 @@ export function applyUnitStates(unitManager: UnitManager, states: UnitState[], o
     unit.hasCompletedMaze = (flags & UNIT_FLAG.COMPLETED_MAZE) !== 0;
     unit.isWaitingInArena = (flags & UNIT_FLAG.WAITING_IN_ARENA) !== 0;
     unit.magmaShieldActive = (flags & UNIT_FLAG.MAGMA_SHIELD) !== 0;
-    unit.isMercenary = (flags & UNIT_FLAG.MERCENARY) !== 0;
     if ((flags & UNIT_FLAG.LUNGING) && unit.lungeTimer <= 0) unit.lungeTimer = 0.16;
     if ((flags & UNIT_FLAG.FLINCHING) && unit.hitFlinchTimer <= 0) unit.hitFlinchTimer = 0.14;
 

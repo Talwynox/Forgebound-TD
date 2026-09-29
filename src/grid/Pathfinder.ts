@@ -1,25 +1,15 @@
 import * as THREE from 'three';
-import { Grid, GridCoord } from './Grid';
+import { Grid } from './Grid';
 
+/**
+ * The maze road is a fixed serpentine layout (towers are only built on the plots beside it),
+ * so the walking path is simply the road tiles in order.
+ */
 export class Pathfinder {
   private grid: Grid;
-  private pathLine: THREE.Line | null = null;
-  public scene: THREE.Scene | null = null;
 
   constructor(grid: Grid) {
     this.grid = grid;
-  }
-
-  setScene(scene: THREE.Scene) {
-    this.scene = scene;
-  }
-
-  /**
-   * Check if placing a tower at (x, z) is allowed.
-   * Towers can be placed on any plot adjacent to the road, but NOT on the paved road itself!
-   */
-  canPlaceTower(x: number, z: number): boolean {
-    return this.grid.isBuildable(x, z);
   }
 
   /**
@@ -30,21 +20,5 @@ export class Pathfinder {
       const world = this.grid.gridToWorld(coord.x, coord.z);
       return new THREE.Vector3(world.x, 0.4, world.z);
     });
-  }
-
-  /**
-   * Updates visual path in the scene.
-   * The physical cobblestone road with raised stone curbs and golden runic keystones
-   * built by Renderer.buildRoadVisuals serves as the high-fidelity path visual.
-   */
-  updatePathVisual() {
-    if (!this.scene) return;
-
-    if (this.pathLine) {
-      this.scene.remove(this.pathLine);
-      this.pathLine.geometry.dispose();
-      (this.pathLine.material as THREE.Material).dispose();
-      this.pathLine = null;
-    }
   }
 }

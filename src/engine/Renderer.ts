@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Grid, TileType } from '../grid/Grid';
+import { ARENA_MIRROR_X } from '../game/Teams';
 
 export class SceneRenderer {
   public scene: THREE.Scene;
@@ -11,9 +12,13 @@ export class SceneRenderer {
   public hemiLight: THREE.HemisphereLight;
 
   // Animated elements
-  public portalVortex: THREE.Mesh | null = null;
-  public arrivalVortex: THREE.Mesh | null = null;
+  private portalVortices: THREE.Mesh[] = [];
+  private arrivalVortices: THREE.Mesh[] = [];
   private roadGroup: THREE.Group = new THREE.Group();
+
+  // PvP layout: mirrored Moon maze island & arena side; the decorative enemy citadel is hidden
+  private enemyCitadel: THREE.Group | null = null;
+  private moonSide: THREE.Group | null = null;
   private floatingLeyCrystals: { mesh: THREE.Group; baseY: number; speed: number; phase: number }[] = [];
   private animatedClouds: THREE.Group[] = [];
   private lavaMaterials: THREE.MeshBasicMaterial[] = [];
@@ -86,69 +91,7 @@ export class SceneRenderer {
     this.buildCentralChasmAndLeyLines();
     this.buildLowPolyCloudCover();
 
-    // ==========================================
-    // 1. MAZE ISLAND (Left Plateau: X = -22, Z = 0)
-    // ==========================================
-    const mazeIslandGeom = new THREE.BoxGeometry(24, 0.5, 32);
-    const mazeIslandMat = new THREE.MeshStandardMaterial({
-      color: 0x2d4a2e, // Dark forest green grass
-      roughness: 0.75,
-      metalness: 0.2
-    });
-    const mazeIsland = new THREE.Mesh(mazeIslandGeom, mazeIslandMat);
-    mazeIsland.position.set(-22, -0.15, 0);
-    mazeIsland.receiveShadow = true;
-    this.scene.add(mazeIsland);
-
-    // Stone border trim for Maze Island (covering 24 x 32)
-    const trimGeomX = new THREE.BoxGeometry(24.4, 0.6, 0.4);
-    const trimGeomZ = new THREE.BoxGeometry(0.4, 0.6, 32.4);
-    const trimMat = new THREE.MeshStandardMaterial({ color: 0x5c4a3a, roughness: 0.8 });
-
-    const trimN = new THREE.Mesh(trimGeomX, trimMat);
-    trimN.position.set(-22, 0.1, -16.1);
-    this.scene.add(trimN);
-    const trimS = trimN.clone();
-    trimS.position.z = 16.1;
-    this.scene.add(trimS);
-
-    const trimW = new THREE.Mesh(trimGeomZ, trimMat);
-    trimW.position.set(-34.1, 0.1, 0);
-    this.scene.add(trimW);
-    const trimE = trimW.clone();
-    trimE.position.x = -9.9;
-    this.scene.add(trimE);
-
-    // Decorative grass and stones
-    const grassGeom = new THREE.ConeGeometry(0.15, 0.4, 4);
-    const grassMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.9 });
-    for (let i = 0; i < 14; i++) {
-      const grass = new THREE.Mesh(grassGeom, grassMat);
-      const angle = (i * 1.37) % (Math.PI * 2);
-      const radX = 9 + (i % 3); 
-      const radZ = 13 + (i % 3); 
-      grass.position.set(-22 + Math.cos(angle) * radX, 0.15, Math.sin(angle) * radZ);
-      this.scene.add(grass);
-    }
-    const rubbleGeom = new THREE.DodecahedronGeometry(0.1);
-    const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.8 });
-    for (let i = 0; i < 6; i++) {
-      const stone = new THREE.Mesh(rubbleGeom, rubbleMat);
-      const angle = (i * 2.14) % (Math.PI * 2);
-      const radX = 10 + (i % 2);
-      const radZ = 14 + (i % 2);
-      stone.position.set(-22 + Math.cos(angle) * radX, 0.15, Math.sin(angle) * radZ);
-      stone.rotation.set(i, i * 1.5, 0);
-      this.scene.add(stone);
-    }
-
-    this.scene.add(this.roadGroup);
-
-    // Player Castle (Start of Maze: X = -34, Z = -12)
-    this.buildPlayerCastle(new THREE.Vector3(-34, 0, -12));
-
-    // Teleportation Gate (End of Maze: X = -10, Z = 12)
-    this.buildTeleportationGate(new THREE.Vector3(-10, 0, 12));
+    this.buildMazeIsland(this.scene, this.roadGroup);
 
     // ==========================================
     // 2. GRAND ARENA ISLAND (Right: X = 14, Z = 0)
@@ -347,17 +290,124 @@ export class SceneRenderer {
     });
 
     // Enemy Citadel Fortress (Far Right: X = 27, Z = 0)
-    this.buildEnemyCitadel(new THREE.Vector3(27, 0, 0));
+    this.enemyCitadel = this.buildEnemyCitadel(new THREE.Vector3(27, 0, 0));
+  }
+
+  /**
+   * PvP: show the Moon team's maze island and arena side (a mirror image of the Sun side across
+   * the arena centre) in place of the decorative enemy citadel.
+   */
+  public setPvpLayout(enabled: boolean, sunGrid: Grid) {
+    if (enabled && !this.moonSide) {
+      // Build the Sun-side content at Sun coordinates, then mirror the whole group across X.
+      const side = new THREE.Group();
+      side.scale.x = -1;
+      side.position.x = 2 * ARENA_MIRROR_X;
+
+      const moonRoad = new THREE.Group();
+      this.buildMazeIsland(side, moonRoad);
+      this.buildRoadVisuals(sunGrid, moonRoad);
+      this.buildMazeBedrock(side);
+      this.buildArrivalTeleportPad(new THREE.Vector3(1.8, 0, 0), side);
+
+      const barrierMat = new THREE.MeshStandardMaterial({ color: 0x4a3b30, roughness: 0.85, metalness: 0.15 });
+      [-6.7, 6.7].forEach(zPos => {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.5, 6.6), barrierMat);
+        wall.position.set(-0.1, 0.55, zPos);
+        wall.castShadow = true;
+        side.add(wall);
+      });
+
+      const moonCastleLight = new THREE.PointLight(0xef4444, 1.2, 18);
+      moonCastleLight.position.set(-34, 4, -12);
+      side.add(moonCastleLight);
+
+      this.scene.add(side);
+      this.moonSide = side;
+    }
+
+    if (this.moonSide) this.moonSide.visible = enabled;
+    if (this.enemyCitadel) this.enemyCitadel.visible = !enabled;
+  }
+
+  /**
+   * Maze island at the Sun position (X = -22): plateau, trims, decor, road, barracks castle & teleport gate.
+   * The PvP Moon side reuses this inside a group mirrored across the arena.
+   */
+  private buildMazeIsland(parent: THREE.Object3D, roadGroup: THREE.Group) {
+    // ==========================================
+    // 1. MAZE ISLAND (Left Plateau: X = -22, Z = 0)
+    // ==========================================
+    const mazeIslandGeom = new THREE.BoxGeometry(24, 0.5, 32);
+    const mazeIslandMat = new THREE.MeshStandardMaterial({
+      color: 0x2d4a2e, // Dark forest green grass
+      roughness: 0.75,
+      metalness: 0.2
+    });
+    const mazeIsland = new THREE.Mesh(mazeIslandGeom, mazeIslandMat);
+    mazeIsland.position.set(-22, -0.15, 0);
+    mazeIsland.receiveShadow = true;
+    parent.add(mazeIsland);
+
+    // Stone border trim for Maze Island (covering 24 x 32)
+    const trimGeomX = new THREE.BoxGeometry(24.4, 0.6, 0.4);
+    const trimGeomZ = new THREE.BoxGeometry(0.4, 0.6, 32.4);
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x5c4a3a, roughness: 0.8 });
+
+    const trimN = new THREE.Mesh(trimGeomX, trimMat);
+    trimN.position.set(-22, 0.1, -16.1);
+    parent.add(trimN);
+    const trimS = trimN.clone();
+    trimS.position.z = 16.1;
+    parent.add(trimS);
+
+    const trimW = new THREE.Mesh(trimGeomZ, trimMat);
+    trimW.position.set(-34.1, 0.1, 0);
+    parent.add(trimW);
+    const trimE = trimW.clone();
+    trimE.position.x = -9.9;
+    parent.add(trimE);
+
+    // Decorative grass and stones
+    const grassGeom = new THREE.ConeGeometry(0.15, 0.4, 4);
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.9 });
+    for (let i = 0; i < 14; i++) {
+      const grass = new THREE.Mesh(grassGeom, grassMat);
+      const angle = (i * 1.37) % (Math.PI * 2);
+      const radX = 9 + (i % 3); 
+      const radZ = 13 + (i % 3); 
+      grass.position.set(-22 + Math.cos(angle) * radX, 0.15, Math.sin(angle) * radZ);
+      parent.add(grass);
+    }
+    const rubbleGeom = new THREE.DodecahedronGeometry(0.1);
+    const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.8 });
+    for (let i = 0; i < 6; i++) {
+      const stone = new THREE.Mesh(rubbleGeom, rubbleMat);
+      const angle = (i * 2.14) % (Math.PI * 2);
+      const radX = 10 + (i % 2);
+      const radZ = 14 + (i % 2);
+      stone.position.set(-22 + Math.cos(angle) * radX, 0.15, Math.sin(angle) * radZ);
+      stone.rotation.set(i, i * 1.5, 0);
+      parent.add(stone);
+    }
+
+    parent.add(roadGroup);
+
+    // Player Castle (Start of Maze: X = -34, Z = -12)
+    this.buildPlayerCastle(new THREE.Vector3(-34, 0, -12), parent);
+
+    // Teleportation Gate (End of Maze: X = -10, Z = 12)
+    this.buildTeleportationGate(new THREE.Vector3(-10, 0, 12), parent);
   }
 
   /**
    * Builds distinct, high-contrast cobblestone road paving across all road tiles
    */
-  buildRoadVisuals(grid: Grid) {
+  buildRoadVisuals(grid: Grid, roadGroup: THREE.Group = this.roadGroup) {
     // Clear old road meshes
-    while (this.roadGroup.children.length > 0) {
-      const child = this.roadGroup.children[0];
-      this.roadGroup.remove(child);
+    while (roadGroup.children.length > 0) {
+      const child = roadGroup.children[0];
+      roadGroup.remove(child);
       if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
         if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
@@ -432,7 +482,7 @@ export class SceneRenderer {
       const bed = new THREE.Mesh(bedGeom, gravelBedMat);
       bed.position.set(world.x, 0.11, world.z);
       bed.receiveShadow = true;
-      this.roadGroup.add(bed);
+      roadGroup.add(bed);
 
       // 2. Multi-Stone Flagstone Paver Clusters (5-6 organic flagstones per tile)
       const seed = Math.abs(coord.x * 13 + coord.z * 29);
@@ -449,7 +499,7 @@ export class SceneRenderer {
         paver.position.set(world.x + p.ox, 0.145, world.z + p.oz);
         paver.rotation.y = ((seed % 7) - 3) * 0.015;
         paver.receiveShadow = true;
-        this.roadGroup.add(paver);
+        roadGroup.add(paver);
       }
 
       // Center Keystone / Inlaid Golden Stepping Stone
@@ -461,7 +511,7 @@ export class SceneRenderer {
       const centerStone = new THREE.Mesh(centerGeom, centerMat);
       centerStone.position.set(world.x, 0.15, world.z);
       centerStone.receiveShadow = true;
-      this.roadGroup.add(centerStone);
+      roadGroup.add(centerStone);
 
       // 3. Raised Chiseled Stone Curbs along edges that border non-road tiles
       const hasNorthRoad = grid.isRoad(coord.x, coord.z - 1);
@@ -476,28 +526,28 @@ export class SceneRenderer {
         const curbN = new THREE.Mesh(new THREE.BoxGeometry(s * 0.98, curbHeight, 0.16), curbStoneMat);
         curbN.position.set(world.x, curbY, world.z - 0.91);
         curbN.receiveShadow = true;
-        this.roadGroup.add(curbN);
+        roadGroup.add(curbN);
       }
 
       if (!hasSouthRoad) {
         const curbS = new THREE.Mesh(new THREE.BoxGeometry(s * 0.98, curbHeight, 0.16), curbStoneMat);
         curbS.position.set(world.x, curbY, world.z + 0.91);
         curbS.receiveShadow = true;
-        this.roadGroup.add(curbS);
+        roadGroup.add(curbS);
       }
 
       if (!hasWestRoad) {
         const curbW = new THREE.Mesh(new THREE.BoxGeometry(0.16, curbHeight, s * 0.98), curbStoneMat);
         curbW.position.set(world.x - 0.91, curbY, world.z);
         curbW.receiveShadow = true;
-        this.roadGroup.add(curbW);
+        roadGroup.add(curbW);
       }
 
       if (!hasEastRoad) {
         const curbE = new THREE.Mesh(new THREE.BoxGeometry(0.16, curbHeight, s * 0.98), curbStoneMat);
         curbE.position.set(world.x + 0.91, curbY, world.z);
         curbE.receiveShadow = true;
-        this.roadGroup.add(curbE);
+        roadGroup.add(curbE);
       }
 
       // 4. Milestone Wayposts & Braziers at Hairpin Corners
@@ -513,22 +563,22 @@ export class SceneRenderer {
         const cornerX = !hasEastRoad ? world.x + 0.85 : world.x - 0.85;
         const cornerZ = !hasSouthRoad ? world.z + 0.85 : world.z - 0.85;
         post.position.set(cornerX, 0.32, cornerZ);
-        this.roadGroup.add(post);
+        roadGroup.add(post);
 
         const lanternPole = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.25, 0.06), lanternIronMat);
         lanternPole.position.set(cornerX, 0.65, cornerZ);
-        this.roadGroup.add(lanternPole);
+        roadGroup.add(lanternPole);
 
         const ember = new THREE.Mesh(new THREE.OctahedronGeometry(0.1, 0), lanternGlowMat);
         ember.position.set(cornerX, 0.80, cornerZ);
-        this.roadGroup.add(ember);
+        roadGroup.add(ember);
       }
 
       tileIndex++;
     }
   }
 
-  private buildPlayerCastle(pos: THREE.Vector3) {
+  private buildPlayerCastle(pos: THREE.Vector3, parent: THREE.Object3D = this.scene): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(pos);
 
@@ -788,10 +838,11 @@ export class SceneRenderer {
     flagMesh.position.set(0.6, 7.4, -0.6);
     group.add(flagMesh);
 
-    this.scene.add(group);
+    parent.add(group);
+    return group;
   }
 
-  private buildTeleportationGate(pos: THREE.Vector3) {
+  private buildTeleportationGate(pos: THREE.Vector3, parent: THREE.Object3D = this.scene): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(pos);
 
@@ -947,10 +998,11 @@ export class SceneRenderer {
       opacity: 0.82,
       side: THREE.DoubleSide
     });
-    this.portalVortex = new THREE.Mesh(vortexGeom, vortexMat);
-    this.portalVortex.position.set(0, 3.1, 0);
-    this.portalVortex.rotation.y = -Math.PI / 2;
-    group.add(this.portalVortex);
+    const portalVortex = new THREE.Mesh(vortexGeom, vortexMat);
+    portalVortex.position.set(0, 3.1, 0);
+    portalVortex.rotation.y = -Math.PI / 2;
+    group.add(portalVortex);
+    this.portalVortices.push(portalVortex);
 
     // Inner Singularity Disc
     const singularity = new THREE.Mesh(
@@ -991,10 +1043,11 @@ export class SceneRenderer {
     portalLight.position.set(0, 3.1, 0);
     group.add(portalLight);
 
-    this.scene.add(group);
+    parent.add(group);
+    return group;
   }
 
-  private buildArrivalTeleportPad(pos: THREE.Vector3) {
+  private buildArrivalTeleportPad(pos: THREE.Vector3, parent: THREE.Object3D = this.scene): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(pos);
 
@@ -1058,9 +1111,10 @@ export class SceneRenderer {
       transparent: true,
       opacity: 0.88
     });
-    this.arrivalVortex = new THREE.Mesh(ringGeom, ringMat);
-    this.arrivalVortex.position.y = 0.42;
-    group.add(this.arrivalVortex);
+    const arrivalVortex = new THREE.Mesh(ringGeom, ringMat);
+    arrivalVortex.position.y = 0.42;
+    group.add(arrivalVortex);
+    this.arrivalVortices.push(arrivalVortex);
 
     // Inner Glowing Singularity Core
     const arrivalCore = new THREE.Mesh(
@@ -1081,7 +1135,8 @@ export class SceneRenderer {
     centerLight.position.set(0, 1.5, 0);
     group.add(centerLight);
 
-    this.scene.add(group);
+    parent.add(group);
+    return group;
   }
 
   private buildTorchBrazier(pos: THREE.Vector3) {
@@ -1120,7 +1175,7 @@ export class SceneRenderer {
    * A multi-tiered dark basalt fortress with gothic towers, demon skull gate,
    * glowing lava cavern, curved siege horns, battlements, and rooftop hellfire pyre.
    */
-  private buildEnemyCitadel(pos: THREE.Vector3) {
+  private buildEnemyCitadel(pos: THREE.Vector3, parent: THREE.Object3D = this.scene): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(pos);
 
@@ -1385,7 +1440,8 @@ export class SceneRenderer {
       group.add(torch);
     });
 
-    this.scene.add(group);
+    parent.add(group);
+    return group;
   }
 
   /**
@@ -1470,6 +1526,12 @@ export class SceneRenderer {
    * 2. Sculpted Bedrock Foundations beneath the Floating Islands
    */
   private buildIslandBedrock() {
+    this.buildMazeBedrock(this.scene);
+    this.buildArenaBedrock();
+  }
+
+  /** Floating rock foundation under the maze island (Sun position). */
+  private buildMazeBedrock(parent: THREE.Object3D) {
     // --- Maze Island Bedrock (Kingdom of Light Floating Rock Foundation) ---
     const mazeBedrock = new THREE.Group();
     mazeBedrock.position.set(-22, 0, 0);
@@ -1514,7 +1576,10 @@ export class SceneRenderer {
       mazeBedrock.add(crag);
     });
 
-    this.scene.add(mazeBedrock);
+    parent.add(mazeBedrock);
+  }
+
+  private buildArenaBedrock() {
 
     // --- Arena Island Bedrock (Infernal Dreadfort Basalt Foundation) ---
     const arenaBedrock = new THREE.Group();
@@ -2008,12 +2073,8 @@ export class SceneRenderer {
    */
   public update(dt: number, now: number) {
     // 1. Vortex rotations
-    if (this.portalVortex) {
-      this.portalVortex.rotation.z += dt * 1.8;
-    }
-    if (this.arrivalVortex) {
-      this.arrivalVortex.rotation.z -= dt * 1.8;
-    }
+    for (const v of this.portalVortices) v.rotation.z += dt * 1.8;
+    for (const v of this.arrivalVortices) v.rotation.z -= dt * 1.8;
 
     // 2. Ley-line crystal levitation & slow spin
     const timeSec = now * 0.001;

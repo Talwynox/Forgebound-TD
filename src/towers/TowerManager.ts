@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { Grid, GridCoord, TileType } from '../grid/Grid';
-import { Pathfinder } from '../grid/Pathfinder';
 import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, TowerUpgradeDef, SOLDIER_ABILITIES, ARCHER_ABILITIES, MAGE_ABILITIES, EvoAbilityTier } from './TowerData';
 import { VFXManager } from '../vfx/VFXManager';
 import { audio } from '../engine/AudioSystem';
 import { Unit } from '../units/UnitManager';
 import { FriendlyClass } from '../units/UnitData';
+import { TeamId } from '../game/Teams';
 
 export interface TowerInstance {
   id: number;
@@ -15,7 +15,7 @@ export interface TowerInstance {
   mesh: THREE.Group;
   ownerPeerId?: string;
   ownerName?: string;
-  team?: 'SUN' | 'MOON';
+  team: TeamId;
   currentBranch: UpgradeBranch;
   branchLevel: number; // 0 = unbranched, 1 = rank 1, 2 = rank 2, 3 = rank 3...
   totalCostInvested: number;
@@ -43,26 +43,39 @@ export interface TowerInstance {
 export class TowerManager {
   public towers: Map<number, TowerInstance> = new Map();
   public nextId: number = 1;
-  public grid: Grid;
-  public pathfinder: Pathfinder;
+  /** Each team builds on its own maze grid (solo/co-op only use the Sun grid). */
+  private grids: Record<TeamId, Grid>;
   public scene: THREE.Scene;
   public vfx: VFXManager;
 
   public selectedTower: TowerInstance | null = null;
-  public smartFocusEnabled: boolean = true;
+  private smartFocusByTeam: Record<TeamId, boolean> = { SUN: true, MOON: true };
+  /** The local player's team: what team-scoped getters used by the UI report. */
+  public viewTeam: TeamId = 'SUN';
   public rangeIndicator: THREE.Group | null = null;
   private rangeBorderMesh: THREE.Mesh | null = null;
   private rangeFillMesh: THREE.Mesh | null = null;
   public onChampionEvolved: () => void = () => {};
 
-  toggleSmartFocus(): boolean {
-    this.smartFocusEnabled = !this.smartFocusEnabled;
-    return this.smartFocusEnabled;
+  get smartFocusEnabled(): boolean {
+    return this.smartFocusByTeam[this.viewTeam];
   }
 
-  constructor(grid: Grid, pathfinder: Pathfinder, scene: THREE.Scene, vfx: VFXManager) {
-    this.grid = grid;
-    this.pathfinder = pathfinder;
+  isSmartFocus(team: TeamId): boolean {
+    return this.smartFocusByTeam[team];
+  }
+
+  setSmartFocus(team: TeamId, enabled: boolean) {
+    this.smartFocusByTeam[team] = enabled;
+  }
+
+  toggleSmartFocus(team: TeamId = 'SUN'): boolean {
+    this.smartFocusByTeam[team] = !this.smartFocusByTeam[team];
+    return this.smartFocusByTeam[team];
+  }
+
+  constructor(sunGrid: Grid, moonGrid: Grid, scene: THREE.Scene, vfx: VFXManager) {
+    this.grids = { SUN: sunGrid, MOON: moonGrid };
     this.scene = scene;
     this.vfx = vfx;
 
@@ -114,27 +127,29 @@ export class TowerManager {
     this.scene.add(this.rangeIndicator);
   }
 
-  getTowerCountByType(type: TowerType): number {
+  getGrid(team: TeamId): Grid {
+    return this.grids[team];
+  }
+
+  /** Towers of a type owned by a team (the Gold Spire limit is per team). */
+  getTowerCountByType(type: TowerType, team: TeamId = this.viewTeam): number {
     let count = 0;
     for (const tower of this.towers.values()) {
-      if (tower.type === type) count++;
+      if (tower.type === type && tower.team === team) count++;
     }
     return count;
   }
 
-  canBuild(coord: GridCoord, type: TowerType, playerGold: number): { allowed: boolean; reason?: string } {
+  canBuild(coord: GridCoord, type: TowerType, playerGold: number, team: TeamId = 'SUN'): { allowed: boolean; reason?: string } {
     const def = TOWER_DEFINITIONS[type];
     if (playerGold < def.cost) {
       return { allowed: false, reason: `Not enough gold! Need ${def.cost}g.` };
     }
-    if (type === TowerType.GOLD && this.getTowerCountByType(TowerType.GOLD) >= 4) {
+    if (type === TowerType.GOLD && this.getTowerCountByType(TowerType.GOLD, team) >= 4) {
       return { allowed: false, reason: 'Gold Spire limit reached! Maximum 4 Gold Spires allowed.' };
     }
-    if (!this.grid.isBuildable(coord.x, coord.z)) {
+    if (!this.grids[team].isBuildable(coord.x, coord.z)) {
       return { allowed: false, reason: 'Tile is occupied or not buildable.' };
-    }
-    if (!this.pathfinder.canPlaceTower(coord.x, coord.z)) {
-      return { allowed: false, reason: 'Placing a tower here would block the maze path!' };
     }
     return { allowed: true };
   }
@@ -145,10 +160,11 @@ export class TowerManager {
     forcedId?: number,
     ownerPeerId?: string,
     ownerName?: string,
-    team?: 'SUN' | 'MOON'
+    team: TeamId = 'SUN'
   ): TowerInstance | null {
     const def = TOWER_DEFINITIONS[type];
-    const world = this.grid.gridToWorld(coord.x, coord.z);
+    const grid = this.grids[team];
+    const world = grid.gridToWorld(coord.x, coord.z);
     const worldPos = new THREE.Vector3(world.x, 0, world.z);
 
     const mesh = this.createTowerMesh(type, worldPos);
@@ -194,12 +210,10 @@ export class TowerManager {
       if (child.name === 'rotating') tower.rotatingRing = child;
     });
 
-    this.grid.setTile(coord.x, coord.z, TileType.TOWER);
+    grid.setTile(coord.x, coord.z, TileType.TOWER);
     this.towers.set(tower.id, tower);
 
-    // Update Auras and visual path
     this.recalculateAuras();
-    this.pathfinder.updatePathVisual();
 
     audio.playBuild();
     this.vfx.spawnBurstParticles(worldPos, def.accentColor, 12);
@@ -451,7 +465,7 @@ export class TowerManager {
       }
     });
 
-    this.grid.setTile(tower.gridCoord.x, tower.gridCoord.z, TileType.EMPTY);
+    this.grids[tower.team].setTile(tower.gridCoord.x, tower.gridCoord.z, TileType.EMPTY);
     this.towers.delete(towerId);
 
     if (this.selectedTower?.id === towerId) {
@@ -460,7 +474,6 @@ export class TowerManager {
     }
 
     this.recalculateAuras();
-    this.pathfinder.updatePathVisual();
     audio.playSell();
     this.vfx.spawnBurstParticles(tower.worldPos, 0x94a3b8, 10);
 
@@ -486,7 +499,7 @@ export class TowerManager {
       const range = auraTower.effectiveRange;
 
       for (const targetTower of this.towers.values()) {
-        if (targetTower.id === auraTower.id) continue;
+        if (targetTower.id === auraTower.id || targetTower.team !== auraTower.team) continue;
         const dist = auraTower.worldPos.distanceTo(targetTower.worldPos);
         if (dist <= range) {
           targetTower.auraBonusMultiplier += bonus;
@@ -720,7 +733,7 @@ export class TowerManager {
 
       // Find eligible friendly units in range that are traversing the maze
       const targetsInRange = units.filter(u => {
-        if (!u.isFriendly || u.isDead || u.inCombat) return false;
+        if (!u.isFriendly || u.team !== tower.team || u.isDead || u.inCombat) return false;
         const dist = tower.worldPos.distanceTo(u.worldPos);
         if (dist > tower.effectiveRange) return false;
 
@@ -770,7 +783,7 @@ export class TowerManager {
       // Select target: for Vitality Shrines, prioritize the most wounded unit
       if (tower.type === TowerType.SHRINE) {
         targetsInRange.sort((a, b) => (a.currentHp / a.maxHp) - (b.currentHp / b.maxHp));
-      } else if (this.smartFocusEnabled && (tower.type === TowerType.FORGE || tower.type === TowerType.OBELISK)) {
+      } else if (this.smartFocusByTeam[tower.team] && (tower.type === TowerType.FORGE || tower.type === TowerType.OBELISK)) {
         // Smart Focus: prioritize evolved champions / higher tier units over normal recruits
         targetsInRange.sort((a, b) => {
           const rankA = (a.unitClass === FriendlyClass.SOLDIER || a.unitClass === FriendlyClass.ARCHER || a.unitClass === FriendlyClass.MAGE)

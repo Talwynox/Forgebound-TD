@@ -119,7 +119,7 @@ export class MultiplayerModal {
               <button class="mp-mode-btn ${this.network.mode === 'PVP' ? 'active' : ''}" id="btn-mode-pvp">
                 <span class="mp-mode-icon">⚔️</span>
                 <span class="mp-mode-name">4v4 Clash of Strongholds</span>
-                <span class="mp-mode-sub">Up to 4v4 • Dual Mazes & Mercenaries</span>
+                <span class="mp-mode-sub">Up to 4v4 • Mirrored Mazes • Army vs Army</span>
               </button>
             </div>
           </div>
@@ -162,7 +162,7 @@ export class MultiplayerModal {
     isHost: boolean
   ): string {
     const isPvp = mode === 'PVP';
-    const unready = this.network.getUnreadyPlayers();
+    const launchBlocker = this.getLaunchBlocker();
 
     return `
       <div class="mp-lobby">
@@ -218,8 +218,8 @@ export class MultiplayerModal {
 
           <div class="mp-footer-right">
             ${isHost ? `
-              <button class="mp-launch-btn" id="btn-launch-match" ${unready.length > 0 ? 'disabled title="Waiting for all players to ready up"' : ''}>
-                ${unready.length > 0 ? `⏳ WAITING FOR ${unready.length} PLAYER${unready.length > 1 ? 'S' : ''}` : '⚔️ LAUNCH BATTLE'}
+              <button class="mp-launch-btn" id="btn-launch-match" ${launchBlocker ? 'disabled' : ''}>
+                ${launchBlocker ?? '⚔️ LAUNCH BATTLE'}
               </button>
             ` : `
               <div class="mp-waiting-host">Waiting for Host to launch match...</div>
@@ -229,6 +229,17 @@ export class MultiplayerModal {
         </div>
       </div>
     `;
+  }
+
+  /** Why the host can't launch yet (button label), or null when ready. */
+  private getLaunchBlocker(): string | null {
+    const players = this.network.getPlayerList();
+    if (this.network.mode === 'PVP' && (!players.some(p => p.team === 'SUN') || !players.some(p => p.team === 'MOON'))) {
+      return '⏳ NEED PLAYERS ON BOTH TEAMS';
+    }
+    const unready = this.network.getUnreadyPlayers().length;
+    if (unready > 0) return `⏳ WAITING FOR ${unready} PLAYER${unready > 1 ? 'S' : ''}`;
+    return null;
   }
 
   private consumeStatus(fallback: string): string {
@@ -381,7 +392,7 @@ export class MultiplayerModal {
 
     // Host Launch Match
     this.modalEl.querySelector('#btn-launch-match')?.addEventListener('click', () => {
-      if (!this.network.isHost || this.network.getUnreadyPlayers().length > 0) return;
+      if (!this.network.isHost || this.getLaunchBlocker()) return;
       this.close();
       this.network.startMatch(1);
     });

@@ -20,10 +20,8 @@ import {
   GameAction,
   GameMode,
   HostEvent,
-  MERCENARY_DEFINITIONS,
   PlayerSlot,
   StateSnapshot,
-  TeamId,
   WavePhase
 } from './network/NetworkTypes';
 import { FxRelay } from './network/FxRelay';
@@ -37,6 +35,7 @@ import {
   encodeTowers,
   encodeUnit
 } from './network/StateSync';
+import { TeamId, TEAM_NAMES, mirrorX, opponentOf, sideX } from './game/Teams';
 
 /** Whoever performs a gameplay action: the solo player, or a player slot in a multiplayer match. */
 interface Actor {
@@ -50,18 +49,32 @@ interface Actor {
 /** null on success, otherwise the reason the action was rejected. */
 type ActionResult = string | null;
 
+const TEAMS: TeamId[] = ['SUN', 'MOON'];
 const SOLO_ACTOR_ID = 'local';
 const SNAPSHOT_INTERVAL_MS = 100;
 const GAME_SPEEDS = [1, 2, 4, 0];
-const RECRUIT_MSG_POS = new THREE.Vector3(-34, 4, -12);
 const ARENA_MSG_POS = new THREE.Vector3(12, 3, 0);
+const MAZE_ORIGIN_X = -22;
+const DEFAULT_CAMERA_X = -6;
+const CAMERA_MIN_X = -45;
+const CAMERA_MAX_X_SOLO = 38;
+
+// PvP round flow
+const PVP_FIRST_BUILD_TIME = 45;
+const PVP_BUILD_TIME = 30;
+const PVP_STORM_TIME = 30;
+const PVP_CASTLE_HP = 1500;
+const pvpRoundReward = (roundIndex: number) => 75 + roundIndex * 15;
+
+/** Barracks area of a team's maze island (recruit hiring feedback). */
+const recruitMsgPos = (team: TeamId) => new THREE.Vector3(sideX(team, -34), 4, -12);
 
 class GameApp {
   private container: HTMLElement;
   private renderer: SceneRenderer;
   private cameraCtrl: CameraController;
-  private grid: Grid;
-  private pathfinder: Pathfinder;
+  private grids: Record<TeamId, Grid>;
+  private pathfinders: Record<TeamId, Pathfinder>;
   private vfx: VFXManager;
   private fx: FxRelay;
   private towerManager: TowerManager;
@@ -77,10 +90,12 @@ class GameApp {
   // Multiplayer sync
   private lastSnapshotTime: number = 0;
   private lastClientHudKey: string = '';
+  private lastHostHudKey: string = '';
   private lastGuardianLevelsKey: string = '';
-  private lastAssembledCount: number = 0;
   /** The board currently holds a multiplayer match (possibly finished, awaiting "Back to Lobby"). */
   private multiplayerBoardActive: boolean = false;
+  /** The board is laid out for PvP: mirrored Moon maze, two castles, army-vs-army rounds. */
+  private pvpActive: boolean = false;
 
   // Game State
   private currentMission: CampaignMission;
@@ -93,15 +108,19 @@ class GameApp {
   private gameSpeed: number = 1;
   private waveInProgress: boolean = false;
   private waveCleared: boolean = false;
-  private friendlyUnitsToSpawn: number = 0;
-  private friendlySpawnTimer: number = 0;
+  private recruitsToSpawn: Record<TeamId, number> = { SUN: 0, MOON: 0 };
+  private recruitSpawnTimer: number = 0;
+
+  // PvP timers (seconds of game time); null when not running
+  private buildTimer: number | null = null;
+  private stormTimer: number | null = null;
 
   // Army recruitment
   private readonly BASE_RECRUITS_PER_WAVE = 10;
-  private extraPurchasedRecruits: number = 0;
+  private extraPurchasedRecruits: Record<TeamId, number> = { SUN: 0, MOON: 0 };
 
-  private getRecruitCost(): number {
-    return Math.round(25 * Math.pow(1.8, this.extraPurchasedRecruits));
+  private getRecruitCost(team: TeamId): number {
+    return Math.round(25 * Math.pow(1.8, this.extraPurchasedRecruits[team]));
   }
 
   // Phase and Mission lifecycle
@@ -122,7 +141,7 @@ class GameApp {
   private lastFrameTime = performance.now();
   private bossSlowMoTimer: number = 0;
 
-  // Focus Fire State
+  // Focus Fire State (the local team's target)
   private isFocusFireMode: boolean = false;
   private focusTarget: Unit | null = null;
   private focusTargetReticle: THREE.Group | null = null;
@@ -131,15 +150,17 @@ class GameApp {
     this.container = document.getElementById('canvas-container')!;
     this.renderer = new SceneRenderer(this.container);
     this.cameraCtrl = new CameraController(this.container);
-    this.grid = new Grid(11, 15, 2, -22, 0);
-    this.pathfinder = new Pathfinder(this.grid);
-    this.pathfinder.setScene(this.renderer.scene);
+    this.grids = {
+      SUN: new Grid(11, 15, 2, MAZE_ORIGIN_X, 0),
+      MOON: new Grid(11, 15, 2, mirrorX(MAZE_ORIGIN_X), 0, true)
+    };
+    this.pathfinders = { SUN: new Pathfinder(this.grids.SUN), MOON: new Pathfinder(this.grids.MOON) };
     this.vfx = new VFXManager(this.renderer.scene, this.cameraCtrl.camera, this.container);
     this.fx = new FxRelay(this.vfx, audio);
-    this.towerManager = new TowerManager(this.grid, this.pathfinder, this.renderer.scene, this.vfx);
+    this.towerManager = new TowerManager(this.grids.SUN, this.grids.MOON, this.renderer.scene, this.vfx);
     this.unitManager = new UnitManager(this.renderer.scene, this.vfx, this.cameraCtrl.camera);
     this.arenaCastle = new ArenaCastle(this.renderer.scene, this.vfx, this.castleMaxHp);
-    this.unitManager.setArenaCastle(this.arenaCastle, () => this.handleSunCastleFallen());
+    this.unitManager.setCastle('SUN', this.arenaCastle, () => this.handleCastleFallen('SUN'));
     this.portalGuardianManager = new PortalGuardianManager(this.renderer.scene, this.vfx, this.unitManager);
     this.techTree = new TechTreeManager();
     this.achievementManager = new AchievementManager();
@@ -195,6 +216,16 @@ class GameApp {
     return this.networkManager.isHostInMatch;
   }
 
+  /** The team the local player commands (always Sun outside PvP). */
+  private get localTeam(): TeamId {
+    return this.networkManager.inMatch ? this.networkManager.localTeam : 'SUN';
+  }
+
+  /** Teams fielding a maze army this match. */
+  private get armyTeams(): TeamId[] {
+    return this.pvpActive ? TEAMS : ['SUN'];
+  }
+
   /** The local player's gold: the solo wallet, or this player's slot in a multiplayer match. */
   private get playerGold(): number {
     return this.getLocalActor()?.wallet.gold ?? 0;
@@ -217,9 +248,13 @@ class GameApp {
     return actor.peerId === SOLO_ACTOR_ID || actor.peerId === this.networkManager.localPeerId;
   }
 
-  /** Owners manage their towers; towers of players who left the match can be managed by anyone. */
+  /**
+   * Players manage their own towers; towers of teammates who left can be managed by the rest of the team.
+   * The opposing team's towers are view-only.
+   */
   private canManageTower(actor: Actor, tower: TowerInstance): boolean {
     if (!this.networkManager.inMatch) return true;
+    if (tower.team !== actor.team) return false;
     if (!tower.ownerPeerId || tower.ownerPeerId === actor.peerId) return true;
     return !this.networkManager.isPlayerPresent(tower.ownerPeerId);
   }
@@ -252,10 +287,9 @@ class GameApp {
         break;
       }
       case 'BUY_RECRUIT':
-        return RECRUIT_MSG_POS.clone();
+        return recruitMsgPos(this.localTeam);
       case 'START_WAVE':
       case 'SET_GAME_SPEED':
-      case 'SEND_MERCENARY':
         return ARENA_MSG_POS.clone();
     }
     return this.lastPointerWorld.clone().add(new THREE.Vector3(0, 1.5, 0));
@@ -290,13 +324,12 @@ class GameApp {
         const { coord, towerType } = action;
         const def = TOWER_DEFINITIONS[towerType];
         if (!def || !isGridCoord(coord)) return 'Invalid tower placement.';
-        const check = this.towerManager.canBuild(coord, towerType, actor.wallet.gold);
+        const check = this.towerManager.canBuild(coord, towerType, actor.wallet.gold, actor.team);
         if (!check.allowed) return check.reason || 'Cannot build here!';
 
         const tower = this.towerManager.buildTower(coord, towerType, undefined, actor.peerId, actor.name, actor.team);
         if (!tower) return 'Cannot build here!';
         actor.wallet.gold -= def.cost;
-        this.rerouteActiveUnits();
 
         if (this.isHostInMatch) {
           this.vfx.spawnFloatingText(tower.worldPos.clone(), `🏗️ ${actor.name} BUILT ${def.name}!`, '#38bdf8', 1.8);
@@ -357,84 +390,64 @@ class GameApp {
           this.vfx.spawnFloatingText(pos, `💰 ${actor.name} SOLD TOWER (+${refund}g)`, '#94a3b8', 1.8);
         }
         this.networkManager.broadcastEvent({ kind: 'TOWER_SOLD', id: tower.id });
-        this.rerouteActiveUnits();
         this.updateHUD();
         return null;
       }
 
       case 'BUY_RECRUIT': {
         if (this.wavePhase === 'ARENA_CLASH') return 'Cannot recruit during Arena Clash!';
-        if (this.networkManager.inMatch && this.networkManager.mode === 'PVP' && actor.team !== 'SUN') {
-          return 'Only Team Sun commands the maze army. Send mercenaries instead!';
-        }
-        const cost = this.getRecruitCost();
+        const team = actor.team;
+        const cost = this.getRecruitCost(team);
         if (actor.wallet.gold < cost) return `Need 🪙${cost}g for Recruit!`;
 
         actor.wallet.gold -= cost;
-        this.extraPurchasedRecruits++;
-        const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits;
-        const nextCost = this.getRecruitCost();
+        this.extraPurchasedRecruits[team]++;
+        const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits[team];
+        const nextCost = this.getRecruitCost(team);
         const hirer = this.networkManager.inMatch ? `${actor.name}: ` : '';
+        const msgPos = recruitMsgPos(team);
         audio.playBuild();
 
         if (this.wavePhase === 'MAZE_RUN') {
-          this.friendlyUnitsToSpawn++;
-          this.vfx.spawnFloatingText(RECRUIT_MSG_POS, `🛡️ ${hirer}RECRUIT REINFORCEMENT! (${totalRecruits} total, next 🪙${nextCost}g)`, '#38bdf8', 2.0);
+          this.recruitsToSpawn[team]++;
+          this.vfx.spawnFloatingText(msgPos, `🛡️ ${hirer}RECRUIT REINFORCEMENT! (${totalRecruits} total, next 🪙${nextCost}g)`, '#38bdf8', 2.0);
         } else {
-          this.vfx.spawnFloatingText(RECRUIT_MSG_POS, `🛡️ ${hirer}+1 RECRUIT HIRED! (${totalRecruits} total, next 🪙${nextCost}g)`, '#38bdf8', 2.0);
+          this.vfx.spawnFloatingText(msgPos, `🛡️ ${hirer}+1 RECRUIT HIRED! (${totalRecruits} total, next 🪙${nextCost}g)`, '#38bdf8', 2.0);
         }
-        this.vfx.spawnAscensionPillar(new THREE.Vector3(-34, 0, -12), 0x38bdf8);
-        this.updateHUD();
-        return null;
-      }
-
-      case 'SEND_MERCENARY': {
-        if (!this.networkManager.inMatch || this.networkManager.mode !== 'PVP' || !actor.slot) {
-          return 'Mercenaries are only available in PvP matches.';
-        }
-        const def = MERCENARY_DEFINITIONS[action.enemyClass];
-        if (!def) return 'Unknown mercenary.';
-        if (actor.wallet.gold < def.cost) return `Need 🪙${def.cost}g to hire ${def.name}!`;
-
-        actor.wallet.gold -= def.cost;
-        actor.slot.income += def.incomeBonus;
-
-        const fightsForSun = actor.team === 'SUN';
-        const spawnPos = new THREE.Vector3(fightsForSun ? 3.0 : 21.0, 0.4, (Math.random() - 0.5) * 4.0);
-        this.unitManager.spawnMercenary(def.enemyClass, spawnPos, fightsForSun, this.currentWaveIndex);
-        this.vfx.spawnFloatingText(spawnPos, `⚔️ ${actor.name} SENT ${def.name.toUpperCase()}!`, fightsForSun ? '#facc15' : '#ef4444', 2.0);
-        audio.playEvolution();
+        this.vfx.spawnAscensionPillar(new THREE.Vector3(msgPos.x, 0, msgPos.z), 0x38bdf8);
         this.updateHUD();
         return null;
       }
 
       case 'START_WAVE':
+        if (this.pvpActive) return 'Rounds start automatically when the build timer runs out.';
         this.startWave(this.networkManager.inMatch ? actor.name : undefined);
         return null;
 
       case 'UPGRADE_GUARDIAN': {
         const guardian = this.portalGuardianManager.getGuardian(action.guardianId);
-        if (!guardian) return 'Unknown guardian.';
+        if (!guardian || !guardian.group.visible) return 'Unknown guardian.';
         if (action.upgradeType !== 'damage' && action.upgradeType !== 'range') return 'Invalid upgrade.';
+        if (guardian.team !== actor.team) return "You can only upgrade your own team's ballistae.";
         return this.upgradeGuardian(actor, guardian, action.upgradeType);
       }
 
       case 'SET_FOCUS': {
         if (action.unitId === null) {
-          this.setFocusTarget(null);
+          this.setFocusTarget(null, actor.team);
           return null;
         }
-        const target = this.unitManager.units.find(u => u.id === action.unitId && !u.isFriendly && !u.isDead && !u.isDying);
-        if (target) this.setFocusTarget(target);
+        const target = this.unitManager.units.find(u => u.id === action.unitId && u.team !== actor.team && !u.isDead && !u.isDying);
+        if (target) this.setFocusTarget(target, actor.team);
         return null;
       }
 
       case 'TOGGLE_SMART_FOCUS': {
-        const active = this.towerManager.toggleSmartFocus();
+        const active = this.towerManager.toggleSmartFocus(actor.team);
         audio.playUpgrade();
         this.vfx.spawnFloatingText(
-          new THREE.Vector3(0, 3, 0),
-          `🎯 SMART FOCUS: ${active ? 'ON (Champions First)' : 'OFF (Lead Recruits)'}`,
+          new THREE.Vector3(sideX(actor.team, 0), 3, 0),
+          `🎯 ${this.pvpActive ? `${TEAM_NAMES[actor.team].toUpperCase()} ` : ''}SMART FOCUS: ${active ? 'ON (Champions First)' : 'OFF (Lead Recruits)'}`,
           active ? '#a5b4fc' : '#94a3b8',
           1.4
         );
@@ -564,32 +577,42 @@ class GameApp {
     this.lastClientHudKey = '';
     this.lastGuardianLevelsKey = '';
     this.toggleFocusFireMode(false);
+    this.setPvpLayout(mode === 'PVP');
 
     const mission = CAMPAIGN_MISSIONS.find(m => m.id === missionId) || CAMPAIGN_MISSIONS[0];
     this.loadMission(mission);
 
-    if (mode === 'PVP') {
-      this.ui.mercenaryMenu.show();
-      if (!this.moonCastle) {
-        this.moonCastle = new ArenaCastle(this.renderer.scene, this.vfx, 1500, new THREE.Vector3(24.5, 0, 0), true);
-      } else {
-        this.moonCastle.reset(1500);
-        this.moonCastle.group.visible = true;
-      }
-      this.unitManager.setMoonCastle(this.moonCastle, () => this.handleMoonCastleFallen());
-      this.vfx.spawnFloatingText(ARENA_MSG_POS, '⚔️ 4V4 CLASH OF STRONGHOLDS BEGINS! ⚔️', '#ef4444', 3.0);
+    if (this.pvpActive) {
+      this.vfx.spawnFloatingText(ARENA_MSG_POS, '⚔️ CLASH OF STRONGHOLDS! BUILD YOUR MAZE! ⚔️', '#ef4444', 3.0);
     } else {
-      this.ui.mercenaryMenu.hide();
-      this.hideMoonCastle();
       this.vfx.spawnFloatingText(ARENA_MSG_POS, '🤝 CO-OP ALLIED BASTION DEFENSE! 🤝', '#38bdf8', 3.0);
     }
 
     this.updateHUD();
   }
 
-  private hideMoonCastle() {
-    this.unitManager.setMoonCastle(null);
-    if (this.moonCastle) this.moonCastle.group.visible = false;
+  /** Switches the battlefield between the solo/co-op layout and the mirrored PvP layout. */
+  private setPvpLayout(enabled: boolean) {
+    this.pvpActive = enabled;
+    this.unitManager.pvpMode = enabled;
+    this.portalGuardianManager.setPvpMode(enabled);
+    this.renderer.setPvpLayout(enabled, this.grids.SUN);
+    this.towerManager.viewTeam = this.localTeam;
+
+    if (enabled) {
+      if (!this.moonCastle) {
+        this.moonCastle = new ArenaCastle(this.renderer.scene, this.vfx, PVP_CASTLE_HP, new THREE.Vector3(mirrorX(-0.4), 0, 0), true);
+      }
+      this.moonCastle.group.visible = true;
+      this.unitManager.setCastle('MOON', this.moonCastle, () => this.handleCastleFallen('MOON'));
+      this.cameraCtrl.setPanRange(CAMERA_MIN_X, mirrorX(CAMERA_MIN_X));
+      this.cameraCtrl.focusOn(sideX(this.localTeam, DEFAULT_CAMERA_X));
+    } else {
+      this.unitManager.setCastle('MOON', null);
+      if (this.moonCastle) this.moonCastle.group.visible = false;
+      this.cameraCtrl.setPanRange(CAMERA_MIN_X, CAMERA_MAX_X_SOLO);
+      this.cameraCtrl.focusOn(DEFAULT_CAMERA_X);
+    }
   }
 
   /** Restores a clean solo board after a multiplayer match. */
@@ -597,11 +620,10 @@ class GameApp {
     if (!this.multiplayerBoardActive) return;
     this.multiplayerBoardActive = false;
     this.ui.hideResultModals();
-    this.ui.mercenaryMenu.hide();
-    this.hideMoonCastle();
     this.fx.clear();
     this.gameSpeed = 1;
     this.toggleFocusFireMode(false);
+    this.setPvpLayout(false);
     this.loadMission(this.currentMission);
   }
 
@@ -627,6 +649,8 @@ class GameApp {
     this.missionEnded = true;
     this.waveInProgress = false;
     this.wavePhase = 'IDLE';
+    this.buildTimer = null;
+    this.stormTimer = null;
 
     if (!isCoopVictory) {
       const losingCastle = winningTeam === 'SUN' ? this.moonCastle : this.arenaCastle;
@@ -643,7 +667,7 @@ class GameApp {
   private showMatchResult(winningTeam: TeamId, isCoopVictory: boolean) {
     const isCoop = this.networkManager.mode === 'COOP';
     const won = isCoop ? isCoopVictory : this.networkManager.localTeam === winningTeam;
-    const winnerName = winningTeam === 'SUN' ? 'Sun' : 'Moon';
+    const winnerName = TEAM_NAMES[winningTeam];
 
     setTimeout(() => {
       if (won) {
@@ -667,19 +691,25 @@ class GameApp {
 
     const economy: StateSnapshot['economy'] = {};
     for (const p of this.networkManager.players.values()) {
-      economy[p.peerId] = [p.gold, p.income];
+      economy[p.peerId] = p.gold;
     }
+    const aliveFocus = (team: TeamId) => {
+      const t = this.unitManager.focusTargets[team];
+      return t && !t.isDead ? t.id : null;
+    };
 
     this.networkManager.broadcastSnapshot({
       waveIndex: this.currentWaveIndex,
       wavePhase: this.wavePhase,
       waveInProgress: this.waveInProgress,
-      extraRecruits: this.extraPurchasedRecruits,
+      extraRecruits: [this.extraPurchasedRecruits.SUN, this.extraPurchasedRecruits.MOON],
       gameSpeed: this.gameSpeed,
-      smartFocus: this.towerManager.smartFocusEnabled,
-      focusUnitId: this.focusTarget && !this.focusTarget.isDead ? this.focusTarget.id : null,
+      smartFocus: [this.towerManager.isSmartFocus('SUN'), this.towerManager.isSmartFocus('MOON')],
+      focusUnitIds: [aliveFocus('SUN'), aliveFocus('MOON')],
+      buildTimer: this.buildTimer,
+      stormTimer: this.stormTimer,
       sunCastle: encodeCastle(this.arenaCastle),
-      moonCastle: this.networkManager.mode === 'PVP' && this.moonCastle ? encodeCastle(this.moonCastle) : null,
+      moonCastle: this.pvpActive && this.moonCastle ? encodeCastle(this.moonCastle) : null,
       economy,
       units: this.unitManager.units.filter(u => !u.isDead).map(encodeUnit),
       towers: encodeTowers(this.towerManager),
@@ -696,9 +726,12 @@ class GameApp {
     this.currentWaveIndex = s.waveIndex;
     this.wavePhase = s.wavePhase;
     this.waveInProgress = s.waveInProgress;
-    this.extraPurchasedRecruits = s.extraRecruits;
+    this.extraPurchasedRecruits = { SUN: s.extraRecruits[0], MOON: s.extraRecruits[1] };
     this.gameSpeed = s.gameSpeed;
-    this.towerManager.smartFocusEnabled = s.smartFocus;
+    this.buildTimer = s.buildTimer;
+    this.stormTimer = s.stormTimer;
+    this.towerManager.setSmartFocus('SUN', s.smartFocus[0]);
+    this.towerManager.setSmartFocus('MOON', s.smartFocus[1]);
     if (waveChanged) this.toggleFocusFireMode(false);
 
     applyCastleState(this.arenaCastle, s.sunCastle);
@@ -720,25 +753,34 @@ class GameApp {
       if (selected && this.ui.isGuardianCardOpen()) this.openGuardianCard(selected);
     }
 
-    // Shared focus-fire target
-    if ((this.focusTarget?.id ?? null) !== s.focusUnitId) {
-      const target = s.focusUnitId === null ? null : this.unitManager.units.find(u => u.id === s.focusUnitId && !u.isDying) ?? null;
+    // The local team's shared focus-fire target
+    const focusId = s.focusUnitIds[this.localTeam === 'SUN' ? 0 : 1];
+    if ((this.focusTarget?.id ?? null) !== focusId) {
+      const target = focusId === null ? null : this.unitManager.units.find(u => u.id === focusId && !u.isDying) ?? null;
       this.focusTarget = target;
-      this.portalGuardianManager.setFocusTarget(target);
+      this.portalGuardianManager.setFocusTarget(target, this.localTeam);
       this.updateFocusVisuals();
     }
 
     // Re-rendering the HUD rebuilds its buttons, so only do it when something visible changed
-    const local = this.networkManager.getLocalPlayer();
-    const hudKey = [
-      local?.gold, local?.income, this.castleHp, this.castleMaxHp, s.moonCastle?.[0],
-      s.waveIndex, s.wavePhase, s.waveInProgress, s.extraRecruits, s.gameSpeed, s.smartFocus,
-      this.countAssembledRecruits()
-    ].join(',');
+    const hudKey = [this.hudKey(), s.moonCastle?.[0]].join(',');
     if (hudKey !== this.lastClientHudKey) {
       this.lastClientHudKey = hudKey;
       this.updateHUD();
     }
+  }
+
+  /** Summary of everything the top bar shows that changes during play. */
+  private hudKey(): string {
+    return [
+      this.playerGold, this.castleHp, this.castleMaxHp, this.moonCastle?.currentHp,
+      this.currentWaveIndex, this.wavePhase, this.waveInProgress, this.gameSpeed,
+      this.extraPurchasedRecruits.SUN, this.extraPurchasedRecruits.MOON,
+      this.towerManager.smartFocusEnabled,
+      this.countAssembledRecruits('SUN'), this.countAssembledRecruits('MOON'),
+      this.buildTimer === null ? '' : Math.ceil(this.buildTimer),
+      this.stormTimer === null ? '' : Math.ceil(this.stormTimer)
+    ].join(',');
   }
 
   // --- Economy helpers (solo player / multiplayer host) ---
@@ -760,22 +802,26 @@ class GameApp {
     if (owner) {
       owner.gold += amount;
     } else {
-      this.networkManager.awardTeamGold(tower.team ?? 'SUN', amount);
+      this.networkManager.awardTeamGold(tower.team, amount);
     }
     if (tower.ownerPeerId === this.networkManager.localPeerId) {
       this.achievementManager.recordGold(amount);
     }
   }
 
-  private awardKillBounty(bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) {
+  /** A bounty for a slain unit goes to the opposing team. */
+  private awardKillBounty(bounty: number, killed: Unit) {
+    const killerTeam = opponentOf(killed.team);
     if (this.networkManager.inMatch) {
-      this.networkManager.awardTeamGold('SUN', bounty);
+      this.networkManager.awardTeamGold(killerTeam, bounty);
     } else {
       this.soloWallet.gold += bounty;
     }
-    this.achievementManager.recordGold(bounty);
-    if (enemyClass) {
-      this.achievementManager.recordKill(enemyClass, isBoss || false);
+    if (killerTeam === this.localTeam) {
+      this.achievementManager.recordGold(bounty);
+      if (!killed.isFriendly) {
+        this.achievementManager.recordKill(killed.unitClass as EnemyClass, killed.isBoss);
+      }
     }
     this.updateHUD();
   }
@@ -835,17 +881,22 @@ class GameApp {
     this.waveCleared = false;
     this.missionEnded = false;
     this.wavePhase = 'IDLE';
-    this.extraPurchasedRecruits = 0;
-    this.friendlyUnitsToSpawn = 0;
-    this.setFocusTarget(null);
+    this.extraPurchasedRecruits = { SUN: 0, MOON: 0 };
+    this.recruitsToSpawn = { SUN: 0, MOON: 0 };
+    this.stormTimer = null;
+    this.buildTimer = this.pvpActive ? PVP_FIRST_BUILD_TIME : null;
+    this.setFocusTarget(null, 'SUN');
+    this.setFocusTarget(null, 'MOON');
 
     // Multiplayer starting gold is set per player by the host
     if (!this.networkManager.inMatch) {
       this.soloWallet.gold = mission.startingGold + this.techTree.getBonusStartingGold();
     }
-    this.castleHp = mission.castleMaxHp;
-    this.castleMaxHp = mission.castleMaxHp;
-    this.arenaCastle.reset(this.castleMaxHp);
+    const castleHp = this.pvpActive ? PVP_CASTLE_HP : mission.castleMaxHp;
+    this.castleHp = castleHp;
+    this.castleMaxHp = castleHp;
+    this.arenaCastle.reset(castleHp);
+    if (this.pvpActive && this.moonCastle) this.moonCastle.reset(castleHp);
 
     this.unitManager.clearAll();
     this.portalGuardianManager.resetAll();
@@ -855,19 +906,19 @@ class GameApp {
     for (const id of Array.from(this.towerManager.towers.keys())) {
       this.towerManager.sellTower(id);
     }
-    this.grid.resetGrid();
-    this.renderer.buildRoadVisuals(this.grid);
-    this.pathfinder.updatePathVisual();
+    this.grids.SUN.resetGrid();
+    this.grids.MOON.resetGrid();
+    this.renderer.buildRoadVisuals(this.grids.SUN);
 
     this.prepareWaveEnemiesInArena();
     this.updateHUD();
   }
 
   private prepareWaveEnemiesInArena() {
-    // Multiplayer clients receive the host's enemies through snapshots
-    if (this.isClient) return;
+    // Multiplayer clients receive the host's enemies through snapshots; PvP has no AI waves
+    if (this.isClient || this.pvpActive) return;
 
-    for (const u of this.unitManager.units.filter(u => !u.isFriendly && !u.isMercenary)) {
+    for (const u of this.unitManager.units.filter(u => !u.isFriendly)) {
       this.unitManager.despawnUnit(u);
     }
 
@@ -898,21 +949,28 @@ class GameApp {
     }
   }
 
+  /** Releases the maze armies (the wave in solo/co-op, both teams' recruits in a PvP round). */
   private startWave(starterName?: string) {
     if (this.waveInProgress || this.missionEnded) return;
-    if (this.currentWaveIndex >= this.currentMission.waves.length) return;
+    if (!this.pvpActive && this.currentWaveIndex >= this.currentMission.waves.length) return;
 
     this.waveInProgress = true;
     this.waveCleared = false;
     this.wavePhase = 'MAZE_RUN';
+    this.buildTimer = null;
+    this.stormTimer = null;
     this.towerManager.resetWaveEvolutions();
 
-    this.friendlyUnitsToSpawn = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits;
-    this.friendlySpawnTimer = 0;
+    for (const team of this.armyTeams) {
+      this.recruitsToSpawn[team] = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits[team];
+    }
+    this.recruitSpawnTimer = 0;
     this.castleHpAtWaveStart = this.castleHp;
 
     audio.playBuild();
-    if (starterName) {
+    if (this.pvpActive) {
+      this.vfx.spawnFloatingText(ARENA_MSG_POS, `⚔️ ROUND ${this.currentWaveIndex + 1}: ARMIES MARCH! ⚔️`, '#facc15', 2.2);
+    } else if (starterName) {
       this.vfx.spawnFloatingText(ARENA_MSG_POS, `⚔️ ${starterName} RELEASED WAVE ${this.currentWaveIndex + 1}! ⚔️`, '#facc15', 2.0);
     }
     this.updateHUD();
@@ -923,70 +981,37 @@ class GameApp {
     audio.playEvolution();
     this.vfx.spawnFloatingText(new THREE.Vector3(13, 3, 0), '⚔️ THE ARENA CLASH BEGINS! CHARGE! ⚔️', '#facc15', 3.0);
     this.vfx.spawnAscensionPillar(new THREE.Vector3(2, 0, 0), 0x38bdf8);
-    this.vfx.spawnAscensionPillar(new THREE.Vector3(22, 0, 0), 0xef4444);
+    this.vfx.spawnAscensionPillar(new THREE.Vector3(this.pvpActive ? mirrorX(2) : 22, 0, 0), 0xef4444);
 
     for (const u of this.unitManager.units) {
       if (u.isDead) continue;
-      if (u.isFriendly) {
-        u.inCombat = true;
-        u.stagingPos = null;
-      } else {
-        u.isWaitingInArena = false;
-        u.inCombat = true;
-      }
+      u.inCombat = true;
+      u.stagingPos = null;
+      u.isWaitingInArena = false;
     }
 
     this.updateHUD();
   }
 
-  private spawnFriendlyRecruit() {
-    const spawnWorld = this.grid.gridToWorld(this.grid.spawnCoord.x, this.grid.spawnCoord.z);
+  private spawnFriendlyRecruit(team: TeamId) {
+    const grid = this.grids[team];
+    const spawnWorld = grid.gridToWorld(grid.spawnCoord.x, grid.spawnCoord.z);
     const startPos = new THREE.Vector3(spawnWorld.x, 0.4, spawnWorld.z);
-    const waypoints = this.pathfinder.getWorldPath();
+    const waypoints = this.pathfinders[team].getWorldPath();
 
-    const unit = this.unitManager.spawnFriendly(FriendlyClass.RECRUIT, startPos, waypoints);
+    const unit = this.unitManager.spawnFriendly(FriendlyClass.RECRUIT, startPos, waypoints, team);
 
-    // Apply Warrior Heritage Tech Tree Bonus
-    const bonusHp = this.techTree.getBonusRecruitHp();
-    const bonusArmor = this.techTree.getBonusRecruitArmor();
-    unit.maxHp += bonusHp;
-    unit.currentHp += bonusHp;
-    unit.armor += bonusArmor;
-  }
-
-  private rerouteActiveUnits() {
-    const newPath = this.pathfinder.getWorldPath();
-    for (const u of this.unitManager.units) {
-      if (u.isFriendly && !u.hasCompletedMaze) {
-        u.waypoints = newPath;
-        let closestIdx = 0;
-        let minDist = Infinity;
-        for (let i = 0; i < newPath.length; i++) {
-          const d = u.worldPos.distanceTo(newPath[i]);
-          if (d < minDist) {
-            minDist = d;
-            closestIdx = i;
-          }
-        }
-        u.currentWaypointIdx = Math.min(newPath.length - 1, closestIdx + 1);
-      }
+    // Warrior Heritage Tech Tree bonus (the host's campaign progress; skipped in PvP to keep it fair)
+    if (!this.pvpActive) {
+      const bonusHp = this.techTree.getBonusRecruitHp();
+      unit.maxHp += bonusHp;
+      unit.currentHp += bonusHp;
+      unit.armor += this.techTree.getBonusRecruitArmor();
     }
   }
 
-  private resolveWaveVictory() {
-    this.waveInProgress = false;
-    this.waveCleared = true;
-    this.wavePhase = 'IDLE';
-
-    const waveDef = this.currentMission.waves[this.currentWaveIndex];
-    if (this.networkManager.inMatch) {
-      this.networkManager.awardTeamGold('SUN', waveDef.rewardGold);
-      this.networkManager.payoutRoundIncome();
-    } else {
-      this.soloWallet.gold += waveDef.rewardGold;
-    }
-    this.achievementManager.recordGold(waveDef.rewardGold);
-
+  /** Round-end income shared by all modes: Vault interest, stacking towers, evolution recharge. */
+  private applyRoundEndTowerEffects() {
     // Vault Reserve Gold Spires pay interest on their owner's reserve
     for (const tower of this.towerManager.towers.values()) {
       if (tower.type === TowerType.GOLD && tower.currentBranch === UpgradeBranch.BRANCH_B) {
@@ -1001,8 +1026,7 @@ class GameApp {
       }
     }
 
-    const stackEvents = this.towerManager.applyRoundEndStacking();
-    for (const ev of stackEvents) {
+    for (const ev of this.towerManager.applyRoundEndStacking()) {
       audio.playUpgrade();
       this.vfx.spawnAscensionPillar(ev.pos, 0x22c55e);
       this.vfx.spawnFloatingText(ev.pos, ev.message, ev.color, 2.5);
@@ -1010,20 +1034,42 @@ class GameApp {
     if (this.towerManager.selectedTower) {
       this.refreshTowerCardIfOpen(this.towerManager.selectedTower);
     }
-
-    if (this.castleHp >= this.castleHpAtWaveStart) {
-      this.achievementManager.recordFlawlessWave();
-    }
-
     this.towerManager.resetWaveEvolutions();
+  }
+
+  /** Clears round state shared by all modes and moves to the next wave/round. */
+  private advanceRound() {
     this.currentWaveIndex++;
-    this.extraPurchasedRecruits = 0;
-    this.setFocusTarget(null);
+    this.extraPurchasedRecruits = { SUN: 0, MOON: 0 };
+    this.setFocusTarget(null, 'SUN');
+    this.setFocusTarget(null, 'MOON');
     this.toggleFocusFireMode(false);
 
     for (const u of this.unitManager.units.filter(u => u.isFriendly)) {
       this.unitManager.despawnUnit(u);
     }
+  }
+
+  private resolveWaveVictory() {
+    this.waveInProgress = false;
+    this.waveCleared = true;
+    this.wavePhase = 'IDLE';
+
+    const waveDef = this.currentMission.waves[this.currentWaveIndex];
+    if (this.networkManager.inMatch) {
+      this.networkManager.awardTeamGold('SUN', waveDef.rewardGold);
+    } else {
+      this.soloWallet.gold += waveDef.rewardGold;
+    }
+    this.achievementManager.recordGold(waveDef.rewardGold);
+
+    this.applyRoundEndTowerEffects();
+
+    if (this.castleHp >= this.castleHpAtWaveStart) {
+      this.achievementManager.recordFlawlessWave();
+    }
+
+    this.advanceRound();
 
     if (this.currentWaveIndex >= this.currentMission.waves.length) {
       if (this.networkManager.inMatch) {
@@ -1039,6 +1085,26 @@ class GameApp {
       this.prepareWaveEnemiesInArena();
     }
 
+    this.updateHUD();
+  }
+
+  /** PvP: the clash (and any castle storm) is over; pay out and start the next build phase. */
+  private resolvePvpRound() {
+    this.waveInProgress = false;
+    this.waveCleared = true;
+    this.wavePhase = 'IDLE';
+    this.stormTimer = null;
+
+    const reward = pvpRoundReward(this.currentWaveIndex);
+    for (const team of TEAMS) {
+      this.networkManager.awardTeamGold(team, reward);
+    }
+    audio.playGoldGain();
+    this.vfx.spawnFloatingText(ARENA_MSG_POS, `🏁 ROUND ${this.currentWaveIndex + 1} OVER! +${reward}g PER TEAM`, '#facc15', 2.5);
+
+    this.applyRoundEndTowerEffects();
+    this.advanceRound();
+    this.buildTimer = PVP_BUILD_TIME;
     this.updateHUD();
   }
 
@@ -1085,18 +1151,12 @@ class GameApp {
     }, 1200);
   }
 
-  private handleSunCastleFallen() {
+  private handleCastleFallen(team: TeamId) {
     if (this.isClient || this.missionEnded) return;
     if (this.isHostInMatch) {
-      this.finishMultiplayerMatch('MOON', false);
-    } else {
+      this.finishMultiplayerMatch(opponentOf(team), false);
+    } else if (team === 'SUN') {
       this.resolveMissionDefeat();
-    }
-  }
-
-  private handleMoonCastleFallen() {
-    if (this.isHostInMatch) {
-      this.finishMultiplayerMatch('SUN', false);
     }
   }
 
@@ -1105,36 +1165,38 @@ class GameApp {
 
     this.castleHp = this.arenaCastle.currentHp;
     if (this.arenaCastle.isDestroyed || this.castleHp <= 0) {
-      this.handleSunCastleFallen();
+      this.handleCastleFallen('SUN');
       return;
     }
 
-    if (this.moonCastle && this.moonCastle.group.visible && (this.moonCastle.isDestroyed || this.moonCastle.currentHp <= 0)) {
-      this.handleMoonCastleFallen();
+    if (this.pvpActive && this.moonCastle && (this.moonCastle.isDestroyed || this.moonCastle.currentHp <= 0)) {
+      this.handleCastleFallen('MOON');
     }
   }
 
-  /** Recruits of the maze army that reached the arena (excludes PvP mercenaries). */
-  private countAssembledRecruits(): number {
-    return this.unitManager.units.filter(u => u.isFriendly && !u.isMercenary && !u.isDead && u.hasCompletedMaze).length;
+  /** A team's recruits that have reached the arena. */
+  private countAssembledRecruits(team: TeamId): number {
+    return this.unitManager.units.filter(u => u.isFriendly && u.team === team && !u.isDead && u.hasCompletedMaze).length;
   }
 
   private updateHUD() {
-    const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits;
-    const currentRecruitCost = this.getRecruitCost();
+    const team = this.localTeam;
+    const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits[team];
+    const currentRecruitCost = this.getRecruitCost(team);
     const gold = this.playerGold;
 
     let phaseText = 'Prepare Maze';
-    if (this.waveInProgress) {
+    if (this.pvpActive) {
+      phaseText = this.pvpPhaseText();
+    } else if (this.waveInProgress) {
       if (this.wavePhase === 'MAZE_RUN') {
-        phaseText = `🏃 Maze (${this.countAssembledRecruits()}/${totalRecruits})`;
+        phaseText = `🏃 Maze (${this.countAssembledRecruits('SUN')}/${totalRecruits})`;
       } else {
         phaseText = '⚔️ Arena Clash!';
       }
     }
 
     const canBuyRecruit = this.wavePhase !== 'ARENA_CLASH';
-    const isPvp = this.networkManager.inMatch && this.networkManager.mode === 'PVP';
 
     this.ui.renderTopBar(
       this.currentMission,
@@ -1150,7 +1212,8 @@ class GameApp {
       currentRecruitCost,
       canBuyRecruit,
       this.castleHp,
-      isPvp && this.moonCastle ? this.moonCastle.currentHp : undefined
+      this.pvpActive && this.moonCastle ? this.moonCastle.currentHp : undefined,
+      this.pvpActive ? `Round ${this.currentWaveIndex + 1}` : undefined
     );
 
     this.ui.renderTowerPalette(gold, totalRecruits, currentRecruitCost, canBuyRecruit);
@@ -1158,10 +1221,22 @@ class GameApp {
     if (this.towerManager.selectedTower && this.ui.isTowerCardOpen()) {
       this.ui.updateTowerCardLiveStats(this.towerManager.selectedTower, gold);
     }
+  }
 
-    if (this.ui.mercenaryMenu && this.ui.mercenaryMenu.visible) {
-      this.ui.mercenaryMenu.render(gold);
+  private pvpPhaseText(): string {
+    if (this.wavePhase === 'IDLE') {
+      return this.buildTimer !== null ? `⏳ Build: ${Math.ceil(this.buildTimer)}s` : 'Prepare Maze';
     }
+    if (this.wavePhase === 'MAZE_RUN') {
+      const count = (t: TeamId) => `${this.countAssembledRecruits(t)}/${this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits[t]}`;
+      return `🏃 ☀️ ${count('SUN')} · 🌙 ${count('MOON')}`;
+    }
+    if (this.stormTimer !== null) {
+      const stormers = this.unitManager.units.find(u => u.isFriendly && !u.isDead && !u.isDying);
+      const who = stormers ? `${TEAM_NAMES[stormers.team]} storms` : 'Storm';
+      return `🏰 ${who}! ${Math.ceil(this.stormTimer)}s`;
+    }
+    return '⚔️ Arena Clash!';
   }
 
   private raycastGround(): THREE.Vector3 | null {
@@ -1170,9 +1245,14 @@ class GameApp {
     return this.raycaster.ray.intersectPlane(this.groundPlane, point) ? point : null;
   }
 
+  /** The maze the local player builds on. */
+  private get localGrid(): Grid {
+    return this.grids[this.localTeam];
+  }
+
   private pickEnemyUnderCursor(): Unit | null {
     this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
-    const enemyUnits = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead && !u.isDying);
+    const enemyUnits = this.unitManager.units.filter(u => u.team !== this.localTeam && !u.isDead && !u.isDying);
     for (const enemy of enemyUnits) {
       if (this.raycaster.intersectObjects(enemy.mesh.children, true).length > 0) {
         return enemy;
@@ -1212,16 +1292,21 @@ class GameApp {
 
       if (this.ui.selectedTowerTypeForPlacement) {
         const point = this.raycastGround();
-        const coord = point ? this.grid.worldToGrid(point.x, point.z) : null;
-        if (!point || !coord) return;
+        if (!point) return;
+        const grid = this.localGrid;
+        const coord = grid.worldToGrid(point.x, point.z);
+        if (!coord) {
+          if (this.pvpActive) this.localToast(point, 'Build on your own maze island!');
+          return;
+        }
 
-        if (this.grid.getTile(coord.x, coord.z) === TileType.ROAD) {
+        if (grid.getTile(coord.x, coord.z) === TileType.ROAD) {
           this.localToast(point, 'Road tile! Build alongside the path.');
           return;
         }
 
         const currentType = this.ui.selectedTowerTypeForPlacement;
-        const check = this.towerManager.canBuild(coord, currentType, this.playerGold);
+        const check = this.towerManager.canBuild(coord, currentType, this.playerGold, this.localTeam);
         if (!check.allowed) {
           this.localToast(point, check.reason || 'Cannot build here!');
           return;
@@ -1307,7 +1392,7 @@ class GameApp {
   }
 
   private selectTowerForPlacement(type: TowerType) {
-    const msgPos = new THREE.Vector3(0, 2, 0);
+    const msgPos = new THREE.Vector3(sideX(this.localTeam, 0), 2, 0);
     if (type === TowerType.GOLD && this.towerManager.getTowerCountByType(TowerType.GOLD) >= 4 && this.ui.selectedTowerTypeForPlacement !== type) {
       this.localToast(msgPos, 'Gold Spire limit reached! Maximum 4 allowed.', '#ef4444', 1.5, true);
       return;
@@ -1359,11 +1444,10 @@ class GameApp {
     this.ui.updateFocusFireState(this.isFocusFireMode, this.focusTarget);
   }
 
-  /** Authoritative focus-fire change (solo player / multiplayer host). */
-  private setFocusTarget(target: Unit | null) {
-    this.focusTarget = target;
-    this.portalGuardianManager.setFocusTarget(target);
-    this.unitManager.setFocusTarget(target);
+  /** Authoritative focus-fire change for a team (solo player / multiplayer host). */
+  private setFocusTarget(target: Unit | null, team: TeamId) {
+    this.portalGuardianManager.setFocusTarget(target, team);
+    this.unitManager.setFocusTarget(target, team);
 
     if (target && !target.isDead && !target.isDying) {
       audio.playFocusTarget();
@@ -1374,10 +1458,13 @@ class GameApp {
         1.6
       );
     }
-    this.updateFocusVisuals();
+    if (team === this.localTeam) {
+      this.focusTarget = target;
+      this.updateFocusVisuals();
+    }
   }
 
-  /** Reticle & banner for the current focus target. */
+  /** Reticle & banner for the local team's focus target. */
   private updateFocusVisuals() {
     const target = this.focusTarget;
     if (target && !target.isDead && !target.isDying) {
@@ -1573,7 +1660,7 @@ class GameApp {
       }
 
       if (e.code === 'Space' || e.key === ' ' || e.code === 'Enter') {
-        if (!this.waveInProgress) {
+        if (!this.waveInProgress && !this.pvpActive) {
           this.requestAction({ kind: 'START_WAVE' });
           e.preventDefault();
           return;
@@ -1590,7 +1677,7 @@ class GameApp {
 
       if (e.code === 'KeyI' || e.key === 'i' || e.key === 'I') {
         e.preventDefault();
-        this.ui.toggleWaveIntel(this.currentMission, this.currentWaveIndex);
+        if (!this.pvpActive) this.ui.toggleWaveIntel(this.currentMission, this.currentWaveIndex);
         return;
       }
 
@@ -1665,7 +1752,8 @@ class GameApp {
     const isOwner = localActor ? this.canManageTower(localActor, tower) : false;
 
     if (!isOwner && announceOwnership) {
-      this.localToast(tower.worldPos, `🛡️ ${tower.ownerName || 'Teammate'}'s Tower (View Only)`, '#38bdf8', 1.5);
+      const label = localActor && tower.team !== localActor.team ? 'Enemy' : `${tower.ownerName || 'Teammate'}'s`;
+      this.localToast(tower.worldPos, `🛡️ ${label} Tower (View Only)`, '#38bdf8', 1.5);
     }
 
     this.ui.showTowerCard(
@@ -1739,19 +1827,20 @@ class GameApp {
     const point = this.raycastGround();
     if (!point) return;
 
-    const coord = this.grid.worldToGrid(point.x, point.z);
+    const grid = this.localGrid;
+    const coord = grid.worldToGrid(point.x, point.z);
     if (!coord) {
       this.placementGhost.visible = false;
       this.ghostRangeRing.visible = false;
       return;
     }
 
-    const world = this.grid.gridToWorld(coord.x, coord.z);
+    const world = grid.gridToWorld(coord.x, coord.z);
     this.placementGhost.position.set(world.x, 0.2, world.z);
     this.placementGhost.visible = true;
 
     const def = TOWER_DEFINITIONS[this.ui.selectedTowerTypeForPlacement];
-    const canBuild = this.towerManager.canBuild(coord, this.ui.selectedTowerTypeForPlacement, this.playerGold);
+    const canBuild = this.towerManager.canBuild(coord, this.ui.selectedTowerTypeForPlacement, this.playerGold, this.localTeam);
 
     const ghostMat = this.placementGhost.material as THREE.MeshStandardMaterial;
     ghostMat.color.setHex(canBuild.allowed ? 0x22c55e : 0xef4444);
@@ -1783,47 +1872,21 @@ class GameApp {
 
   /** Authoritative simulation step (solo play and multiplayer host). */
   private simulate(dt: number, rawDt: number, now: number) {
-    if (this.waveInProgress && dt > 0) {
-      if (this.wavePhase === 'MAZE_RUN') {
-        if (this.friendlyUnitsToSpawn > 0) {
-          this.friendlySpawnTimer += dt;
-          if (this.friendlySpawnTimer >= 1.2) {
-            this.friendlySpawnTimer = 0;
-            this.friendlyUnitsToSpawn--;
-            this.spawnFriendlyRecruit();
+    if (dt > 0 && !this.missionEnded) {
+      if (this.pvpActive && this.buildTimer !== null && !this.waveInProgress) {
+        this.buildTimer -= dt;
+        if (this.buildTimer <= 0) this.startWave();
+      }
+
+      if (this.waveInProgress) {
+        if (this.wavePhase === 'MAZE_RUN') {
+          this.simulateMazeRun(dt);
+        } else if (this.wavePhase === 'ARENA_CLASH') {
+          if (this.pvpActive) {
+            this.simulatePvpClash(dt);
+          } else if (!this.waveCleared && !this.unitManager.units.some(u => !u.isFriendly && !u.isDead)) {
+            this.resolveWaveVictory();
           }
-        }
-
-        const livingRecruits = this.unitManager.units.filter(u => u.isFriendly && !u.isMercenary && !u.isDead);
-        let assembledCount = 0;
-
-        for (const u of livingRecruits) {
-          if (u.hasCompletedMaze) {
-            assembledCount++;
-            if (!u.stagingPos) {
-              const row = Math.floor((assembledCount - 1) / 4);
-              const col = (assembledCount - 1) % 4;
-              u.stagingPos = new THREE.Vector3(4.5 + row * 1.4, 0.4, -3.5 + col * 2.2);
-            }
-          }
-        }
-
-        // The HUD only re-renders on events, so refresh it as recruits arrive
-        if (assembledCount !== this.lastAssembledCount) {
-          this.lastAssembledCount = assembledCount;
-          this.updateHUD();
-        }
-
-        if (
-          this.friendlyUnitsToSpawn === 0 &&
-          (livingRecruits.length === 0 || assembledCount === livingRecruits.length)
-        ) {
-          this.triggerArenaClash();
-        }
-      } else if (this.wavePhase === 'ARENA_CLASH') {
-        const remainingEnemies = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead);
-        if (remainingEnemies.length === 0 && !this.waveCleared) {
-          this.resolveWaveVictory();
         }
       }
     }
@@ -1834,12 +1897,12 @@ class GameApp {
         this.updateHUD();
       });
 
-      this.unitManager.update(dt, now, (bounty, enemyClass, isBoss) => this.awardKillBounty(bounty, enemyClass, isBoss));
+      this.unitManager.update(dt, now, (bounty, killed) => this.awardKillBounty(bounty, killed));
 
       this.portalGuardianManager.update(
         dt,
         now,
-        (bounty, enemyClass, isBoss) => this.awardKillBounty(bounty, enemyClass, isBoss),
+        (bounty, killed) => this.awardKillBounty(bounty, killed),
         this.wavePhase === 'ARENA_CLASH'
       );
 
@@ -1849,13 +1912,98 @@ class GameApp {
       }
       this.checkCastleDamage();
     } else {
-      for (const guardian of this.portalGuardianManager.guardians) {
+      for (const guardian of this.portalGuardianManager.activeGuardians) {
         guardian.updateAnimation(rawDt, now);
       }
       this.arenaCastle.update(0, this.cameraCtrl.camera);
       if (this.moonCastle && this.moonCastle.group.visible) {
         this.moonCastle.update(0, this.cameraCtrl.camera);
       }
+    }
+
+    // The HUD re-renders on events; also refresh it when counters/timers it shows change
+    const key = this.hudKey();
+    if (key !== this.lastHostHudKey) {
+      this.lastHostHudKey = key;
+      this.updateHUD();
+    }
+  }
+
+  /** Spawns each army's recruits and starts the clash once every recruit (of both teams in PvP) has arrived. */
+  private simulateMazeRun(dt: number) {
+    const teams = this.armyTeams;
+
+    if (teams.some(t => this.recruitsToSpawn[t] > 0)) {
+      this.recruitSpawnTimer += dt;
+      if (this.recruitSpawnTimer >= 1.2) {
+        this.recruitSpawnTimer = 0;
+        for (const team of teams) {
+          if (this.recruitsToSpawn[team] > 0) {
+            this.recruitsToSpawn[team]--;
+            this.spawnFriendlyRecruit(team);
+          }
+        }
+      }
+    }
+
+    let allAssembled = true;
+    for (const team of teams) {
+      const living = this.unitManager.units.filter(u => u.isFriendly && u.team === team && !u.isDead);
+      let assembledCount = 0;
+      for (const u of living) {
+        if (!u.hasCompletedMaze) continue;
+        assembledCount++;
+        if (!u.stagingPos) {
+          // Orderly battalion formation in front of the team's arena gate
+          const row = Math.floor((assembledCount - 1) / 4);
+          const col = (assembledCount - 1) % 4;
+          u.stagingPos = new THREE.Vector3(sideX(team, 4.5 + row * 1.4), 0.4, -3.5 + col * 2.2);
+        }
+      }
+      if (this.recruitsToSpawn[team] > 0 || assembledCount !== living.length) allAssembled = false;
+    }
+
+    if (allAssembled) {
+      this.triggerArenaClash();
+    }
+  }
+
+  /**
+   * PvP clash: the armies fight until one is wiped out; the survivors then storm the enemy
+   * stronghold (under ballista fire) until they fall or the storm timer runs out.
+   */
+  private simulatePvpClash(dt: number) {
+    const alive = (team: TeamId) => this.unitManager.units.some(u => u.team === team && !u.isDead && !u.isDying);
+    const sunAlive = alive('SUN');
+    const moonAlive = alive('MOON');
+
+    if (!sunAlive && !moonAlive) {
+      this.resolvePvpRound();
+      return;
+    }
+
+    if (this.stormTimer === null) {
+      if (sunAlive && moonAlive) return;
+      const stormers: TeamId = sunAlive ? 'SUN' : 'MOON';
+      this.stormTimer = PVP_STORM_TIME;
+      audio.playBossSlam();
+      this.vfx.spawnFloatingText(
+        ARENA_MSG_POS,
+        `🏰 TEAM ${TEAM_NAMES[stormers].toUpperCase()} STORMS THE ${TEAM_NAMES[opponentOf(stormers)].toUpperCase()} STRONGHOLD!`,
+        stormers === 'SUN' ? '#facc15' : '#ef4444',
+        2.5
+      );
+      return;
+    }
+
+    this.stormTimer -= dt;
+    if (this.stormTimer <= 0) {
+      // Time's up: surviving stormers withdraw
+      for (const u of this.unitManager.units.filter(u => u.isFriendly && !u.isDying)) {
+        this.vfx.spawnBurstParticles(u.worldPos.clone(), 0x38bdf8, 6);
+        this.unitManager.despawnUnit(u);
+      }
+      this.resolvePvpRound();
     }
   }
 
@@ -1936,7 +2084,7 @@ class GameApp {
           this.focusTarget = null;
           this.updateFocusVisuals();
         } else {
-          this.setFocusTarget(null);
+          this.setFocusTarget(null, this.localTeam);
         }
       } else {
         this.updateFocusReticle(rawDt, now);

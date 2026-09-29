@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { Unit, UnitManager } from '../units/UnitManager';
+import { KillCallback, Unit, UnitManager } from '../units/UnitManager';
+import { TeamId, sideX } from '../game/Teams';
 import { VFXManager } from '../vfx/VFXManager';
 import { audio } from '../engine/AudioSystem';
 
@@ -39,6 +40,7 @@ export const GUARDIAN_RANGE_LEVELS: { level: number; range: number; nextCost: nu
 export class PortalGuardian {
   public id: string;
   public name: string;
+  public team: TeamId;
   public position: THREE.Vector3;
   public damageLevel: number = 1;
   public rangeLevel: number = 1;
@@ -66,9 +68,10 @@ export class PortalGuardian {
   private targetAimAngle: number = 0;
   private recoilTimer: number = 0;
 
-  constructor(id: string, name: string, position: THREE.Vector3) {
+  constructor(id: string, name: string, position: THREE.Vector3, team: TeamId = 'SUN') {
     this.id = id;
     this.name = name;
+    this.team = team;
     this.position = position.clone();
 
     this.group = new THREE.Group();
@@ -579,9 +582,10 @@ export class PortalGuardian {
       const angle = Math.atan2(targetUnit.worldPos.z - this.position.z, targetUnit.worldPos.x - this.position.x);
       this.targetAimAngle = -angle;
     } else {
-      // Gentle sentry scanning back and forth across arena (+X direction)
-      const offset = this.id === 'guardian-north' ? 0 : Math.PI * 0.7;
-      this.targetAimAngle = Math.sin(time * 0.0014 + offset) * 0.35;
+      // Gentle sentry scanning back and forth across the arena (towards the enemy side)
+      const offset = this.position.z > 0 ? 0 : Math.PI * 0.7;
+      const facing = this.team === 'SUN' ? 0 : Math.PI;
+      this.targetAimAngle = facing + Math.sin(time * 0.0014 + offset) * 0.35;
     }
 
     // Smooth ballista carriage traverse interpolation
@@ -606,7 +610,7 @@ export class PortalGuardian {
     }
   }
 
-  public fireAt(target: Unit, vfx: VFXManager, unitManager: UnitManager, onKillEnemy: (bounty: number, enemyClass?: any, isBoss?: boolean) => void) {
+  public fireAt(target: Unit, vfx: VFXManager, unitManager: UnitManager, onKillEnemy: KillCallback) {
     this.shotsFired++;
     this.recoilTimer = 0.18;
 
@@ -652,7 +656,8 @@ export class PortalGuardianManager {
 
   public guardians: PortalGuardian[] = [];
   public selectedGuardian: PortalGuardian | null = null;
-  public focusTarget: Unit | null = null;
+  /** Each team's focus-fire target. */
+  public focusTargets: Record<TeamId, Unit | null> = { SUN: null, MOON: null };
   public fireCooldown: number = 1.0; // Firing cadence (1.0s)
 
   constructor(scene: THREE.Scene, vfx: VFXManager, unitManager: UnitManager) {
@@ -661,31 +666,45 @@ export class PortalGuardianManager {
     this.unitManager = unitManager;
 
     // Stationed flanking the Arrival Portal at X = 2.2, Z = +4.2 (North) and Z = -4.2 (South)
-    const northGuardian = new PortalGuardian(
-      'guardian-north',
-      'North Ballista Bastion',
-      new THREE.Vector3(2.2, 0, 4.2)
-    );
+    this.addTeamGuardians('SUN');
+  }
 
-    const southGuardian = new PortalGuardian(
-      'guardian-south',
-      'South Ballista Bastion',
-      new THREE.Vector3(2.2, 0, -4.2)
-    );
-
-    this.guardians.push(northGuardian, southGuardian);
-
-    for (const g of this.guardians) {
+  private addTeamGuardians(team: TeamId) {
+    const prefix = team === 'SUN' ? 'guardian' : 'moon-guardian';
+    const label = team === 'SUN' ? '' : 'Moon ';
+    const x = sideX(team, 2.2);
+    const pair = [
+      new PortalGuardian(`${prefix}-north`, `${label}North Ballista Bastion`, new THREE.Vector3(x, 0, 4.2), team),
+      new PortalGuardian(`${prefix}-south`, `${label}South Ballista Bastion`, new THREE.Vector3(x, 0, -4.2), team)
+    ];
+    for (const g of pair) {
+      this.guardians.push(g);
       this.scene.add(g.group);
     }
   }
 
-  public setFocusTarget(target: Unit | null) {
-    this.focusTarget = target;
+  /** PvP: the Moon side gets its own pair of ballistae (created on first use, hidden otherwise). */
+  public setPvpMode(enabled: boolean) {
+    if (enabled && !this.guardians.some(g => g.team === 'MOON')) {
+      this.addTeamGuardians('MOON');
+    }
+    for (const g of this.guardians) {
+      if (g.team === 'MOON') g.group.visible = enabled;
+    }
+    if (!enabled && this.selectedGuardian?.team === 'MOON') this.deselect();
+  }
+
+  /** Guardians currently on the battlefield. */
+  public get activeGuardians(): PortalGuardian[] {
+    return this.guardians.filter(g => g.group.visible);
+  }
+
+  public setFocusTarget(target: Unit | null, team: TeamId = 'SUN') {
+    this.focusTargets[team] = target;
   }
 
   public getGuardianMeshes(): THREE.Object3D[] {
-    return this.guardians.map(g => g.colliderMesh);
+    return this.activeGuardians.map(g => g.colliderMesh);
   }
 
   public checkClick(raycaster: THREE.Raycaster): PortalGuardian | null {
@@ -719,7 +738,7 @@ export class PortalGuardianManager {
 
   public resetAll() {
     this.deselect();
-    this.focusTarget = null;
+    this.focusTargets = { SUN: null, MOON: null };
     for (const g of this.guardians) {
       g.reset();
     }
@@ -731,78 +750,81 @@ export class PortalGuardianManager {
   public update(
     dt: number,
     time: number,
-    onKillEnemy: (bounty: number, enemyClass?: any, isBoss?: boolean) => void,
+    onKillEnemy: KillCallback,
     inCombat: boolean,
     allowFiring: boolean = true
   ) {
-    // Validate focus target
-    if (this.focusTarget && (this.focusTarget.isDead || this.focusTarget.isDying || !this.focusTarget.inCombat)) {
-      this.focusTarget = null;
+    for (const team of ['SUN', 'MOON'] as TeamId[]) {
+      const f = this.focusTargets[team];
+      if (f && (f.isDead || f.isDying || !f.inCombat)) this.focusTargets[team] = null;
     }
+    for (const guardian of this.activeGuardians) {
+      this.updateGuardian(guardian, dt, time, onKillEnemy, inCombat, allowFiring);
+    }
+  }
 
-    // Collect active combat enemies (only when in combat)
+  private updateGuardian(
+    guardian: PortalGuardian,
+    dt: number,
+    time: number,
+    onKillEnemy: KillCallback,
+    inCombat: boolean,
+    allowFiring: boolean
+  ) {
+    const focusTarget = this.focusTargets[guardian.team];
+    const range = guardian.getRange();
+
+    // Opponents of this guardian's team (only once the arena clash has started)
     const activeCombatEnemies = inCombat
-      ? this.unitManager.units.filter(u => !u.isFriendly && !u.isDead && !u.isDying && u.inCombat)
+      ? this.unitManager.units.filter(u => u.team !== guardian.team && !u.isDead && !u.isDying && u.inCombat)
       : [];
 
-    // 1. Update Ballista tracking & animations
-    for (const guardian of this.guardians) {
-      let trackedTarget: Unit | null = null;
-      if (this.focusTarget && guardian.position.distanceTo(this.focusTarget.worldPos) <= guardian.getRange()) {
-        trackedTarget = this.focusTarget;
-      } else if (activeCombatEnemies.length > 0) {
-        let minDist = guardian.getRange();
-        for (const e of activeCombatEnemies) {
-          const d = guardian.position.distanceTo(e.worldPos);
-          if (d <= minDist) {
-            minDist = d;
-            trackedTarget = e;
-          }
+    // 1. Ballista tracking & animation
+    let trackedTarget: Unit | null = null;
+    if (focusTarget && guardian.position.distanceTo(focusTarget.worldPos) <= range) {
+      trackedTarget = focusTarget;
+    } else {
+      let minDist = range;
+      for (const e of activeCombatEnemies) {
+        const d = guardian.position.distanceTo(e.worldPos);
+        if (d <= minDist) {
+          minDist = d;
+          trackedTarget = e;
         }
       }
-      guardian.updateAnimation(dt, time, trackedTarget);
     }
+    guardian.updateAnimation(dt, time, trackedTarget);
 
     // 2. Targeting & Firing (ONLY after the fight has started in Arena Clash!)
-    if (!allowFiring || !inCombat || activeCombatEnemies.length === 0) return;
+    if (!allowFiring || activeCombatEnemies.length === 0) return;
+    if ((time - guardian.lastAttackTime) / 1000 < this.fireCooldown) return;
 
-    for (const guardian of this.guardians) {
-      const elapsed = (time - guardian.lastAttackTime) / 1000;
-      if (elapsed < this.fireCooldown) continue;
+    let target: Unit | null = null;
 
-      const range = guardian.getRange();
+    // FOCUS FIRE PRIORITY: If an enemy has been designated as priority target by the player, shoot it!
+    if (focusTarget && guardian.position.distanceTo(focusTarget.worldPos) <= range) {
+      target = focusTarget;
+    } else {
+      const inRangeEnemies = activeCombatEnemies.filter(e => guardian.position.distanceTo(e.worldPos) <= range);
+      if (inRangeEnemies.length === 0) return;
 
-      let target: Unit | null = null;
-
-      // FOCUS FIRE PRIORITY: If an enemy has been designated as priority target by the player, shoot it!
-      if (this.focusTarget && guardian.position.distanceTo(this.focusTarget.worldPos) <= range) {
-        target = this.focusTarget;
-      } else {
-        // Filter enemies within range
-        const inRangeEnemies = activeCombatEnemies.filter(
-          e => guardian.position.distanceTo(e.worldPos) <= range
-        );
-
-        if (inRangeEnemies.length === 0) continue;
-
-        // Smart target priority:
-        // 1. Highest priority: Enemies closest to breach (closest to X = 1.8 arrival pad)
-        // 2. Secondary: Lowest current HP to eliminate threats quickly
-        inRangeEnemies.sort((a, b) => {
-          const distA = Math.abs(a.worldPos.x - 1.8);
-          const distB = Math.abs(b.worldPos.x - 1.8);
-          if (Math.abs(distA - distB) > 1.5) {
-            return distA - distB; // Closest to portal breach first
-          }
-          return a.currentHp - b.currentHp; // Lowest HP first
-        });
-
-        target = inRangeEnemies[0];
-      }
-
-      // Fire Greatbolt!
-      guardian.lastAttackTime = time;
-      guardian.fireAt(target, this.vfx, this.unitManager, onKillEnemy);
+      // Smart target priority:
+      // 1. Highest priority: Enemies closest to breach (closest to this side's arrival pad)
+      // 2. Secondary: Lowest current HP to eliminate threats quickly
+      const breachX = sideX(guardian.team, 1.8);
+      inRangeEnemies.sort((a, b) => {
+        const distA = Math.abs(a.worldPos.x - breachX);
+        const distB = Math.abs(b.worldPos.x - breachX);
+        if (Math.abs(distA - distB) > 1.5) {
+          return distA - distB; // Closest to portal breach first
+        }
+        return a.currentHp - b.currentHp; // Lowest HP first
+      });
+      target = inRangeEnemies[0];
     }
+
+    // Fire Greatbolt!
+    guardian.lastAttackTime = time;
+    guardian.fireAt(target, this.vfx, this.unitManager, onKillEnemy);
   }
 }

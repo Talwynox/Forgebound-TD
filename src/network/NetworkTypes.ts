@@ -1,9 +1,9 @@
 import { GridCoord } from '../grid/Grid';
 import { TowerType, UpgradeBranch } from '../towers/TowerData';
-import { EnemyClass } from '../units/UnitData';
+import { TeamId } from '../game/Teams';
 
+export type { TeamId } from '../game/Teams';
 export type GameMode = 'COOP' | 'PVP';
-export type TeamId = 'SUN' | 'MOON';
 export type WavePhase = 'IDLE' | 'MAZE_RUN' | 'ARENA_CLASH';
 
 export const MAX_PLAYERS_PER_TEAM = 4;
@@ -19,72 +19,11 @@ export interface PlayerSlot {
   /** Set by the host when the player drops mid-match (their slot is kept until the match ends). */
   disconnected?: boolean;
   gold: number;
-  income: number;
 }
 
 export const TEAM_COLORS: Record<TeamId, string[]> = {
   SUN: ['#facc15', '#38bdf8', '#34d399', '#f472b6'], // Gold, Sky Blue, Emerald, Rose
   MOON: ['#ef4444', '#a855f7', '#f97316', '#06b6d4']  // Crimson, Arcane Violet, Fiery Orange, Cyan
-};
-
-export interface MercenaryDef {
-  enemyClass: EnemyClass;
-  name: string;
-  cost: number;
-  incomeBonus: number;
-  description: string;
-  icon: string;
-}
-
-export const MERCENARY_DEFINITIONS: Record<string, MercenaryDef> = {
-  [EnemyClass.GOBLIN]: {
-    enemyClass: EnemyClass.GOBLIN,
-    name: 'Goblin Raider',
-    cost: 40,
-    incomeBonus: 4,
-    description: 'Fast agile scout. Low HP but swiftly slips through defenses.',
-    icon: '👺'
-  },
-  [EnemyClass.SKELETON_ARCHER]: {
-    enemyClass: EnemyClass.SKELETON_ARCHER,
-    name: 'Skeleton Marksman',
-    cost: 75,
-    incomeBonus: 7,
-    description: 'Ranged piercing archer attacking from safety.',
-    icon: '🏹'
-  },
-  [EnemyClass.ORC_WARRIOR]: {
-    enemyClass: EnemyClass.ORC_WARRIOR,
-    name: 'Orc Marauder',
-    cost: 110,
-    incomeBonus: 11,
-    description: 'Heavy cleaving warrior with solid armor and health.',
-    icon: '🪓'
-  },
-  [EnemyClass.SHADOW_ASSASSIN]: {
-    enemyClass: EnemyClass.SHADOW_ASSASSIN,
-    name: 'Shadow Assassin',
-    cost: 170,
-    incomeBonus: 17,
-    description: 'Deadly high-speed assassin with high critical burst.',
-    icon: '🗡️'
-  },
-  [EnemyClass.IRONCLAD_OGRE]: {
-    enemyClass: EnemyClass.IRONCLAD_OGRE,
-    name: 'Ironclad Crusher',
-    cost: 260,
-    incomeBonus: 26,
-    description: 'Massive siege brute that pulverizes champions and Stronghold gates.',
-    icon: '🛡️'
-  },
-  [EnemyClass.BOSS_LORD_IGNIS]: {
-    enemyClass: EnemyClass.BOSS_LORD_IGNIS,
-    name: 'Lord Ignis Overlord',
-    cost: 600,
-    incomeBonus: 60,
-    description: 'Hellfire titan with colossal health and infernal aura.',
-    icon: '🔥'
-  }
 };
 
 // --- Authoritative state snapshot (Host -> Clients) ---
@@ -100,7 +39,7 @@ export const UNIT_FLAG = {
   COMPLETED_MAZE: 32,
   WAITING_IN_ARENA: 64,
   MAGMA_SHIELD: 128,
-  MERCENARY: 256
+  TEAM_MOON: 256
 } as const;
 
 /** [id, unitClass, flags, x*100, y*100, z*100, yaw*100, hp, maxHp, armor, attack, mana] */
@@ -118,18 +57,25 @@ export type CastleState = [number, number, number];
 /** A replicated VFX/audio call: [target ('v' = VFX, 'a' = audio), method name, encoded args] */
 export type FxEvent = ['v' | 'a', string, unknown[]];
 
+/** Per-team values, indexed [SUN, MOON]. */
+export type TeamPair<T> = [T, T];
+
 export interface StateSnapshot {
   waveIndex: number;
   wavePhase: WavePhase;
   waveInProgress: boolean;
-  extraRecruits: number;
+  extraRecruits: TeamPair<number>;
   gameSpeed: number;
-  smartFocus: boolean;
-  focusUnitId: number | null;
+  smartFocus: TeamPair<boolean>;
+  focusUnitIds: TeamPair<number | null>;
+  /** PvP: seconds until the next round auto-starts (build phase), else null. */
+  buildTimer: number | null;
+  /** PvP: seconds left for survivors to storm the enemy castle, else null. */
+  stormTimer: number | null;
   sunCastle: CastleState;
   moonCastle: CastleState | null;
-  /** peerId -> [gold, income] */
-  economy: Record<string, [number, number]>;
+  /** peerId -> gold */
+  economy: Record<string, number>;
   units: UnitState[];
   towers: TowerState[];
   guardians: GuardianState[];
@@ -144,7 +90,6 @@ export type GameAction =
   | { kind: 'EVO_UPGRADE'; towerId: number; abilityIndex: 1 | 2 | 3 | 4 }
   | { kind: 'SELL_TOWER'; towerId: number }
   | { kind: 'BUY_RECRUIT' }
-  | { kind: 'SEND_MERCENARY'; enemyClass: EnemyClass }
   | { kind: 'START_WAVE' }
   | { kind: 'UPGRADE_GUARDIAN'; guardianId: string; upgradeType: 'damage' | 'range' }
   | { kind: 'SET_FOCUS'; unitId: number | null }

@@ -18,6 +18,10 @@ export class CameraController {
   private previousMouseY: number = 0;
   public isPlacementMode: () => boolean = () => false;
 
+  // Horizontal pan limits (widened in PvP to include the Moon maze island)
+  private minTargetX: number = -45;
+  private maxTargetX: number = 38;
+
   // Keyboard navigation
   private keysPressed: Record<string, boolean> = {};
 
@@ -30,6 +34,19 @@ export class CameraController {
 
     this.updateCameraPosition();
     this.setupEventListeners();
+  }
+
+  /** Widens the pan range for the PvP battlefield and centres the view on a point. */
+  public setPanRange(minX: number, maxX: number) {
+    this.minTargetX = minX;
+    this.maxTargetX = maxX;
+    this.target.x = Math.max(minX, Math.min(maxX, this.target.x));
+    this.updateCameraPosition();
+  }
+
+  public focusOn(x: number, z: number = 0) {
+    this.target.set(Math.max(this.minTargetX, Math.min(this.maxTargetX, x)), this.target.y, z);
+    this.updateCameraPosition();
   }
 
   private updateCameraPosition() {
@@ -66,7 +83,7 @@ export class CameraController {
       this.target.z -= dy * panSpeed;
 
       // Clamp bounds
-      this.target.x = Math.max(-45, Math.min(38, this.target.x));
+      this.target.x = Math.max(this.minTargetX, Math.min(this.maxTargetX, this.target.x));
       this.target.z = Math.max(-25, Math.min(25, this.target.z));
 
       this.updateCameraPosition();
@@ -123,7 +140,7 @@ export class CameraController {
     }
 
     if (moved) {
-      this.target.x = Math.max(-35, Math.min(35, this.target.x));
+      this.target.x = Math.max(this.minTargetX, Math.min(this.maxTargetX, this.target.x));
       this.target.z = Math.max(-20, Math.min(20, this.target.z));
       this.updateCameraPosition();
     }

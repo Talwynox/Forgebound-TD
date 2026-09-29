@@ -28,13 +28,16 @@ export class Grid {
   // World offset for the Maze Island
   public originX: number;
   public originZ: number;
+  /** Mirror the layout along X (the PvP Moon maze is the Sun maze reflected across the arena). */
+  public mirrored: boolean;
 
-  constructor(width: number = 11, depth: number = 15, tileSize: number = 2, originX: number = -22, originZ: number = 0) {
+  constructor(width: number = 11, depth: number = 15, tileSize: number = 2, originX: number = -22, originZ: number = 0, mirrored: boolean = false) {
     this.width = width;
     this.depth = depth;
     this.tileSize = tileSize;
     this.originX = originX;
     this.originZ = originZ;
+    this.mirrored = mirrored;
 
     this.cells = [];
     for (let x = 0; x < width; x++) {
@@ -131,14 +134,16 @@ export class Grid {
   }
 
   gridToWorld(x: number, z: number): { x: number; z: number } {
+    const col = this.mirrored ? this.width - 1 - x : x;
     return {
-      x: this.originX + (x - this.width / 2 + 0.5) * this.tileSize,
+      x: this.originX + (col - this.width / 2 + 0.5) * this.tileSize,
       z: this.originZ + (z - this.depth / 2 + 0.5) * this.tileSize
     };
   }
 
   worldToGrid(worldX: number, worldZ: number): GridCoord | null {
-    const gx = Math.floor((worldX - this.originX) / this.tileSize + this.width / 2);
+    const col = Math.floor((worldX - this.originX) / this.tileSize + this.width / 2);
+    const gx = this.mirrored ? this.width - 1 - col : col;
     const gz = Math.floor((worldZ - this.originZ) / this.tileSize + this.depth / 2);
     if (this.isValid(gx, gz)) {
       return { x: gx, z: gz };

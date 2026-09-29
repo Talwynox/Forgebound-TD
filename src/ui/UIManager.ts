@@ -10,7 +10,6 @@ import { PortalGuardian } from '../towers/PortalGuardianManager';
 import { AchievementManager } from '../achievements/AchievementManager';
 import { ACHIEVEMENTS, AchievementCategory, AchievementDef, AchievementTierDef } from '../achievements/AchievementData';
 import { MultiplayerModal } from './MultiplayerModal';
-import { MercenaryMenu } from './MercenaryMenu';
 import { NetworkManager } from '../network/NetworkManager';
 import { escapeHtml } from './html';
 
@@ -23,7 +22,6 @@ export class UIManager {
 
   // Multiplayer
   public multiplayerModal!: MultiplayerModal;
-  public mercenaryMenu!: MercenaryMenu;
   public networkManager?: NetworkManager;
   public currentTowerCardIsOwner: boolean = true;
 
@@ -170,7 +168,6 @@ export class UIManager {
   initMultiplayer(network: NetworkManager) {
     this.networkManager = network;
     this.multiplayerModal = new MultiplayerModal(this.domContainer, network);
-    this.mercenaryMenu = new MercenaryMenu(this.domContainer, network);
   }
 
   renderTopBar(
@@ -187,7 +184,8 @@ export class UIManager {
     recruitCost: number = 25,
     canBuyRecruit: boolean = true,
     sunCastleHp?: number,
-    moonCastleHp?: number
+    moonCastleHp?: number,
+    waveLabel?: string
   ) {
     this.lastPlayerGold = gold;
     this.lastTotalRecruits = totalRecruits;
@@ -199,14 +197,12 @@ export class UIManager {
     const totalStars = this.techTree.getTotalStarsEarned();
     const canAffordRecruit = canBuyRecruit && gold >= recruitCost;
     const isPvp = Boolean(this.networkManager?.inMatch && this.networkManager?.mode === 'PVP');
-    const localPlayer = this.networkManager?.getLocalPlayer();
-    const income = localPlayer?.income || 0;
 
     this.topBarEl.innerHTML = `
       <div class="hud-group">
-        <div class="hud-mission-title">${mission.title}</div>
-        <div class="hud-badge wave-badge">Wave ${currentWave} / ${totalWaves}</div>
-        <button id="btn-wave-intel" class="hud-btn wave-intel-btn" title="Scout incoming enemy battalion intel (Hotkey: I)">👁️ Intel <span class="key-badge">I</span></button>
+        ${isPvp ? '' : `<div class="hud-mission-title">${mission.title}</div>`}
+        <div class="hud-badge wave-badge">${waveLabel ?? `Wave ${currentWave} / ${totalWaves}`}</div>
+        ${isPvp ? '' : `<button id="btn-wave-intel" class="hud-btn wave-intel-btn" title="Scout incoming enemy battalion intel (Hotkey: I)">👁️ Intel <span class="key-badge">I</span></button>`}
         <div class="hud-badge phase-badge font-bold">${phaseText}</div>
       </div>
 
@@ -215,7 +211,6 @@ export class UIManager {
           <div class="hud-stat" title="Team Sun Stronghold Health"><span class="icon">☀️</span> <span class="val text-amber-400 font-bold">${sunCastleHp ?? castleHp} HP</span></div>
           <div class="hud-stat" title="Team Moon Stronghold Health"><span class="icon">🌙</span> <span class="val text-rose-400 font-bold">${moonCastleHp ?? castleHp} HP</span></div>
           <div class="hud-stat" title="Your Personal Gold Reserve"><span class="icon">🪙</span> <span class="val text-amber-400 font-bold">${gold}g</span></div>
-          ${income > 0 ? `<div class="hud-stat" title="Round Income"><span class="icon">📈</span> <span class="val text-emerald-400 font-bold">+${income}g</span></div>` : ''}
         ` : `
           <div class="hud-stat" title="Gold Reserve"><span class="icon">🪙</span> <span class="val text-amber-400 font-bold">${gold}g</span></div>
           <div class="hud-stat" title="Arena Stronghold Castle Health"><span class="icon">🏰</span> <span class="val ${castleHp > castleMaxHp * 0.5 ? 'text-emerald-400' : castleHp > castleMaxHp * 0.25 ? 'text-amber-400' : 'text-rose-400'} font-bold">${Math.max(0, castleHp)} / ${castleMaxHp}</span></div>
@@ -234,9 +229,9 @@ export class UIManager {
           ✨ Smart Focus: <span class="${this.towerManager?.smartFocusEnabled ? 'text-amber-400 font-bold' : 'text-slate-400'}">${this.towerManager?.smartFocusEnabled ? 'ON' : 'OFF'}</span> <span class="key-badge">Z</span>
         </button>
         <button id="btn-speed" class="hud-btn speed-btn">${gameSpeed === 0 ? '⏸️ PAUSED' : gameSpeed + 'x'}</button>
-        <button id="btn-send-wave" class="hud-btn wave-btn ${waveInProgress ? 'disabled' : ''}" title="Release Wave (Hotkey: Space or Enter)">
+        ${isPvp ? '' : `<button id="btn-send-wave" class="hud-btn wave-btn ${waveInProgress ? 'disabled' : ''}" title="Release Wave (Hotkey: Space or Enter)">
           ${waveInProgress ? '⚔️ Wave Active' : '⚔️ Release Wave <span class="key-badge" style="margin-left: 4px; margin-right: 0;">Space</span>'}
-        </button>
+        </button>`}
         <button id="btn-multiplayer" class="hud-btn mp-btn" title="Multiplayer War Room: Co-Op & 4v4 PvP">🤝 Multiplayer</button>
         <button id="btn-trophies" class="hud-btn icon-btn" title="Royal Hall of Trophies / Achievements (Hotkey: Y)">
           🏆 Trophies ${this.achievementManager ? `<span class="trophies-badge-count text-amber-400 font-bold">(${this.achievementManager.getTotalTrophiesEarned().unlocked}/${this.achievementManager.getTotalTrophiesEarned().total})</span>` : ''}

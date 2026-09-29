@@ -104,8 +104,7 @@ export class NetworkManager {
         slotIndex: this.getNextAvailableSlot(team),
         isHost: false,
         isReady: false,
-        gold: STARTING_GOLD,
-        income: 0
+        gold: STARTING_GOLD
       });
       this.broadcastLobbyState();
       audio.playUpgrade();
@@ -178,8 +177,7 @@ export class NetworkManager {
       slotIndex: 0,
       isHost: true,
       isReady: true,
-      gold: STARTING_GOLD,
-      income: 0
+      gold: STARTING_GOLD
     });
     this.onLobbyUpdated();
   }
@@ -237,7 +235,6 @@ export class NetworkManager {
     if (!this.isHost) return;
     for (const p of this.players.values()) {
       p.gold = STARTING_GOLD;
-      p.income = 0;
     }
     this.inMatch = true;
     this.conn.broadcast({ type: 'MATCH_START', mode: this.mode, missionId, players: this.getPlayerList() });
@@ -310,16 +307,6 @@ export class NetworkManager {
     const split = Math.max(1, Math.floor(totalGold / teamPlayers.length));
     for (const p of teamPlayers) {
       p.gold += split;
-    }
-  }
-
-  /**
-   * Pays round income to all players at the end of a wave.
-   */
-  public payoutRoundIncome() {
-    if (!this.isHost) return;
-    for (const p of this.players.values()) {
-      if (p.income > 0) p.gold += p.income;
     }
   }
 
@@ -446,12 +433,9 @@ export class NetworkManager {
 
       case 'STATE_SNAPSHOT': {
         if (!this.inMatch) break;
-        for (const [peerId, [gold, income]] of Object.entries(msg.snapshot.economy)) {
+        for (const [peerId, gold] of Object.entries(msg.snapshot.economy)) {
           const p = this.players.get(peerId);
-          if (p) {
-            p.gold = gold;
-            p.income = income;
-          }
+          if (p) p.gold = gold;
         }
         this.onSnapshot(msg.snapshot);
         break;

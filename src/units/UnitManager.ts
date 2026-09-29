@@ -12,6 +12,10 @@ import { buildUnitMesh, getUnitMeshHeight } from './UnitMeshFactory';
 import { VFXManager } from '../vfx/VFXManager';
 import { audio } from '../engine/AudioSystem';
 import { ArenaCastle } from '../engine/ArenaCastle';
+import { TeamId, opponentOf, sideX, forwardDir, forwardYaw } from '../game/Teams';
+
+/** Called when a unit that pays a bounty dies (enemies; in PvP any unit). */
+export type KillCallback = (bounty: number, killed: Unit) => void;
 
 export const ARENA_BOUNDS = {
   minX: 1.2,
@@ -23,6 +27,8 @@ export const ARENA_BOUNDS = {
 export class Unit {
   public id: number;
   public isFriendly: boolean;
+  /** Which side the unit fights for. Solo/co-op: the maze army is SUN, wave enemies are MOON. */
+  public team: TeamId;
   public unitClass: FriendlyClass | EnemyClass;
   public stats: UnitStats;
 
@@ -53,9 +59,6 @@ export class Unit {
   public isWaitingInArena: boolean = false;
   public isDead: boolean = false;
   public lateralLaneOffset: number = 0;
-
-  // PvP mercenary: fights immediately and is not part of the maze army
-  public isMercenary: boolean = false;
 
   // Multiplayer client mirroring: latest authoritative transform from the host
   public netTargetPos: THREE.Vector3 | null = null;
@@ -133,10 +136,12 @@ export class Unit {
     isFriendly: boolean,
     unitClass: FriendlyClass | EnemyClass,
     startPos: THREE.Vector3,
-    waypoints: THREE.Vector3[] = []
+    waypoints: THREE.Vector3[] = [],
+    team?: TeamId
   ) {
     this.id = id;
     this.isFriendly = isFriendly;
+    this.team = team ?? (isFriendly ? 'SUN' : 'MOON');
     this.unitClass = unitClass;
     this.stats = getUnitStats(unitClass);
 
@@ -451,29 +456,47 @@ export class UnitManager {
   public camera: THREE.Camera;
 
   public selectedUnit: Unit | null = null;
-  public focusTarget: Unit | null = null;
+  /** Each team's focus-fire target (an enemy of that team). */
+  public focusTargets: Record<TeamId, Unit | null> = { SUN: null, MOON: null };
+  /** PvP: both armies are recruit-type units; every kill pays a bounty and units wear team rings. */
+  public pvpMode: boolean = false;
 
   // Battlefield clash boundaries
   public arenaMinX: number = 4;
   public arenaMaxX: number = 24;
 
-  public arenaCastle: ArenaCastle | null = null;
-  public onCastleDestroyed: (() => void) | null = null;
-  public moonCastle: ArenaCastle | null = null;
-  public onMoonCastleDestroyed: (() => void) | null = null;
+  private castles: Record<TeamId, ArenaCastle | null> = { SUN: null, MOON: null };
+  private onCastleDestroyed: Record<TeamId, (() => void) | null> = { SUN: null, MOON: null };
 
-  public setArenaCastle(castle: ArenaCastle, onCastleDestroyed?: () => void) {
-    this.arenaCastle = castle;
-    if (onCastleDestroyed) this.onCastleDestroyed = onCastleDestroyed;
+  public setCastle(team: TeamId, castle: ArenaCastle | null, onDestroyed?: () => void) {
+    this.castles[team] = castle;
+    if (onDestroyed) this.onCastleDestroyed[team] = onDestroyed;
   }
 
-  public setMoonCastle(castle: ArenaCastle | null, onCastleDestroyed?: () => void) {
-    this.moonCastle = castle;
-    if (onCastleDestroyed) this.onMoonCastleDestroyed = onCastleDestroyed;
+  public setFocusTarget(target: Unit | null, team: TeamId = 'SUN') {
+    this.focusTargets[team] = target;
   }
 
-  public setFocusTarget(target: Unit | null) {
-    this.focusTarget = target;
+  /** Where a team's army materializes in the arena after clearing its maze. */
+  public arrivalPos(team: TeamId): THREE.Vector3 {
+    return new THREE.Vector3(sideX(team, 2), 0.4, 0);
+  }
+
+  /** Ground ring in the team colour so the two PvP armies are easy to tell apart. */
+  private addTeamMarker(unit: Unit) {
+    const r = Math.max(0.35, unit.stats.scale * 0.5);
+    const geom = new THREE.RingGeometry(r, r + 0.12, 24);
+    geom.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color: unit.team === 'SUN' ? 0xfacc15 : 0xef4444,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const ring = new THREE.Mesh(geom, mat);
+    ring.position.y = -0.34;
+    unit.mesh.add(ring);
   }
 
   constructor(scene: THREE.Scene, vfx: VFXManager, camera: THREE.Camera) {
@@ -482,8 +505,9 @@ export class UnitManager {
     this.camera = camera;
   }
 
-  spawnFriendly(unitClass: FriendlyClass, startPos: THREE.Vector3, waypoints: THREE.Vector3[]): Unit {
-    const unit = new Unit(this.nextId++, true, unitClass, startPos, waypoints);
+  spawnFriendly(unitClass: FriendlyClass, startPos: THREE.Vector3, waypoints: THREE.Vector3[], team: TeamId = 'SUN'): Unit {
+    const unit = new Unit(this.nextId++, true, unitClass, startPos, waypoints, team);
+    if (this.pvpMode) this.addTeamMarker(unit);
     this.scene.add(unit.mesh);
     this.units.push(unit);
     return unit;
@@ -513,32 +537,11 @@ export class UnitManager {
     return unit;
   }
 
-  /**
-   * PvP mercenary. Sun-sent mercenaries fight on the defenders' side and march on the Moon stronghold;
-   * Moon-sent mercenaries fight as enemies and assault the Sun stronghold.
-   */
-  spawnMercenary(enemyClass: EnemyClass, startPos: THREE.Vector3, fightsForSun: boolean, waveIndex: number): Unit {
-    if (!fightsForSun) {
-      const unit = this.spawnEnemy(enemyClass, startPos, false, waveIndex);
-      unit.isMercenary = true;
-      return unit;
-    }
-
-    const unit = new Unit(this.nextId++, true, enemyClass, startPos);
-    unit.currentHp = unit.maxHp;
-    unit.inCombat = true;
-    unit.hasCompletedMaze = true;
-    unit.isMercenary = true;
-    unit.mesh.rotation.y = -Math.PI / 2;
-    this.scene.add(unit.mesh);
-    this.units.push(unit);
-    return unit;
-  }
-
   /** Multiplayer client: creates a mirror of a host-simulated unit. */
-  spawnNetworkUnit(id: number, isFriendly: boolean, unitClass: FriendlyClass | EnemyClass, startPos: THREE.Vector3): Unit {
-    const unit = new Unit(id, isFriendly, unitClass, startPos);
+  spawnNetworkUnit(id: number, isFriendly: boolean, unitClass: FriendlyClass | EnemyClass, startPos: THREE.Vector3, team: TeamId): Unit {
+    const unit = new Unit(id, isFriendly, unitClass, startPos, [], team);
     unit.mesh.position.copy(startPos);
+    if (this.pvpMode) this.addTeamMarker(unit);
     this.scene.add(unit.mesh);
     this.units.push(unit);
     return unit;
@@ -639,7 +642,7 @@ export class UnitManager {
     }
   }
 
-  update(dt: number, time: number, onKillEnemyCallback: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
+  update(dt: number, time: number, onKill: KillCallback) {
     // 1. Update Unit Buff Status & Navigation
     for (let i = this.units.length - 1; i >= 0; i--) {
       const unit = this.units[i];
@@ -695,10 +698,10 @@ export class UnitManager {
                 audio.playTeleport();
                 this.vfx.spawnBurstParticles(unit.worldPos, 0x38bdf8, 14);
 
-                // Teleport directly to Arrival Pad on the Arena Island!
-                const arrivalPadPos = new THREE.Vector3(2, 0.4, 0);
+                // Teleport directly to the team's Arrival Pad on the Arena Island!
+                const arrivalPadPos = this.arrivalPos(unit.team);
                 unit.mesh.position.copy(arrivalPadPos);
-                this.vfx.spawnAscensionPillar(arrivalPadPos, 0x38bdf8);
+                this.vfx.spawnAscensionPillar(arrivalPadPos, unit.team === 'SUN' ? 0x38bdf8 : 0xef4444);
                 this.vfx.spawnFloatingText(arrivalPadPos, 'WARPED TO ARENA!', '#38bdf8', 1.4);
 
                 unit.hasCompletedMaze = true;
@@ -722,14 +725,14 @@ export class UnitManager {
             unit.mesh.lookAt(unit.stagingPos.x, unit.worldPos.y, unit.stagingPos.z);
           } else {
             // Face forward into the arena towards enemies
-            unit.mesh.rotation.y = -Math.PI / 2;
+            unit.mesh.rotation.set(0, forwardYaw(unit.team), 0);
           }
         }
       }
 
       // Unit in Combat / Battlefield
       if (unit.inCombat) {
-        this.handleCombatMovementAndAttack(unit, dt, time, onKillEnemyCallback);
+        this.handleCombatMovementAndAttack(unit, dt, time, onKill);
       }
 
       // Constrain units located in the arena to arena perimeter walls
@@ -750,14 +753,14 @@ export class UnitManager {
     for (const champ of combatFriendlies) {
       if (champ.armorAuraBonus > 0) {
         for (const ally of combatFriendlies) {
-          if (champ.worldPos.distanceTo(ally.worldPos) <= 4.5) {
+          if (ally.team === champ.team && champ.worldPos.distanceTo(ally.worldPos) <= 4.5) {
             ally.combatAuraArmor = Math.max(ally.combatAuraArmor, champ.armorAuraBonus);
           }
         }
       }
       if (champ.damageAuraBonus > 0) {
         for (const ally of combatFriendlies) {
-          if (champ.worldPos.distanceTo(ally.worldPos) <= 4.5) {
+          if (ally.team === champ.team && champ.worldPos.distanceTo(ally.worldPos) <= 4.5) {
             ally.combatAuraAttack = Math.max(ally.combatAuraAttack, champ.damageAuraBonus);
           }
         }
@@ -817,7 +820,7 @@ export class UnitManager {
     unit: Unit,
     dt: number,
     time: number,
-    onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void
+    onKillEnemy: KillCallback
   ) {
     const effectiveSpeed = unit.moveSpeed * (1 - unit.slowFactor);
 
@@ -866,7 +869,7 @@ export class UnitManager {
       unit.bossStompCooldown -= dt;
       if (unit.bossStompCooldown <= 0) {
         const nearbyOpponents = this.units.filter(
-          u => u.isFriendly !== unit.isFriendly && !u.isDead && !u.isDying && unit.worldPos.distanceTo(u.worldPos) <= 4.0
+          u => u.team !== unit.team && !u.isDead && !u.isDying && unit.worldPos.distanceTo(u.worldPos) <= 4.0
         );
         if (nearbyOpponents.length > 0) {
           unit.bossStompCooldown = 6.0;
@@ -897,7 +900,9 @@ export class UnitManager {
     }
 
     // Find nearest opposing target (ignoring units still in the maze or waiting behind the arena gates)
-    const enemies = this.units.filter(u => u.isFriendly !== unit.isFriendly && this.isEngageable(u));
+    const enemies = this.units.filter(u => u.team !== unit.team && this.isEngageable(u));
+    const focusTarget = this.focusTargets[unit.team];
+    const enemyCastle = this.castles[opponentOf(unit.team)];
 
     // Dynamic Attack speed rate
     const effectiveAttackRate = unit.attackSpeedBonus > 0
@@ -906,7 +911,7 @@ export class UnitManager {
 
     // --- ENEMY AI: Target friendly units or the Player's Arena Stronghold ---
     if (!unit.isFriendly) {
-      const castleTargetX = this.arenaCastle ? this.arenaCastle.gateTargetPos.x : 1.3;
+      const castleTargetX = enemyCastle ? enemyCastle.gateTargetPos.x : 1.3;
       const castleTargetZ = THREE.MathUtils.clamp(unit.worldPos.z, -2.6, 2.6);
       const castleTargetPos = new THREE.Vector3(castleTargetX, unit.worldPos.y, castleTargetZ);
       const distToCastle = unit.worldPos.distanceTo(castleTargetPos);
@@ -915,15 +920,10 @@ export class UnitManager {
       let nearestFriendly: Unit | null = null;
       let minFriendlyDist = Infinity;
 
-      if (
-        this.focusTarget &&
-        !this.focusTarget.isDead &&
-        !this.focusTarget.isDying &&
-        this.focusTarget.isFriendly !== unit.isFriendly
-      ) {
-        const dFocus = unit.worldPos.distanceTo(this.focusTarget.worldPos);
+      if (focusTarget && !focusTarget.isDead && !focusTarget.isDying && focusTarget.team !== unit.team) {
+        const dFocus = unit.worldPos.distanceTo(focusTarget.worldPos);
         if (unit.stats.range > 2.0 || dFocus <= 7.5) {
-          nearestFriendly = this.focusTarget;
+          nearestFriendly = focusTarget;
           minFriendlyDist = dFocus;
         }
       }
@@ -940,8 +940,8 @@ export class UnitManager {
 
       // Decide whether to assault the Arena Castle or fight nearest friendly unit:
       const shouldAttackCastle =
-        Boolean(this.arenaCastle &&
-        !this.arenaCastle.isDestroyed &&
+        Boolean(enemyCastle &&
+        !enemyCastle.isDestroyed &&
         (!nearestFriendly ||
           (distToCastle <= unit.stats.range + 0.4 && minFriendlyDist > unit.stats.range + 0.5) ||
           (unit.worldPos.x <= 3.2 && distToCastle < minFriendlyDist)));
@@ -969,11 +969,9 @@ export class UnitManager {
             }
 
             const rawDmg = unit.attack;
-            if (this.arenaCastle) {
-              const destroyed = this.arenaCastle.takeDamage(rawDmg, hitPos);
-              if (destroyed && this.onCastleDestroyed) {
-                this.onCastleDestroyed();
-              }
+            if (enemyCastle) {
+              const destroyed = enemyCastle.takeDamage(rawDmg, hitPos);
+              if (destroyed) this.onCastleDestroyed[opponentOf(unit.team)]?.();
             }
           }
         } else {
@@ -1021,42 +1019,37 @@ export class UnitManager {
 
     // --- FRIENDLY AI: Target enemy units or advance ---
     if (enemies.length === 0) {
-      if (this.moonCastle && !this.moonCastle.isDestroyed) {
-        const castleTargetX = this.moonCastle.gateTargetPos.x;
+      const dir = forwardDir(unit.team);
+      if (enemyCastle && !enemyCastle.isDestroyed) {
+        const castleTargetX = enemyCastle.gateTargetPos.x;
         const castleTargetZ = THREE.MathUtils.clamp(unit.worldPos.z, -2.6, 2.6);
         const castleTargetPos = new THREE.Vector3(castleTargetX, unit.worldPos.y, castleTargetZ);
         const distToCastle = unit.worldPos.distanceTo(castleTargetPos);
         const effectiveAttackRange = unit.stats.range + 0.6;
 
-        if (distToCastle <= effectiveAttackRange || unit.worldPos.x >= castleTargetX - effectiveAttackRange) {
-          unit.mesh.lookAt(castleTargetX + 2.0, unit.worldPos.y, castleTargetZ);
+        if (distToCastle <= effectiveAttackRange || (unit.worldPos.x - castleTargetX) * dir >= -effectiveAttackRange) {
+          unit.mesh.lookAt(castleTargetX + 2.0 * dir, unit.worldPos.y, castleTargetZ);
           const elapsed = (time - unit.lastAttackTime) / 1000;
           if (elapsed >= effectiveAttackRate) {
             unit.lastAttackTime = time;
             unit.lungeTimer = 0.16;
-            const rawDmg = unit.attack;
             const hitPos = new THREE.Vector3(castleTargetX, 1.2, castleTargetZ);
-            if (this.moonCastle) {
-              const destroyed = this.moonCastle.takeDamage(rawDmg, hitPos);
-              if (destroyed && this.onMoonCastleDestroyed) {
-                this.onMoonCastleDestroyed();
-              }
-            }
+            const destroyed = enemyCastle.takeDamage(unit.attack, hitPos);
+            if (destroyed) this.onCastleDestroyed[opponentOf(unit.team)]?.();
           }
           return;
         } else {
-          const dir = new THREE.Vector3().subVectors(castleTargetPos, unit.worldPos).normalize();
-          unit.mesh.position.addScaledVector(dir, unit.moveSpeed * dt);
+          const moveDir = new THREE.Vector3().subVectors(castleTargetPos, unit.worldPos).normalize();
+          unit.mesh.position.addScaledVector(moveDir, unit.moveSpeed * dt);
           unit.mesh.lookAt(castleTargetPos.x, unit.worldPos.y, castleTargetPos.z);
           this.clampUnitToArena(unit);
           return;
         }
       }
 
-      // Victory march eastward toward opponent citadel
-      const marchDir = new THREE.Vector3(1, 0, 0);
-      unit.mesh.position.addScaledVector(marchDir, unit.moveSpeed * dt);
-      unit.mesh.rotation.y = -Math.PI / 2;
+      // Victory march toward the opponent's side
+      unit.mesh.position.x += dir * unit.moveSpeed * dt;
+      unit.mesh.rotation.set(0, forwardYaw(unit.team), 0);
       this.clampUnitToArena(unit);
       return;
     }
@@ -1064,15 +1057,10 @@ export class UnitManager {
     let nearest: Unit | null = null;
     let nearestDist = Infinity;
 
-    if (
-      this.focusTarget &&
-      !this.focusTarget.isDead &&
-      !this.focusTarget.isDying &&
-      this.focusTarget.isFriendly !== unit.isFriendly
-    ) {
-      const dFocus = unit.worldPos.distanceTo(this.focusTarget.worldPos);
+    if (focusTarget && !focusTarget.isDead && !focusTarget.isDying && focusTarget.team !== unit.team) {
+      const dFocus = unit.worldPos.distanceTo(focusTarget.worldPos);
       if (unit.stats.range > 2.0 || dFocus <= 7.5) {
-        nearest = this.focusTarget;
+        nearest = focusTarget;
         nearestDist = dFocus;
       }
     }
@@ -1116,7 +1104,7 @@ export class UnitManager {
     this.clampUnitToArena(unit);
   }
 
-  private executeAttack(attacker: Unit, defender: Unit, onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
+  private executeAttack(attacker: Unit, defender: Unit, onKillEnemy: KillCallback) {
     attacker.lungeTimer = 0.16;
     defender.hitFlinchTimer = 0.14;
 
@@ -1217,7 +1205,7 @@ export class UnitManager {
 
     // Archer Multishot Volley
     if (attacker.multishotChance > 0 && Math.random() < attacker.multishotChance) {
-      const otherEnemies = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && !u.isDying && u.id !== defender.id);
+      const otherEnemies = this.units.filter(u => u.team !== attacker.team && !u.isDead && !u.isDying && u.id !== defender.id);
       const targets = otherEnemies
         .filter(u => attacker.worldPos.distanceTo(u.worldPos) <= attacker.stats.range)
         .slice(0, attacker.multishotTargets - 1);
@@ -1265,7 +1253,7 @@ export class UnitManager {
         this.vfx.spawnFloatingText(defender.worldPos.clone().add(new THREE.Vector3(0, 1.3, 0)), '🔥 MEGA FIREBALL! 🔥', '#ff4500', 1.8);
 
         const rawSplashDmg = Math.round((attacker.attack + attacker.combatAuraAttack) * attacker.fireballDamageMult);
-        const enemies = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && !u.isDying);
+        const enemies = this.units.filter(u => u.team !== attacker.team && !u.isDead && !u.isDying);
 
         for (const enemy of enemies) {
           const dist = defender.worldPos.distanceTo(enemy.worldPos);
@@ -1296,7 +1284,7 @@ export class UnitManager {
 
     // Passive Cleave for Pyro Golem
     if (attacker.stats.passive === 'CLEAVE') {
-      const nearby = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && !u.isDying && u.id !== defender.id);
+      const nearby = this.units.filter(u => u.team !== attacker.team && !u.isDead && !u.isDying && u.id !== defender.id);
       for (const n of nearby) {
         if (attacker.worldPos.distanceTo(n.worldPos) <= 2.2) {
           const cleaveDmg = Math.round(finalDmg * 0.6);
@@ -1326,7 +1314,7 @@ export class UnitManager {
     if (unit.manaBarBgMesh) unit.manaBarBgMesh.visible = false;
   }
 
-  private killUnit(unit: Unit, onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
+  private killUnit(unit: Unit, onKillEnemy: KillCallback) {
     if (unit.isDying || unit.isDead) return;
     this.beginDeath(unit);
 
@@ -1334,10 +1322,10 @@ export class UnitManager {
     const burstColor = unit.isBoss ? 0xff4500 : (unit.isFriendly ? 0x38bdf8 : 0xef4444);
     this.vfx.spawnBurstParticles(unit.worldPos.clone().add(new THREE.Vector3(0, 0.5, 0)), burstColor, unit.isBoss ? 36 : 14);
 
-    if (!unit.isFriendly) {
-      // Enemy bounty
+    if (!unit.isFriendly || this.pvpMode) {
+      // Bounty for enemies (and, in PvP, for every unit of the opposing army)
       const bounty = unit.isBoss ? 250 : (unit.stats.tier === UnitTier.TIER_3 ? 60 : unit.stats.tier === UnitTier.TIER_2 ? 25 : 12);
-      onKillEnemy(bounty, unit.unitClass as EnemyClass, unit.isBoss || false);
+      onKillEnemy(bounty, unit);
       audio.playGoldGain();
       this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 1.2, 0)), `+${bounty}g`, '#facc15', unit.isBoss ? 1.8 : 1.2);
     }
@@ -1361,9 +1349,8 @@ export class UnitManager {
     if (this.selectedUnit === unit) {
       this.selectedUnit = null;
     }
-    if (this.focusTarget === unit) {
-      this.focusTarget = null;
-    }
+    if (this.focusTargets.SUN === unit) this.focusTargets.SUN = null;
+    if (this.focusTargets.MOON === unit) this.focusTargets.MOON = null;
   }
 
   /** Immediately removes a unit (no death animation). */
@@ -1378,7 +1365,7 @@ export class UnitManager {
     this.selectedUnit = unit;
   }
 
-  public damageUnit(target: Unit, rawDmg: number, onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void): number {
+  public damageUnit(target: Unit, rawDmg: number, onKillEnemy: KillCallback): number {
     if (target.isDead || target.isDying) return 0;
     const defenderArmor = target.armor + (target.combatAuraArmor || 0);
     const finalDmg = calculateDamage(rawDmg, defenderArmor);
