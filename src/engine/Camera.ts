@@ -16,6 +16,7 @@ export class CameraController {
   private isDragging: boolean = false;
   private previousMouseX: number = 0;
   private previousMouseY: number = 0;
+  public isPlacementMode: () => boolean = () => false;
 
   // Keyboard navigation
   private keysPressed: Record<string, boolean> = {};
@@ -43,8 +44,8 @@ export class CameraController {
   private setupEventListeners() {
     // Mouse drag for panning
     this.domElement.addEventListener('mousedown', (e: MouseEvent) => {
-      // Middle click or right click or holding Shift + left click for camera pan
-      if (e.button === 2 || e.button === 1 || (e.button === 0 && e.shiftKey)) {
+      // Middle click or right click or holding Shift + left click (when NOT in tower placement mode) for camera pan
+      if (e.button === 2 || e.button === 1 || (e.button === 0 && e.shiftKey && !this.isPlacementMode())) {
         this.isDragging = true;
         this.previousMouseX = e.clientX;
         this.previousMouseY = e.clientY;

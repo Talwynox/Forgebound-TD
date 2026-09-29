@@ -33,7 +33,9 @@ export class Pathfinder {
   }
 
   /**
-   * Updates 3D visual path line in the Three.js scene
+   * Updates visual path in the scene.
+   * The physical cobblestone road with raised stone curbs and golden runic keystones
+   * built by Renderer.buildRoadVisuals serves as the high-fidelity path visual.
    */
   updatePathVisual() {
     if (!this.scene) return;
@@ -44,22 +46,5 @@ export class Pathfinder {
       (this.pathLine.material as THREE.Material).dispose();
       this.pathLine = null;
     }
-
-    const worldPoints = this.getWorldPath();
-    if (worldPoints.length < 2) return;
-
-    const points = worldPoints.map(p => new THREE.Vector3(p.x, 0.12, p.z));
-
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const material = new THREE.LineDashedMaterial({
-      color: 0x38bdf8,
-      dashSize: 0.6,
-      gapSize: 0.3,
-      linewidth: 3
-    });
-
-    this.pathLine = new THREE.Line(geometry, material);
-    this.pathLine.computeLineDistances();
-    this.scene.add(this.pathLine);
   }
 }

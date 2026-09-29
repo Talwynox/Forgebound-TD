@@ -18,7 +18,8 @@ export enum FriendlyClass {
   ARCHMAGE = 'ARCHMAGE',
   PYRO_GOLEM = 'PYRO_GOLEM',
   SOLDIER = 'SOLDIER',
-  ARCHER = 'ARCHER'
+  ARCHER = 'ARCHER',
+  MAGE = 'MAGE'
 }
 
 export enum EnemyClass {
@@ -56,7 +57,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 2.2,
     range: 0.9,
     color: 0x94a3b8, // Light steel
-    scale: 0.6,
+    scale: 0.85,
     description: 'Fresh recruit seeking blessings through the maze.'
   },
   [FriendlyClass.FOOTMAN]: {
@@ -69,7 +70,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 2.0,
     range: 0.9,
     color: 0x3b82f6, // Blue soldier
-    scale: 0.75,
+    scale: 1.05,
     description: 'Disciplined infantry with balanced offense and defense.'
   },
   [FriendlyClass.KNIGHT]: {
@@ -82,7 +83,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 1.8,
     range: 0.9,
     color: 0x475569, // Heavy iron
-    scale: 0.85,
+    scale: 1.2,
     description: 'Heavily armored juggernaut forged in the anvil.'
   },
   [FriendlyClass.BERSERKER]: {
@@ -95,7 +96,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 2.5,
     range: 0.9,
     color: 0xef4444, // Crimson flame
-    scale: 0.8,
+    scale: 1.15,
     description: 'Dual-wielding skirmisher with devastating attack speed.'
   },
   [FriendlyClass.CLERIC]: {
@@ -108,7 +109,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 2.0,
     range: 1.0,
     color: 0x10b981, // Emerald divine
-    scale: 0.75,
+    scale: 1.1,
     description: 'Channels vitality to heal surrounding allies in combat.',
     passive: 'HEALING_AURA'
   },
@@ -122,7 +123,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 1.9,
     range: 1.0,
     color: 0xf59e0b, // Golden amber
-    scale: 1.0,
+    scale: 1.35,
     description: 'Elite champion shielded in sun-forged armor and divine power.',
     passive: 'DIVINE_SHIELD'
   },
@@ -136,7 +137,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 1.9,
     range: 3.8,
     color: 0x8b5cf6, // Purple mystic
-    scale: 0.95,
+    scale: 1.3,
     description: 'Casts explosive arcane bolts from afar.',
     passive: 'FIREBALL'
   },
@@ -150,7 +151,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 1.5,
     range: 1.2,
     color: 0xd97706, // Molten Stone
-    scale: 1.25,
+    scale: 1.6,
     description: 'Gigantic elemental behemoth whose massive fists cleave all enemies.',
     passive: 'CLEAVE'
   },
@@ -164,7 +165,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 2.0,
     range: 1.0,
     color: 0x3b82f6, // Royal Champion Blue
-    scale: 0.95,
+    scale: 1.25,
     description: 'Melee champion forged at 250 HP with high HP cap, Armor Aura, and Critical Strike.'
   },
   [FriendlyClass.ARCHER]: {
@@ -177,8 +178,21 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     moveSpeed: 2.2,
     range: 5.5, // Long-range sharpshooter
     color: 0x10b981, // Emerald Archer
-    scale: 0.9,
+    scale: 1.2,
     description: 'Ranged marksman forged at 250 HP with high HP cap, Multishot volleys, and Damage Aura.'
+  },
+  [FriendlyClass.MAGE]: {
+    name: 'Mage',
+    tier: UnitTier.TIER_2,
+    hp: 850, // Massively increased HP cap
+    armor: 8,
+    attack: 45,
+    attackRate: 1.1,
+    moveSpeed: 2.0,
+    range: 4.2, // Ranged arcane caster
+    color: 0xa855f7, // Arcane Pyromancer Purple
+    scale: 1.2,
+    description: 'Arcane Pyromancer forged at 250 HP with high HP cap. Attacks generate Mana, casting an explosive AoE Mega Fireball at 100 Mana.'
   }
 };
 
@@ -193,7 +207,7 @@ export const ENEMY_UNIT_STATS: Record<EnemyClass, UnitStats> = {
     moveSpeed: 2.5,
     range: 0.8,
     color: 0x84cc16, // Lime goblin
-    scale: 0.6,
+    scale: 0.85,
     description: 'Quick light skirmisher.'
   },
   [EnemyClass.ORC_WARRIOR]: {
@@ -206,7 +220,7 @@ export const ENEMY_UNIT_STATS: Record<EnemyClass, UnitStats> = {
     moveSpeed: 1.8,
     range: 0.9,
     color: 0xb45309, // Brown orc
-    scale: 0.8,
+    scale: 1.15,
     description: 'Brutal shock warrior.'
   },
   [EnemyClass.SKELETON_ARCHER]: {
@@ -219,7 +233,7 @@ export const ENEMY_UNIT_STATS: Record<EnemyClass, UnitStats> = {
     moveSpeed: 2.0,
     range: 3.5,
     color: 0xe2e8f0, // Bone white
-    scale: 0.7,
+    scale: 1.05,
     description: 'Undead archer firing piercing bone shafts.'
   },
   [EnemyClass.SHADOW_ASSASSIN]: {
@@ -232,7 +246,7 @@ export const ENEMY_UNIT_STATS: Record<EnemyClass, UnitStats> = {
     moveSpeed: 2.8,
     range: 0.8,
     color: 0x475569, // Dark silhouette
-    scale: 0.75,
+    scale: 1.1,
     description: 'Lethal speed demon with poison daggers.'
   },
   [EnemyClass.IRONCLAD_OGRE]: {
@@ -245,7 +259,7 @@ export const ENEMY_UNIT_STATS: Record<EnemyClass, UnitStats> = {
     moveSpeed: 1.4,
     range: 1.1,
     color: 0x78716c, // Stone giant
-    scale: 1.15,
+    scale: 1.55,
     description: 'Towering armored beast that soaks enormous damage.'
   },
   [EnemyClass.BOSS_LORD_IGNIS]: {
@@ -258,7 +272,7 @@ export const ENEMY_UNIT_STATS: Record<EnemyClass, UnitStats> = {
     moveSpeed: 1.3,
     range: 1.5,
     color: 0xb91c1c, // Crimson demon
-    scale: 1.5,
+    scale: 2.1,
     description: 'Lord of the Molten Citadel. His presence burns the ground.',
     passive: 'HELLFIRE_AURA'
   }

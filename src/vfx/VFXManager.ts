@@ -120,6 +120,81 @@ export class VFXManager {
     animatePillar();
   }
 
+  spawnSlashArc(origin: THREE.Vector3, targetPos: THREE.Vector3, color: number = 0xf8fafc, size: number = 1.0) {
+    // Curved crescent slash arc fanning outwards toward target
+    const geom = new THREE.RingGeometry(0.55 * size, 0.95 * size, 16, 1, 0, Math.PI * 0.7);
+    const mat = new THREE.MeshBasicMaterial({
+      color: color,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide
+    });
+
+    const mesh = new THREE.Mesh(geom, mat);
+    const midPos = new THREE.Vector3().addVectors(origin, targetPos).multiplyScalar(0.5);
+    mesh.position.set(midPos.x, midPos.y + 0.4, midPos.z);
+
+    // Orient towards target direction
+    const dir = new THREE.Vector3().subVectors(targetPos, origin).normalize();
+    mesh.rotation.y = Math.atan2(dir.x, dir.z) + Math.PI / 2;
+    mesh.rotation.x = Math.PI / 4;
+    this.scene.add(mesh);
+
+    const startTime = performance.now();
+    const duration = 180;
+
+    const animateSlash = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = elapsed / duration;
+      if (progress >= 1) {
+        this.scene.remove(mesh);
+        geom.dispose();
+        mat.dispose();
+      } else {
+        mesh.scale.setScalar(1 + progress * 0.4);
+        mat.opacity = 0.9 * (1 - progress);
+        requestAnimationFrame(animateSlash);
+      }
+    };
+    animateSlash();
+  }
+
+  spawnGroundStompShockwave(pos: THREE.Vector3, maxRadius: number = 3.6, color: number = 0xff4500) {
+    const geom = new THREE.RingGeometry(0.5, 0.9, 32);
+    geom.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color: color,
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide
+    });
+
+    const ring = new THREE.Mesh(geom, mat);
+    ring.position.set(pos.x, 0.12, pos.z);
+    this.scene.add(ring);
+
+    this.spawnBurstParticles(pos, color, 24);
+
+    const startTime = performance.now();
+    const duration = 450;
+
+    const animateStomp = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = elapsed / duration;
+      if (progress >= 1) {
+        this.scene.remove(ring);
+        geom.dispose();
+        mat.dispose();
+      } else {
+        const scale = 1 + progress * (maxRadius - 1);
+        ring.scale.set(scale, 1, scale);
+        mat.opacity = 0.95 * (1 - progress);
+        requestAnimationFrame(animateStomp);
+      }
+    };
+    animateStomp();
+  }
+
   spawnBurstParticles(pos: THREE.Vector3, color: number = 0xfacc15, count: number = 10) {
     const pGeom = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
@@ -178,6 +253,93 @@ export class VFXManager {
       }
     };
     animateParticles();
+  }
+
+  spawnHealingPulse(pos: THREE.Vector3, color: number = 0x22c55e) {
+    const geom = new THREE.RingGeometry(0.3, 0.55, 24);
+    geom.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide
+    });
+    const ring = new THREE.Mesh(geom, mat);
+    ring.position.set(pos.x, 0.15, pos.z);
+    this.scene.add(ring);
+
+    const startTime = performance.now();
+    const duration = 500;
+    const animate = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = elapsed / duration;
+      if (progress >= 1) {
+        this.scene.remove(ring);
+        geom.dispose();
+        mat.dispose();
+      } else {
+        const s = 1 + progress * 2.2;
+        ring.scale.set(s, 1, s);
+        mat.opacity = 0.85 * (1 - progress);
+        requestAnimationFrame(animate);
+      }
+    };
+    animate();
+  }
+
+  spawnStunRing(pos: THREE.Vector3, durationSec: number = 1.5) {
+    const group = new THREE.Group();
+    // Halo ring
+    const geom = new THREE.RingGeometry(0.35, 0.45, 16);
+    geom.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xfacc15,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide
+    });
+    const halo = new THREE.Mesh(geom, mat);
+    group.add(halo);
+
+    // 3 small star markers rotating
+    for (let i = 0; i < 3; i++) {
+      const starGeom = new THREE.SphereGeometry(0.08, 6, 6);
+      const starMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+      const star = new THREE.Mesh(starGeom, starMat);
+      const angle = (i * Math.PI * 2) / 3;
+      star.position.set(Math.cos(angle) * 0.4, 0, Math.sin(angle) * 0.4);
+      group.add(star);
+    }
+
+    group.position.set(pos.x, pos.y + 1.2, pos.z);
+    this.scene.add(group);
+
+    const startTime = performance.now();
+    const duration = durationSec * 1000;
+    const animate = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = elapsed / duration;
+      if (progress >= 1) {
+        this.scene.remove(group);
+        geom.dispose();
+        mat.dispose();
+        group.traverse(c => {
+          if (c instanceof THREE.Mesh) {
+            c.geometry.dispose();
+            (c.material as THREE.Material).dispose();
+          }
+        });
+      } else {
+        group.rotation.y += 0.08;
+        halo.scale.setScalar(1 + Math.sin(elapsed * 0.01) * 0.15);
+        requestAnimationFrame(animate);
+      }
+    };
+    animate();
+  }
+
+  spawnFlamePuff(pos: THREE.Vector3, color: number = 0xf97316) {
+    this.spawnBurstParticles(pos, color, 6);
   }
 
   update() {

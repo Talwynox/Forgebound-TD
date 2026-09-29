@@ -17,7 +17,8 @@ export interface SaveData {
   techLevels: Record<string, number>;
 }
 
-const STORAGE_KEY = 'pyro_td_campaign_save_v1';
+const STORAGE_KEY = 'forgebound_td_campaign_save_v1';
+const LEGACY_STORAGE_KEY = 'pyro_td_campaign_save_v1';
 
 export class TechTreeManager {
   public upgrades: Record<string, TechUpgrade> = {
@@ -148,7 +149,7 @@ export class TechTreeManager {
 
   load() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
       if (!raw) return;
       const data: SaveData = JSON.parse(raw);
       if (data.missionStars) {

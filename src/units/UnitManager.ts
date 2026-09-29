@@ -8,8 +8,17 @@ import {
   UnitTier,
   calculateDamage
 } from './UnitData';
+import { buildUnitMesh, getUnitMeshHeight } from './UnitMeshFactory';
 import { VFXManager } from '../vfx/VFXManager';
 import { audio } from '../engine/AudioSystem';
+import { ArenaCastle } from '../engine/ArenaCastle';
+
+export const ARENA_BOUNDS = {
+  minX: 1.2,
+  maxX: 25.4,
+  minZ: -8.4,
+  maxZ: 8.4
+};
 
 export class Unit {
   public id: number;
@@ -45,13 +54,40 @@ export class Unit {
   public isDead: boolean = false;
   public lateralLaneOffset: number = 0;
 
-  // Evolution Champion Abilities (Soldier & Archer)
+  // Evolution Champion Abilities (Soldier, Archer, Mage)
   public armorAuraBonus: number = 0;
   public critChance: number = 0;
   public critMultiplier: number = 2.0;
+  public lifeRegen: number = 0; // Soldier Ability 3: HP recovered per second in combat
+  public thornsMultiplier: number = 0; // Soldier Ability 4: Reflect % of incoming melee dmg
+  public flatDmgReduction: number = 0; // Soldier Ability 4: Flat damage reduction per incoming hit
+  public lastLifeRegenTick: number = 0;
+
   public multishotChance: number = 0;
   public multishotTargets: number = 1;
   public damageAuraBonus: number = 0;
+  public armorShredOnHit: number = 0; // Archer Ability 3: Shreds enemy armor for 4s
+  public armorShredDuration: number = 4.0;
+  public attackSpeedBonus: number = 0; // Archer Ability 4: Rapid Quiver attack speed multiplier
+
+  // Mage Mana & Mega Fireball abilities
+  public mana: number = 0;
+  public maxMana: number = 100;
+  public manaGainPerAttack: number = 0;
+  public fireballRadius: number = 2.4;
+  public fireballDamageMult: number = 2.2;
+  public stunChance: number = 0; // Mage Ability 3: Paralyzing Arc stun chance
+  public stunDuration: number = 0; // Mage Ability 3: Stun duration in seconds
+  public burnMultiplier: number = 0; // Mage Ability 4: Molten Pyre DoT multiplier
+  public burnDuration: number = 3.0;
+
+  // Active Combat Status Debuffs (can affect any unit in combat)
+  public stunTimer: number = 0;
+  public armorDebuff: number = 0;
+  public armorDebuffTimer: number = 0;
+  public burnTimer: number = 0;
+  public burnDmgPerSec: number = 0;
+  public lastBurnTick: number = 0;
 
   // Active Combat Aura Buffs (received from nearby champions)
   public combatAuraArmor: number = 0;
@@ -61,11 +97,29 @@ export class Unit {
   public target: Unit | null = null;
   public lastAttackTime: number = 0;
 
+  // Combat Animation Timers
+  public lungeTimer: number = 0; // 0 to 0.16s: forward thrust on attack
+  public hitFlinchTimer: number = 0; // 0 to 0.14s: tilt/recoil backwards when damaged
+  public isDying: boolean = false;
+  public deathTimer: number = 0;
+
+  // Boss Attributes (Lord Ignis)
+  public isBoss: boolean = false;
+  public bossStompCooldown: number = 5.0; // Initial stomp cooldown
+  public magmaShieldActive: boolean = false;
+
   // 3D Visuals
   public mesh: THREE.Group;
+  public hpBarGroup: THREE.Group;
   public hpBarMesh: THREE.Mesh;
+  public hpBarGlossMesh?: THREE.Mesh;
   public hpBarBgMesh: THREE.Mesh;
+  public hpBarBorderMesh?: THREE.Mesh;
+  public manaBarMesh?: THREE.Mesh;
+  public manaBarGlossMesh?: THREE.Mesh;
+  public manaBarBgMesh?: THREE.Mesh;
   public bodyMesh: THREE.Mesh;
+  public fillWidth: number = 1.28;
 
   constructor(
     id: number,
@@ -81,8 +135,12 @@ export class Unit {
       ? FRIENDLY_UNIT_STATS[unitClass as FriendlyClass]
       : ENEMY_UNIT_STATS[unitClass as EnemyClass];
 
+    if (!isFriendly && unitClass === EnemyClass.BOSS_LORD_IGNIS) {
+      this.isBoss = true;
+    }
+
     this.maxHp = this.stats.hp;
-    // Core Pyro TD mechanic: friendly units spawn severely injured (1 HP) and need tower blessings!
+    // Core Forgebound TD mechanic: friendly units spawn severely injured (1 HP) and need tower blessings!
     this.currentHp = isFriendly ? 1 : this.stats.hp;
     this.armor = this.stats.armor;
     this.attack = this.stats.attack;
@@ -102,38 +160,133 @@ export class Unit {
       this.mesh.position.z += this.lateralLaneOffset;
     }
 
-    // Body Mesh
-    const geom = isFriendly
-      ? new THREE.CapsuleGeometry(0.3 * this.stats.scale, 0.5 * this.stats.scale, 4, 8)
-      : new THREE.CylinderGeometry(0.25 * this.stats.scale, 0.35 * this.stats.scale, 0.8 * this.stats.scale, 6);
+    // Body Mesh Group (multi-part composite from factory)
+    const bodyGroup = buildUnitMesh(unitClass, isFriendly, this.stats.scale);
+    this.bodyMesh = bodyGroup as unknown as THREE.Mesh; // bodyMesh is now a Group but typed as Mesh for backward compat
+    this.mesh.add(bodyGroup);
 
-    const mat = new THREE.MeshStandardMaterial({
-      color: this.stats.color,
-      roughness: 0.5,
-      metalness: isFriendly ? 0.3 : 0.1
-    });
+    // Health Bar Container Group (billboards towards camera)
+    const hpBarY = getUnitMeshHeight(unitClass, isFriendly, this.stats.scale) + 0.18;
+    this.hpBarGroup = new THREE.Group();
+    this.hpBarGroup.position.set(0, hpBarY, 0);
+    this.mesh.add(this.hpBarGroup);
 
-    this.bodyMesh = new THREE.Mesh(geom, mat);
-    this.bodyMesh.position.y = 0.45 * this.stats.scale;
-    this.bodyMesh.castShadow = true;
-    this.mesh.add(this.bodyMesh);
+    const isChampion = isFriendly && (
+      unitClass === FriendlyClass.SOLDIER ||
+      unitClass === FriendlyClass.PALADIN ||
+      unitClass === FriendlyClass.ARCHMAGE ||
+      unitClass === FriendlyClass.ARCHER ||
+      unitClass === FriendlyClass.MAGE
+    );
+    const width = this.isBoss ? 2.1 : (isChampion ? 1.45 : 1.35);
+    const height = this.isBoss ? 0.22 : 0.16;
+    this.fillWidth = width - 0.08;
+    const fillHeight = height - 0.05;
 
-    // Health Bar Background
-    const barBgGeom = new THREE.PlaneGeometry(0.8, 0.1);
-    const barBgMat = new THREE.MeshBasicMaterial({ color: 0x1e293b, side: THREE.DoubleSide });
+    // 1. Drop Shadow Background (deep slate shadow)
+    const shadowGeom = new THREE.PlaneGeometry(width + 0.1, height + 0.06);
+    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x020617, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+    const shadowMesh = new THREE.Mesh(shadowGeom, shadowMat);
+    shadowMesh.position.z = -0.003;
+    this.hpBarGroup.add(shadowMesh);
+
+    // 2. Metallic Beveled Border (golden bronze for champions/bosses, forged iron/steel for others)
+    const borderColor = this.isBoss ? 0xd97706 : (isChampion ? 0xb45309 : (isFriendly ? 0x475569 : 0x3f3f46));
+    const borderGeom = new THREE.PlaneGeometry(width + 0.04, height + 0.03);
+    const borderMat = new THREE.MeshBasicMaterial({ color: borderColor, side: THREE.DoubleSide });
+    this.hpBarBorderMesh = new THREE.Mesh(borderGeom, borderMat);
+    this.hpBarBorderMesh.position.z = -0.001;
+    this.hpBarGroup.add(this.hpBarBorderMesh);
+
+    // 3. Dark Recessed Trough (Background where depleted HP shows)
+    const barBgGeom = new THREE.PlaneGeometry(width, height);
+    const barBgMat = new THREE.MeshBasicMaterial({ color: 0x141416, side: THREE.DoubleSide });
     this.hpBarBgMesh = new THREE.Mesh(barBgGeom, barBgMat);
-    this.hpBarBgMesh.position.y = 1.1 * this.stats.scale;
-    this.mesh.add(this.hpBarBgMesh);
+    this.hpBarGroup.add(this.hpBarBgMesh);
 
-    // Health Bar Foreground
-    const barGeom = new THREE.PlaneGeometry(0.78, 0.08);
-    const barMat = new THREE.MeshBasicMaterial({
-      color: isFriendly ? 0x22c55e : 0xef4444,
+    // 4. Vibrant Health Fill
+    const barGeom = new THREE.PlaneGeometry(this.fillWidth, fillHeight);
+    const fillColor = isFriendly ? 0x10b981 : (this.isBoss ? 0xdc2626 : 0xe11d48);
+    const barMat = new THREE.MeshBasicMaterial({ color: fillColor, side: THREE.DoubleSide });
+    this.hpBarMesh = new THREE.Mesh(barGeom, barMat);
+    this.hpBarMesh.position.z = 0.002;
+    this.hpBarGroup.add(this.hpBarMesh);
+
+    // 5. Glassy Top Sheen / Gloss Strip (gives polished AAA game look)
+    const glossGeom = new THREE.PlaneGeometry(this.fillWidth, fillHeight * 0.44);
+    const glossMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.28,
       side: THREE.DoubleSide
     });
-    this.hpBarMesh = new THREE.Mesh(barGeom, barMat);
-    this.hpBarMesh.position.set(0, 1.1 * this.stats.scale, 0.01);
-    this.mesh.add(this.hpBarMesh);
+    this.hpBarGlossMesh = new THREE.Mesh(glossGeom, glossMat);
+    this.hpBarGlossMesh.position.set(0, fillHeight * 0.26, 0.004);
+    this.hpBarGroup.add(this.hpBarGlossMesh);
+
+    // 6. Tactical Pip Divider Ticks (splits health into 4 readable quadrants)
+    [-0.25, 0, 0.25].forEach(pct => {
+      const tickGeom = new THREE.PlaneGeometry(0.02, fillHeight);
+      const tickMat = new THREE.MeshBasicMaterial({ color: 0x09090b, side: THREE.DoubleSide });
+      const tickMesh = new THREE.Mesh(tickGeom, tickMat);
+      tickMesh.position.set(this.fillWidth * pct, 0, 0.005);
+      this.hpBarGroup.add(tickMesh);
+    });
+
+    // 7. Shield Badge for Armored Units
+    if (this.armor > 0) {
+      const shieldBadge = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.065),
+        new THREE.MeshStandardMaterial({
+          color: isFriendly ? 0xfacc15 : 0x94a3b8,
+          metalness: 0.8,
+          roughness: 0.2
+        })
+      );
+      shieldBadge.position.set(-width * 0.54, 0, 0.01);
+      shieldBadge.rotation.z = Math.PI / 4;
+      this.hpBarGroup.add(shieldBadge);
+    }
+
+    if (unitClass === FriendlyClass.MAGE) {
+      this.manaGainPerAttack = 25;
+      this.initManaBar(hpBarY);
+    }
+  }
+
+  initManaBar(_hpBarY: number) {
+    if (this.manaBarMesh) {
+      return;
+    }
+    const width = this.fillWidth * 0.96;
+    const height = 0.055;
+    const yOff = -(0.16 * 0.5 + 0.065);
+
+    // Mana Gutter
+    const manaBgGeom = new THREE.PlaneGeometry(width + 0.04, height + 0.02);
+    const manaBgMat = new THREE.MeshBasicMaterial({ color: 0x020617, side: THREE.DoubleSide });
+    this.manaBarBgMesh = new THREE.Mesh(manaBgGeom, manaBgMat);
+    this.manaBarBgMesh.position.set(0, yOff, 0.001);
+    this.hpBarGroup.add(this.manaBarBgMesh);
+
+    // Mana Fill
+    const manaGeom = new THREE.PlaneGeometry(width, height);
+    const manaMat = new THREE.MeshBasicMaterial({ color: 0xa855f7, side: THREE.DoubleSide });
+    this.manaBarMesh = new THREE.Mesh(manaGeom, manaMat);
+    this.manaBarMesh.position.set(0, yOff, 0.003);
+    this.hpBarGroup.add(this.manaBarMesh);
+
+    // Mana Gloss
+    const manaGlossGeom = new THREE.PlaneGeometry(width, height * 0.45);
+    const manaGlossMat = new THREE.MeshBasicMaterial({
+      color: 0xe9d5ff,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide
+    });
+    this.manaBarGlossMesh = new THREE.Mesh(manaGlossGeom, manaGlossMat);
+    this.manaBarGlossMesh.position.set(0, yOff + height * 0.25, 0.004);
+    this.hpBarGroup.add(this.manaBarGlossMesh);
   }
 
   get worldPos(): THREE.Vector3 {
@@ -141,7 +294,7 @@ export class Unit {
   }
 
   applySlow(percent: number, duration: number) {
-    this.slowFactor = Math.max(this.slowFactor, percent);
+    this.slowFactor = Math.min(0.80, Math.max(this.slowFactor, percent));
     this.slowTimer = Math.max(this.slowTimer, duration);
   }
 
@@ -155,36 +308,30 @@ export class Unit {
     if (!this.isFriendly) return false;
 
     // Check Evolution eligibility based on current stats
-    if (this.stats.tier === UnitTier.TIER_1) {
-      if (this.armor >= 20) {
-        this.morphClass(FriendlyClass.KNIGHT);
-        return true;
-      }
-      if (this.attack >= 26) {
-        this.morphClass(FriendlyClass.BERSERKER);
-        return true;
-      }
-      if (this.maxHp >= 300) {
-        this.morphClass(FriendlyClass.CLERIC);
-        return true;
-      }
-      // General threshold
-      if (this.currentHp >= 200 || this.buffHistory.length >= 3) {
-        this.morphClass(FriendlyClass.FOOTMAN);
-        return true;
-      }
-    } else if (this.stats.tier === UnitTier.TIER_2 && allowTier3) {
-      // Tier 3 Evolution
-      if (this.maxHp >= 1000) {
-        this.morphClass(FriendlyClass.PYRO_GOLEM);
-        return true;
-      }
-      if (this.maxHp >= 650 && this.armor >= 30) {
+    if (this.unitClass === FriendlyClass.RECRUIT && this.attack >= 30) {
+      this.morphClass(FriendlyClass.FOOTMAN);
+      return true;
+    }
+    if (this.unitClass === FriendlyClass.FOOTMAN && this.armor >= 25) {
+      this.morphClass(FriendlyClass.KNIGHT);
+      return true;
+    }
+    if (this.unitClass === FriendlyClass.FOOTMAN && this.attack >= 60) {
+      this.morphClass(FriendlyClass.BERSERKER);
+      return true;
+    }
+
+    if (allowTier3) {
+      if (this.unitClass === FriendlyClass.KNIGHT && this.maxHp >= 600) {
         this.morphClass(FriendlyClass.PALADIN);
         return true;
       }
-      if (this.attack >= 50) {
+      if (this.unitClass === FriendlyClass.BERSERKER && this.attack >= 100) {
         this.morphClass(FriendlyClass.ARCHMAGE);
+        return true;
+      }
+      if (this.unitClass === FriendlyClass.CLERIC && this.maxHp >= 800) {
+        this.morphClass(FriendlyClass.PYRO_GOLEM);
         return true;
       }
     }
@@ -198,7 +345,7 @@ export class Unit {
     const newStats = FRIENDLY_UNIT_STATS[newClass];
     this.stats = newStats;
 
-    // Increase max HP ceiling without full healing (preserve Pyro TD heal necessity)
+    // Increase max HP ceiling without full healing (preserve Forgebound TD heal necessity)
     const hpCeilingBonus = Math.max(0, newStats.hp - prevMax);
     this.maxHp += hpCeilingBonus;
     this.currentHp = Math.min(this.maxHp, this.currentHp + Math.round(hpCeilingBonus * 0.25));
@@ -208,39 +355,68 @@ export class Unit {
     this.attackRate = newStats.attackRate;
     this.moveSpeed = newStats.moveSpeed;
 
-    // Update body mesh visually
-    this.bodyMesh.geometry.dispose();
-    (this.bodyMesh.material as THREE.Material).dispose();
-
-    if (newClass === FriendlyClass.PYRO_GOLEM) {
-      this.bodyMesh.geometry = new THREE.BoxGeometry(0.9, 1.2, 0.9);
-    } else if (newClass === FriendlyClass.PALADIN || newClass === FriendlyClass.SOLDIER) {
-      this.bodyMesh.geometry = new THREE.DodecahedronGeometry(0.55 * newStats.scale);
-    } else if (newClass === FriendlyClass.ARCHER) {
-      this.bodyMesh.geometry = new THREE.OctahedronGeometry(0.5 * newStats.scale);
-    } else {
-      this.bodyMesh.geometry = new THREE.CapsuleGeometry(0.35 * newStats.scale, 0.6 * newStats.scale, 4, 8);
-    }
-
-    this.bodyMesh.material = new THREE.MeshStandardMaterial({
-      color: newStats.color,
-      emissive: newClass === FriendlyClass.SOLDIER ? 0x2563eb : newClass === FriendlyClass.ARCHER ? 0x059669 : (newClass === FriendlyClass.PALADIN ? 0xf59e0b : 0x000000),
-      emissiveIntensity: 0.35,
-      roughness: 0.3
+    // Update body mesh visually — dispose old body group and build new one from factory
+    this.mesh.remove(this.bodyMesh);
+    (this.bodyMesh as unknown as THREE.Group).traverse(child => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+        else child.material.dispose();
+      }
     });
 
-    this.hpBarBgMesh.position.y = 1.3 * newStats.scale;
-    this.hpBarMesh.position.y = 1.3 * newStats.scale;
+    const newBody = buildUnitMesh(newClass, true, newStats.scale);
+    this.bodyMesh = newBody as unknown as THREE.Mesh;
+    this.mesh.add(newBody);
+
+    const hpBarY = getUnitMeshHeight(newClass, true, newStats.scale) + 0.18;
+    this.hpBarGroup.position.y = hpBarY;
+
+    if (newClass === FriendlyClass.MAGE) {
+      this.mana = 0;
+      this.maxMana = 100;
+      this.manaGainPerAttack = 25;
+      this.fireballRadius = 2.4;
+      this.fireballDamageMult = 2.2;
+      this.initManaBar(hpBarY);
+    }
   }
 
   updateHpBar(camera: THREE.Camera) {
     const hpRatio = Math.max(0, Math.min(1, this.currentHp / this.maxHp));
     this.hpBarMesh.scale.x = hpRatio;
-    this.hpBarMesh.position.x = -(1 - hpRatio) * 0.39;
+    this.hpBarMesh.position.x = -(1 - hpRatio) * (this.fillWidth * 0.5);
+
+    if (this.hpBarGlossMesh) {
+      this.hpBarGlossMesh.scale.x = hpRatio;
+      this.hpBarGlossMesh.position.x = -(1 - hpRatio) * (this.fillWidth * 0.5);
+    }
+
+    // Dynamic warning color for critical health
+    if (this.isFriendly) {
+      const mat = this.hpBarMesh.material as THREE.MeshBasicMaterial;
+      if (hpRatio < 0.25) {
+        mat.color.setHex(0xef4444); // Urgent red
+      } else if (hpRatio < 0.5) {
+        mat.color.setHex(0xf59e0b); // Warning amber
+      } else {
+        mat.color.setHex(0x10b981); // Emerald green
+      }
+    }
+
+    if (this.manaBarMesh && this.manaBarBgMesh) {
+      const manaRatio = Math.max(0, Math.min(1, this.mana / this.maxMana));
+      const manaFillW = this.fillWidth * 0.96;
+      this.manaBarMesh.scale.x = manaRatio;
+      this.manaBarMesh.position.x = -(1 - manaRatio) * (manaFillW * 0.5);
+      if (this.manaBarGlossMesh) {
+        this.manaBarGlossMesh.scale.x = manaRatio;
+        this.manaBarGlossMesh.position.x = -(1 - manaRatio) * (manaFillW * 0.5);
+      }
+    }
 
     // Billboard towards camera
-    this.hpBarBgMesh.quaternion.copy(camera.quaternion);
-    this.hpBarMesh.quaternion.copy(camera.quaternion);
+    this.hpBarGroup.quaternion.copy(camera.quaternion);
   }
 
   applyEndOfWeekBuffs(): string[] {
@@ -270,10 +446,30 @@ export class UnitManager {
   public camera: THREE.Camera;
 
   public selectedUnit: Unit | null = null;
+  public focusTarget: Unit | null = null;
 
   // Battlefield clash boundaries
   public arenaMinX: number = 4;
   public arenaMaxX: number = 24;
+
+  public arenaCastle: ArenaCastle | null = null;
+  public onCastleDestroyed: (() => void) | null = null;
+  public moonCastle: ArenaCastle | null = null;
+  public onMoonCastleDestroyed: (() => void) | null = null;
+
+  public setArenaCastle(castle: ArenaCastle, onCastleDestroyed?: () => void) {
+    this.arenaCastle = castle;
+    if (onCastleDestroyed) this.onCastleDestroyed = onCastleDestroyed;
+  }
+
+  public setMoonCastle(castle: ArenaCastle | null, onCastleDestroyed?: () => void) {
+    this.moonCastle = castle;
+    if (onCastleDestroyed) this.onMoonCastleDestroyed = onCastleDestroyed;
+  }
+
+  public setFocusTarget(target: Unit | null) {
+    this.focusTarget = target;
+  }
 
   constructor(scene: THREE.Scene, vfx: VFXManager, camera: THREE.Camera) {
     this.scene = scene;
@@ -288,24 +484,70 @@ export class UnitManager {
     return unit;
   }
 
-  spawnEnemy(enemyClass: EnemyClass, startPos: THREE.Vector3, isWaiting: boolean = true): Unit {
+  spawnEnemy(enemyClass: EnemyClass, startPos: THREE.Vector3, isWaiting: boolean = true, waveIndex: number = 0): Unit {
     const unit = new Unit(this.nextId++, false, enemyClass, startPos);
     unit.isWaitingInArena = isWaiting;
     unit.inCombat = !isWaiting; // If waiting, inCombat is false until gates open
     unit.mesh.rotation.y = Math.PI / 2; // Face towards the friendly arrival side
+
+    // Escalating wave power: starting after wave ~8 (waveIndex >= 7), enemies scale up HP, Armor, and Attack
+    if (waveIndex >= 7) {
+      const extraWaves = (waveIndex + 1) - 7;
+      const hpMult = 1.0 + extraWaves * 0.18;
+      const armorBonus = Math.round(extraWaves * 2.2);
+      const atkMult = 1.0 + extraWaves * 0.12;
+
+      unit.maxHp = Math.round(unit.maxHp * hpMult);
+      unit.currentHp = unit.maxHp;
+      unit.armor += armorBonus;
+      unit.attack = Math.round(unit.attack * atkMult);
+    }
+
     this.scene.add(unit.mesh);
     this.units.push(unit);
     return unit;
   }
 
-  update(dt: number, time: number, onKillEnemyCallback: (bounty: number) => void) {
+  update(dt: number, time: number, onKillEnemyCallback: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
     // 1. Update Unit Buff Status & Navigation
     for (let i = this.units.length - 1; i >= 0; i--) {
       const unit = this.units[i];
 
+      if (unit.isDying) {
+        unit.deathTimer -= dt;
+        const progress = Math.max(0, unit.deathTimer / 0.45);
+        const s = unit.stats.scale * Math.max(0.01, progress);
+        unit.mesh.scale.set(s, s, s);
+        unit.mesh.position.y -= dt * 0.5;
+        if (unit.deathTimer <= 0) {
+          unit.isDead = true;
+          this.removeUnit(unit, i);
+        }
+        continue;
+      }
+
       if (unit.isDead) {
         this.removeUnit(unit, i);
         continue;
+      }
+
+      // Attack lunge animation
+      if (unit.lungeTimer > 0) {
+        unit.lungeTimer -= dt;
+        const lungeProgress = 1 - Math.max(0, unit.lungeTimer / 0.16);
+        unit.bodyMesh.position.z = Math.sin(lungeProgress * Math.PI) * 0.3 * unit.stats.scale;
+      } else if (unit.hitFlinchTimer <= 0) {
+        unit.bodyMesh.position.z = 0;
+      }
+
+      // Hit recoil flinch animation
+      if (unit.hitFlinchTimer > 0) {
+        unit.hitFlinchTimer -= dt;
+        const flinchProgress = 1 - Math.max(0, unit.hitFlinchTimer / 0.14);
+        unit.bodyMesh.rotation.x = -Math.sin(flinchProgress * Math.PI) * 0.35;
+        unit.bodyMesh.position.z = -Math.sin(flinchProgress * Math.PI) * 0.18 * unit.stats.scale;
+      } else if (unit.lungeTimer <= 0) {
+        unit.bodyMesh.rotation.x = 0;
       }
 
       // Decrement slow timer
@@ -321,8 +563,8 @@ export class UnitManager {
 
       // Enemy waiting in formation in arena
       if (!unit.isFriendly && unit.isWaitingInArena) {
-        // Idle breathing bob
-        unit.bodyMesh.position.y = (0.45 + Math.sin(time * 0.003 + unit.id) * 0.04) * unit.stats.scale;
+        // Idle breathing bob (applied to whole body group)
+        unit.bodyMesh.position.y = Math.sin(time * 0.003 + unit.id) * 0.04 * unit.stats.scale;
         unit.updateHpBar(this.camera);
         continue;
       }
@@ -356,8 +598,8 @@ export class UnitManager {
               dir.normalize();
               unit.mesh.position.addScaledVector(dir, effectiveSpeed * dt);
               unit.mesh.lookAt(targetWp.x, unit.worldPos.y, targetWp.z);
-              // Bobbing animation
-              unit.bodyMesh.position.y = (0.45 + Math.abs(Math.sin(time * 0.008 * effectiveSpeed)) * 0.1) * unit.stats.scale;
+              // Bobbing animation (applied to whole body group)
+              unit.bodyMesh.position.y = Math.abs(Math.sin(time * 0.008 * effectiveSpeed)) * 0.1 * unit.stats.scale;
             }
           }
         } else if (unit.stagingPos) {
@@ -379,6 +621,20 @@ export class UnitManager {
       if (unit.inCombat) {
         this.handleCombatMovementAndAttack(unit, dt, time, onKillEnemyCallback);
       }
+
+      // Constrain units located in the arena to arena perimeter walls
+      this.clampUnitToArena(unit);
+
+      // Ambient accessory animation for unit accessories (floating cores, rotating halos/gems)
+      unit.bodyMesh.traverse(child => {
+        if (child.name === 'rotating') {
+          child.rotation.y += dt * 1.8;
+          child.rotation.z += dt * 0.9;
+        } else if (child.name === 'floating') {
+          if (child.userData.baseY === undefined) child.userData.baseY = child.position.y;
+          child.position.y = child.userData.baseY + Math.sin(time * 0.005 + unit.id) * 0.05 * unit.stats.scale;
+        }
+      });
 
       // Update Health bar
       unit.updateHpBar(this.camera);
@@ -407,14 +663,19 @@ export class UnitManager {
       }
     }
 
-    // 3. Unit-to-unit soft-collision separation to prevent stacking
+    // 3. Unit-to-unit soft-collision separation to prevent stacking without catapulting units
     for (let a = 0; a < this.units.length; a++) {
       const uA = this.units[a];
       if (uA.isDead) continue;
+      const aInArena = uA.inCombat || uA.isWaitingInArena || uA.hasCompletedMaze;
 
       for (let b = a + 1; b < this.units.length; b++) {
         const uB = this.units[b];
         if (uB.isDead) continue;
+        const bInArena = uB.inCombat || uB.isWaitingInArena || uB.hasCompletedMaze;
+
+        // Only separate units located in the arena
+        if (!aInArena && !bInArena) continue;
 
         const dx = uA.worldPos.x - uB.worldPos.x;
         const dz = uA.worldPos.z - uB.worldPos.z;
@@ -424,15 +685,30 @@ export class UnitManager {
         if (distSq < minRadius * minRadius && distSq > 0.0001) {
           const dist = Math.sqrt(distSq);
           const overlap = (minRadius - dist) * 0.5;
-          const pushX = (dx / dist) * overlap * 3.5 * dt;
-          const pushZ = (dz / dist) * overlap * 3.5 * dt;
+
+          // Cap maximum push per frame to eliminate explosive launches when crowds swarm a single boss
+          const maxPush = 1.2 * dt;
+          const rawPushX = (dx / dist) * overlap * 2.2 * dt;
+          const rawPushZ = (dz / dist) * overlap * 2.2 * dt;
+          const pushX = THREE.MathUtils.clamp(rawPushX, -maxPush, maxPush);
+          const pushZ = THREE.MathUtils.clamp(rawPushZ, -maxPush, maxPush);
 
           uA.mesh.position.x += pushX;
           uA.mesh.position.z += pushZ;
           uB.mesh.position.x -= pushX;
           uB.mesh.position.z -= pushZ;
+
+          if (aInArena) this.clampUnitToArena(uA);
+          if (bInArena) this.clampUnitToArena(uB);
         }
       }
+    }
+  }
+
+  public clampUnitToArena(unit: Unit) {
+    if (unit.inCombat || unit.isWaitingInArena || unit.hasCompletedMaze) {
+      unit.mesh.position.x = THREE.MathUtils.clamp(unit.mesh.position.x, ARENA_BOUNDS.minX, ARENA_BOUNDS.maxX);
+      unit.mesh.position.z = THREE.MathUtils.clamp(unit.mesh.position.z, ARENA_BOUNDS.minZ, ARENA_BOUNDS.maxZ);
     }
   }
 
@@ -440,40 +716,292 @@ export class UnitManager {
     unit: Unit,
     dt: number,
     time: number,
-    onKillEnemy: (bounty: number) => void
+    onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void
   ) {
-    // Find nearest opposing target
-    const enemies = this.units.filter(u => u.isFriendly !== unit.isFriendly && !u.isDead);
+    const effectiveSpeed = unit.moveSpeed * (1 - unit.slowFactor);
 
-    if (enemies.length === 0) {
-      // March towards opponent's citadel
-      const marchDir = unit.isFriendly ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-1, 0, 0);
-      unit.mesh.position.addScaledVector(marchDir, unit.moveSpeed * dt);
-      unit.mesh.rotation.y = unit.isFriendly ? -Math.PI / 2 : Math.PI / 2;
+    // 1. Armor Shred Debuff timer
+    if (unit.armorDebuffTimer > 0) {
+      unit.armorDebuffTimer -= dt;
+      if (unit.armorDebuffTimer <= 0) {
+        unit.armorDebuff = 0;
+      }
+    }
+
+    // 2. Burn DoT timer & damage
+    if (unit.burnTimer > 0) {
+      unit.burnTimer -= dt;
+      const burnDmgThisFrame = unit.burnDmgPerSec * dt;
+      unit.currentHp -= burnDmgThisFrame;
+      if (time - unit.lastBurnTick >= 500) {
+        unit.lastBurnTick = time;
+        this.vfx.spawnFlamePuff(unit.worldPos, 0xf97316);
+      }
+      if (unit.currentHp <= 0) {
+        this.killUnit(unit, onKillEnemy);
+        return;
+      }
+    }
+
+    // 3. Soldier Life Regen (In-combat HP recovery)
+    if (unit.lifeRegen > 0 && unit.currentHp < unit.maxHp) {
+      unit.currentHp = Math.min(unit.maxHp, unit.currentHp + unit.lifeRegen * dt);
+      if (time - unit.lastLifeRegenTick >= 1000) {
+        unit.lastLifeRegenTick = time;
+        audio.playHealPulse();
+        this.vfx.spawnHealingPulse(unit.worldPos, 0x22c55e);
+        this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 0.9, 0)), `+${Math.round(unit.lifeRegen)} HP`, '#34d399', 0.8);
+      }
+    }
+
+    // 4. Stun status: completely halts movement, attacks, and boss abilities!
+    if (unit.stunTimer > 0) {
+      unit.stunTimer -= dt;
       return;
     }
 
-    // Find closest target
+    // Boss Abilities (Lord Ignis Infernal Ground Stomp)
+    if (unit.isBoss) {
+      unit.bossStompCooldown -= dt;
+      if (unit.bossStompCooldown <= 0) {
+        const nearbyOpponents = this.units.filter(
+          u => u.isFriendly !== unit.isFriendly && !u.isDead && !u.isDying && unit.worldPos.distanceTo(u.worldPos) <= 4.0
+        );
+        if (nearbyOpponents.length > 0) {
+          unit.bossStompCooldown = 6.0;
+          audio.playBossSlam();
+          this.vfx.spawnGroundStompShockwave(unit.worldPos, 4.0, 0xff3700);
+          this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 2.0, 0)), '💥 INFERNAL GROUND STOMP! 💥', '#ff4500', 1.6);
+
+          for (const target of nearbyOpponents) {
+            const stompDmg = calculateDamage(Math.round(unit.attack * 1.5), target.armor + target.combatAuraArmor);
+            target.currentHp -= stompDmg;
+            target.hitFlinchTimer = 0.25;
+
+            // Pushback
+            const pushDir = new THREE.Vector3().subVectors(target.worldPos, unit.worldPos).normalize();
+            target.mesh.position.addScaledVector(pushDir, 0.6);
+            this.clampUnitToArena(target);
+
+            const hitPos = target.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
+            this.vfx.spawnBurstParticles(hitPos, 0xff4500, 8);
+            this.vfx.spawnFloatingText(hitPos, `STOMP -${stompDmg}`, '#ff3700', 1.1);
+
+            if (target.currentHp <= 0) {
+              this.killUnit(target, onKillEnemy);
+            }
+          }
+        }
+      }
+    }
+
+    // Find nearest opposing target
+    const enemies = this.units.filter(u => u.isFriendly !== unit.isFriendly && !u.isDead && !u.isDying);
+
+    // Dynamic Attack speed rate
+    const effectiveAttackRate = unit.attackSpeedBonus > 0
+      ? unit.attackRate / (1 + unit.attackSpeedBonus)
+      : unit.attackRate;
+
+    // --- ENEMY AI: Target friendly units or the Player's Arena Stronghold ---
+    if (!unit.isFriendly) {
+      const castleTargetX = this.arenaCastle ? this.arenaCastle.gateTargetPos.x : 1.3;
+      const castleTargetZ = THREE.MathUtils.clamp(unit.worldPos.z, -2.6, 2.6);
+      const castleTargetPos = new THREE.Vector3(castleTargetX, unit.worldPos.y, castleTargetZ);
+      const distToCastle = unit.worldPos.distanceTo(castleTargetPos);
+
+      // Find nearest friendly defender (if any exist)
+      let nearestFriendly: Unit | null = null;
+      let minFriendlyDist = Infinity;
+
+      if (
+        this.focusTarget &&
+        !this.focusTarget.isDead &&
+        !this.focusTarget.isDying &&
+        this.focusTarget.isFriendly !== unit.isFriendly
+      ) {
+        const dFocus = unit.worldPos.distanceTo(this.focusTarget.worldPos);
+        if (unit.stats.range > 2.0 || dFocus <= 7.5) {
+          nearestFriendly = this.focusTarget;
+          minFriendlyDist = dFocus;
+        }
+      }
+
+      if (!nearestFriendly) {
+        for (const f of enemies) {
+          const d = unit.worldPos.distanceTo(f.worldPos);
+          if (d < minFriendlyDist) {
+            minFriendlyDist = d;
+            nearestFriendly = f;
+          }
+        }
+      }
+
+      // Decide whether to assault the Arena Castle or fight nearest friendly unit:
+      const shouldAttackCastle =
+        Boolean(this.arenaCastle &&
+        !this.arenaCastle.isDestroyed &&
+        (!nearestFriendly ||
+          (distToCastle <= unit.stats.range + 0.4 && minFriendlyDist > unit.stats.range + 0.5) ||
+          (unit.worldPos.x <= 3.2 && distToCastle < minFriendlyDist)));
+
+      if (shouldAttackCastle) {
+        const effectiveAttackRange = unit.stats.range + 0.4;
+        const inCastleRange =
+          distToCastle <= effectiveAttackRange ||
+          (unit.worldPos.x <= castleTargetX + effectiveAttackRange && Math.abs(unit.worldPos.z - castleTargetZ) <= 0.6);
+
+        if (inCastleRange) {
+          // In range: stop and assault the castle
+          unit.mesh.lookAt(castleTargetX - 2.0, unit.worldPos.y, castleTargetZ);
+
+          const elapsed = (time - unit.lastAttackTime) / 1000;
+          if (elapsed >= effectiveAttackRate) {
+            unit.lastAttackTime = time;
+            unit.lungeTimer = 0.16;
+
+            const isRanged = unit.stats.range > 2.0;
+            const hitPos = new THREE.Vector3(castleTargetX, 1.2, castleTargetZ);
+
+            if (isRanged) {
+              this.vfx.spawnBeam(unit.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0)), hitPos, 0xe2e8f0, 0.18);
+            }
+
+            const rawDmg = unit.attack;
+            if (this.arenaCastle) {
+              const destroyed = this.arenaCastle.takeDamage(rawDmg, hitPos);
+              if (destroyed && this.onCastleDestroyed) {
+                this.onCastleDestroyed();
+              }
+            }
+          }
+        } else {
+          // March toward castle front gate
+          const dir = new THREE.Vector3().subVectors(castleTargetPos, unit.worldPos).normalize();
+          unit.mesh.position.addScaledVector(dir, effectiveSpeed * dt);
+          unit.mesh.lookAt(castleTargetPos.x, unit.worldPos.y, castleTargetPos.z);
+          unit.bodyMesh.position.y = Math.abs(Math.sin(time * 0.008 * effectiveSpeed)) * 0.1 * unit.stats.scale;
+        }
+
+        this.clampUnitToArena(unit);
+        return;
+      }
+
+      // If there are no friendly units and no castle, march west
+      if (!nearestFriendly) {
+        const marchDir = new THREE.Vector3(-1, 0, 0);
+        unit.mesh.position.addScaledVector(marchDir, effectiveSpeed * dt);
+        unit.mesh.rotation.y = Math.PI / 2;
+        this.clampUnitToArena(unit);
+        return;
+      }
+
+      // Engage nearest friendly unit
+      const targetBuffer = (nearestFriendly.stats.scale - 0.6) * 0.5;
+      const crowdBuffer = unit.stats.range <= 1.2 ? 0.35 : 0;
+      const effectiveAttackRange = unit.stats.range + Math.max(0, targetBuffer) + crowdBuffer;
+
+      if (minFriendlyDist <= effectiveAttackRange) {
+        unit.mesh.lookAt(nearestFriendly.worldPos.x, unit.worldPos.y, nearestFriendly.worldPos.z);
+        const elapsed = (time - unit.lastAttackTime) / 1000;
+        if (elapsed >= effectiveAttackRate) {
+          unit.lastAttackTime = time;
+          this.executeAttack(unit, nearestFriendly, onKillEnemy);
+        }
+      } else {
+        const dir = new THREE.Vector3().subVectors(nearestFriendly.worldPos, unit.worldPos).normalize();
+        unit.mesh.position.addScaledVector(dir, effectiveSpeed * dt);
+        unit.mesh.lookAt(nearestFriendly.worldPos.x, unit.worldPos.y, nearestFriendly.worldPos.z);
+      }
+
+      this.clampUnitToArena(unit);
+      return;
+    }
+
+    // --- FRIENDLY AI: Target enemy units or advance ---
+    if (enemies.length === 0) {
+      if (this.moonCastle && !this.moonCastle.isDestroyed) {
+        const castleTargetX = this.moonCastle.gateTargetPos.x;
+        const castleTargetZ = THREE.MathUtils.clamp(unit.worldPos.z, -2.6, 2.6);
+        const castleTargetPos = new THREE.Vector3(castleTargetX, unit.worldPos.y, castleTargetZ);
+        const distToCastle = unit.worldPos.distanceTo(castleTargetPos);
+        const effectiveAttackRange = unit.stats.range + 0.6;
+
+        if (distToCastle <= effectiveAttackRange || unit.worldPos.x >= castleTargetX - effectiveAttackRange) {
+          unit.mesh.lookAt(castleTargetX + 2.0, unit.worldPos.y, castleTargetZ);
+          const elapsed = (time - unit.lastAttackTime) / 1000;
+          if (elapsed >= effectiveAttackRate) {
+            unit.lastAttackTime = time;
+            unit.lungeTimer = 0.16;
+            const rawDmg = unit.attack;
+            const hitPos = new THREE.Vector3(castleTargetX, 1.2, castleTargetZ);
+            if (this.moonCastle) {
+              const destroyed = this.moonCastle.takeDamage(rawDmg, hitPos);
+              if (destroyed && this.onMoonCastleDestroyed) {
+                this.onMoonCastleDestroyed();
+              }
+            }
+          }
+          return;
+        } else {
+          const dir = new THREE.Vector3().subVectors(castleTargetPos, unit.worldPos).normalize();
+          unit.mesh.position.addScaledVector(dir, unit.moveSpeed * dt);
+          unit.mesh.lookAt(castleTargetPos.x, unit.worldPos.y, castleTargetPos.z);
+          this.clampUnitToArena(unit);
+          return;
+        }
+      }
+
+      // Victory march eastward toward opponent citadel
+      const marchDir = new THREE.Vector3(1, 0, 0);
+      unit.mesh.position.addScaledVector(marchDir, unit.moveSpeed * dt);
+      unit.mesh.rotation.y = -Math.PI / 2;
+      this.clampUnitToArena(unit);
+      return;
+    }
+
     let nearest: Unit | null = null;
     let nearestDist = Infinity;
 
-    for (const e of enemies) {
-      const d = unit.worldPos.distanceTo(e.worldPos);
-      if (d < nearestDist) {
-        nearestDist = d;
-        nearest = e;
+    if (
+      this.focusTarget &&
+      !this.focusTarget.isDead &&
+      !this.focusTarget.isDying &&
+      this.focusTarget.isFriendly !== unit.isFriendly
+    ) {
+      const dFocus = unit.worldPos.distanceTo(this.focusTarget.worldPos);
+      if (unit.stats.range > 2.0 || dFocus <= 7.5) {
+        nearest = this.focusTarget;
+        nearestDist = dFocus;
+      }
+    }
+
+    if (!nearest) {
+      for (const e of enemies) {
+        const d = unit.worldPos.distanceTo(e.worldPos);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearest = e;
+        }
       }
     }
 
     if (!nearest) return;
 
+    // Calculate dynamic attack range taking target size into account
+    // Target scale gives extra reach so units don't have to embed inside large units (e.g. Ogres/Bosses)
+    // Extra melee buffer (+0.35) allows units in the 2nd row of a crowd to attack without shoving the front row
+    const targetBuffer = (nearest.stats.scale - 0.6) * 0.5;
+    const crowdBuffer = unit.stats.range <= 1.2 ? 0.35 : 0;
+    const effectiveAttackRange = unit.stats.range + Math.max(0, targetBuffer) + crowdBuffer;
+
     // Check if in attack range
-    if (nearestDist <= unit.stats.range) {
+    if (nearestDist <= effectiveAttackRange) {
       // Stop and attack
       unit.mesh.lookAt(nearest.worldPos.x, unit.worldPos.y, nearest.worldPos.z);
 
       const elapsed = (time - unit.lastAttackTime) / 1000;
-      if (elapsed >= unit.attackRate) {
+      if (elapsed >= effectiveAttackRate) {
         unit.lastAttackTime = time;
         this.executeAttack(unit, nearest, onKillEnemy);
       }
@@ -483,9 +1011,14 @@ export class UnitManager {
       unit.mesh.position.addScaledVector(dir, unit.moveSpeed * dt);
       unit.mesh.lookAt(nearest.worldPos.x, unit.worldPos.y, nearest.worldPos.z);
     }
+
+    this.clampUnitToArena(unit);
   }
 
-  private executeAttack(attacker: Unit, defender: Unit, onKillEnemy: (bounty: number) => void) {
+  private executeAttack(attacker: Unit, defender: Unit, onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
+    attacker.lungeTimer = 0.16;
+    defender.hitFlinchTimer = 0.14;
+
     let rawDmg = attacker.attack + attacker.combatAuraAttack;
     let isCrit = false;
 
@@ -494,8 +1027,14 @@ export class UnitManager {
       isCrit = true;
     }
 
-    const defenderArmor = defender.armor + defender.combatAuraArmor;
-    const finalDmg = calculateDamage(rawDmg, defenderArmor);
+    const totalArmor = defender.armor + defender.combatAuraArmor;
+    const effectiveArmor = Math.max(0, totalArmor - defender.armorDebuff);
+    let finalDmg = calculateDamage(rawDmg, effectiveArmor);
+
+    // Defender flat damage reduction (Soldier Spiked Bulwark)
+    if (defender.flatDmgReduction > 0) {
+      finalDmg = Math.max(1, finalDmg - defender.flatDmgReduction);
+    }
 
     defender.currentHp -= finalDmg;
 
@@ -511,6 +1050,65 @@ export class UnitManager {
       this.vfx.spawnFloatingText(hitPos, `-${finalDmg}`, attacker.isFriendly ? '#f87171' : '#fb923c', 0.8);
     }
 
+    // Archer Sundering Shot (Armor Shred on hit)
+    if (attacker.armorShredOnHit > 0 && !defender.isDead && !defender.isDying) {
+      defender.armorDebuff = Math.max(defender.armorDebuff, attacker.armorShredOnHit);
+      defender.armorDebuffTimer = attacker.armorShredDuration || 4.0;
+      audio.playShred();
+      this.vfx.spawnFloatingText(hitPos.clone().add(new THREE.Vector3(0, 0.4, 0)), `🛡️ -${attacker.armorShredOnHit} ARMOR`, '#38bdf8', 0.9);
+    }
+
+    // Archer Rapid Quiver proc indicator
+    if (attacker.attackSpeedBonus > 0 && Math.random() < 0.25) {
+      this.vfx.spawnFloatingText(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.9, 0)), '⚡ FLURRY', '#a7f3d0', 0.6);
+    }
+
+    // Soldier Thorns retaliation against melee attacker
+    if (defender.thornsMultiplier > 0 && attacker.stats.range <= 2.0 && !attacker.isDead && !attacker.isDying) {
+      const reflectedDmg = Math.max(1, Math.round(finalDmg * defender.thornsMultiplier));
+      attacker.currentHp -= reflectedDmg;
+      attacker.hitFlinchTimer = 0.12;
+      const attackerHitPos = attacker.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
+      this.vfx.spawnBurstParticles(attackerHitPos, 0xa3e635, 6);
+      this.vfx.spawnFloatingText(attackerHitPos, `🌵 THORNS -${reflectedDmg}`, '#a3e635', 0.9);
+      if (attacker.currentHp <= 0) {
+        this.killUnit(attacker, onKillEnemy);
+      }
+    }
+
+    // Mage Paralyzing Arc (Stun)
+    if (attacker.stunChance > 0 && Math.random() < attacker.stunChance && !defender.isDead && !defender.isDying) {
+      defender.stunTimer = Math.max(defender.stunTimer, attacker.stunDuration || 1.5);
+      audio.playStun();
+      this.vfx.spawnStunRing(defender.worldPos, attacker.stunDuration || 1.5);
+      this.vfx.spawnFloatingText(defender.worldPos.clone().add(new THREE.Vector3(0, 1.4, 0)), '⚡ STUNNED!', '#facc15', 1.2);
+    }
+
+    // Mage Molten Pyre (Burn DoT)
+    if (attacker.burnMultiplier > 0 && !defender.isDead && !defender.isDying) {
+      const burnDmg = Math.max(1, Math.round((attacker.attack + attacker.combatAuraAttack) * attacker.burnMultiplier));
+      defender.burnDmgPerSec = Math.max(defender.burnDmgPerSec, burnDmg);
+      defender.burnTimer = attacker.burnDuration || 3.0;
+      this.vfx.spawnFloatingText(hitPos.clone().add(new THREE.Vector3(0, 0.7, 0)), `🔥 BURN -${burnDmg}/s`, '#fb923c', 0.9);
+    }
+
+    // Melee attack slash arc
+    if (attacker.stats.range <= 2.0) {
+      audio.playSlash();
+      const arcColor = attacker.isFriendly ? 0x38bdf8 : (attacker.isBoss ? 0xff4500 : 0xf97316);
+      this.vfx.spawnSlashArc(attacker.worldPos, defender.worldPos, arcColor, attacker.stats.scale);
+    }
+
+    // Boss Phase 2 Transition (Magma Shield)
+    if (defender.isBoss && !defender.magmaShieldActive && defender.currentHp <= defender.maxHp * 0.5) {
+      defender.magmaShieldActive = true;
+      defender.armor += 15; // Fortified magma armor
+      audio.playRulebreaker();
+      this.vfx.spawnAscensionPillar(defender.worldPos, 0xff3b30);
+      this.vfx.spawnBurstParticles(defender.worldPos, 0xff4500, 32);
+      this.vfx.spawnFloatingText(defender.worldPos.clone().add(new THREE.Vector3(0, 2.2, 0)), '🛡️ PHASE 2: MAGMA SHIELD (+15 ARMOR)! 🛡️', '#ff3700', 2.0);
+    }
+
     // Archer Ranged Projectile / Beam
     if (attacker.stats.range > 2.0) {
       this.vfx.spawnBeam(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), hitPos, 0x10b981, 0.15);
@@ -518,30 +1116,91 @@ export class UnitManager {
 
     // Archer Multishot Volley
     if (attacker.multishotChance > 0 && Math.random() < attacker.multishotChance) {
-      const otherEnemies = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && u.id !== defender.id);
+      const otherEnemies = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && !u.isDying && u.id !== defender.id);
       const targets = otherEnemies
         .filter(u => attacker.worldPos.distanceTo(u.worldPos) <= attacker.stats.range)
         .slice(0, attacker.multishotTargets - 1);
 
       for (const t of targets) {
-        const extraDmg = calculateDamage(attacker.attack + attacker.combatAuraAttack, t.armor + t.combatAuraArmor);
+        const tArmor = t.armor + t.combatAuraArmor;
+        const tEffArmor = Math.max(0, tArmor - t.armorDebuff);
+        let extraDmg = calculateDamage(attacker.attack + attacker.combatAuraAttack, tEffArmor);
+        if (t.flatDmgReduction > 0) extraDmg = Math.max(1, extraDmg - t.flatDmgReduction);
         t.currentHp -= extraDmg;
+        t.hitFlinchTimer = 0.14;
         const extraHitPos = t.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
         this.vfx.spawnBeam(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), extraHitPos, 0x34d399, 0.12);
         this.vfx.spawnFloatingText(extraHitPos, `🏹 MULTISHOT -${extraDmg}`, '#34d399', 0.9);
+
+        // Apply armor shred on multishot as well
+        if (attacker.armorShredOnHit > 0) {
+          t.armorDebuff = Math.max(t.armorDebuff, attacker.armorShredOnHit);
+          t.armorDebuffTimer = attacker.armorShredDuration || 4.0;
+        }
+
         if (t.currentHp <= 0) {
           this.killUnit(t, onKillEnemy);
         }
       }
     }
 
+    // Mage Arcane Siphon & Mega Fireball AoE
+    if (attacker.unitClass === FriendlyClass.MAGE) {
+      this.vfx.spawnBeam(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), hitPos, 0xa855f7, 0.15);
+
+      const gain = attacker.manaGainPerAttack || 25;
+      attacker.mana = Math.min(attacker.maxMana, attacker.mana + gain);
+      this.vfx.spawnFloatingText(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.9, 0)), `+${gain} MP`, '#c084fc', 0.6);
+
+      // Check if full mana -> CAST BIG FIREBALL!
+      if (attacker.mana >= attacker.maxMana) {
+        attacker.mana = 0;
+        audio.playFireball();
+
+        const fireballPos = defender.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
+        this.vfx.spawnAscensionPillar(defender.worldPos, 0xff4500);
+        this.vfx.spawnBurstParticles(defender.worldPos, 0xff3700, 24);
+        this.vfx.spawnBeam(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.9, 0)), fireballPos, 0xff4500, 0.3);
+        this.vfx.spawnFloatingText(defender.worldPos.clone().add(new THREE.Vector3(0, 1.3, 0)), '🔥 MEGA FIREBALL! 🔥', '#ff4500', 1.8);
+
+        const rawSplashDmg = Math.round((attacker.attack + attacker.combatAuraAttack) * attacker.fireballDamageMult);
+        const enemies = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && !u.isDying);
+
+        for (const enemy of enemies) {
+          const dist = defender.worldPos.distanceTo(enemy.worldPos);
+          if (dist <= attacker.fireballRadius) {
+            const splashArmor = Math.max(0, enemy.armor + enemy.combatAuraArmor - enemy.armorDebuff);
+            let enemyFinalDmg = calculateDamage(rawSplashDmg, splashArmor);
+            if (enemy.flatDmgReduction > 0) enemyFinalDmg = Math.max(1, enemyFinalDmg - enemy.flatDmgReduction);
+            enemy.currentHp -= enemyFinalDmg;
+            enemy.hitFlinchTimer = 0.18;
+            const enemyHitPos = enemy.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
+            this.vfx.spawnBurstParticles(enemyHitPos, 0xf97316, 6);
+            this.vfx.spawnFloatingText(enemyHitPos, `🔥 AOE -${enemyFinalDmg}`, '#ff6b00', 1.0);
+
+            // Molten Pyre burn on splash targets
+            if (attacker.burnMultiplier > 0 && !enemy.isDead && !enemy.isDying) {
+              const splashBurn = Math.max(1, Math.round((attacker.attack + attacker.combatAuraAttack) * attacker.burnMultiplier));
+              enemy.burnDmgPerSec = Math.max(enemy.burnDmgPerSec, splashBurn);
+              enemy.burnTimer = attacker.burnDuration || 3.0;
+            }
+
+            if (enemy.currentHp <= 0) {
+              this.killUnit(enemy, onKillEnemy);
+            }
+          }
+        }
+      }
+    }
+
     // Passive Cleave for Pyro Golem
     if (attacker.stats.passive === 'CLEAVE') {
-      const nearby = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && u.id !== defender.id);
+      const nearby = this.units.filter(u => u.isFriendly !== attacker.isFriendly && !u.isDead && !u.isDying && u.id !== defender.id);
       for (const n of nearby) {
         if (attacker.worldPos.distanceTo(n.worldPos) <= 2.2) {
           const cleaveDmg = Math.round(finalDmg * 0.6);
           n.currentHp -= cleaveDmg;
+          n.hitFlinchTimer = 0.14;
           this.vfx.spawnFloatingText(n.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0)), `CLEAVE -${cleaveDmg}`, '#f97316', 0.8);
           if (n.currentHp <= 0) this.killUnit(n, onKillEnemy);
         }
@@ -553,15 +1212,32 @@ export class UnitManager {
     }
   }
 
-  private killUnit(unit: Unit, onKillEnemy: (bounty: number) => void) {
-    unit.isDead = true;
+  private killUnit(unit: Unit, onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
+    if (unit.isDying || unit.isDead) return;
+    unit.isDying = true;
+    unit.deathTimer = 0.45;
+    unit.inCombat = false;
+    unit.hpBarGroup.visible = false;
+    unit.hpBarMesh.visible = false;
+    unit.hpBarBgMesh.visible = false;
+    if (unit.manaBarMesh) unit.manaBarMesh.visible = false;
+    if (unit.manaBarBgMesh) unit.manaBarBgMesh.visible = false;
+
+    // Death particle burst
+    const burstColor = unit.isBoss ? 0xff4500 : (unit.isFriendly ? 0x38bdf8 : 0xef4444);
+    this.vfx.spawnBurstParticles(unit.worldPos.clone().add(new THREE.Vector3(0, 0.5, 0)), burstColor, unit.isBoss ? 36 : 14);
+
     if (!unit.isFriendly) {
       // Enemy bounty
-      const bounty = unit.stats.tier === UnitTier.TIER_3 ? 60 : unit.stats.tier === UnitTier.TIER_2 ? 25 : 12;
-      onKillEnemy(bounty);
+      const bounty = unit.isBoss ? 250 : (unit.stats.tier === UnitTier.TIER_3 ? 60 : unit.stats.tier === UnitTier.TIER_2 ? 25 : 12);
+      onKillEnemy(bounty, unit.unitClass as EnemyClass, unit.isBoss || false);
       audio.playGoldGain();
-      this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 1, 0)), `+${bounty}g`, '#facc15', 1.2);
+      this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 1.2, 0)), `+${bounty}g`, '#facc15', unit.isBoss ? 1.8 : 1.2);
     }
+  }
+
+  getBossUnit(): Unit | null {
+    return this.units.find(u => u.isBoss && !u.isDead && !u.isDying) || null;
   }
 
   private removeUnit(unit: Unit, index: number) {
@@ -582,6 +1258,24 @@ export class UnitManager {
 
   selectUnit(unit: Unit | null) {
     this.selectedUnit = unit;
+  }
+
+  public damageUnit(target: Unit, rawDmg: number, onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void): number {
+    if (target.isDead || target.isDying) return 0;
+    const defenderArmor = target.armor + (target.combatAuraArmor || 0);
+    const finalDmg = calculateDamage(rawDmg, defenderArmor);
+
+    target.currentHp -= finalDmg;
+    target.hitFlinchTimer = 0.16;
+
+    const hitPos = target.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
+    this.vfx.spawnBurstParticles(hitPos, 0x38bdf8, 8);
+    this.vfx.spawnFloatingText(hitPos, `-${finalDmg}`, '#38bdf8', 0.9);
+
+    if (target.currentHp <= 0) {
+      this.killUnit(target, onKillEnemy);
+    }
+    return finalDmg;
   }
 
   clearAll() {

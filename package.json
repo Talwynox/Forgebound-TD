@@ -1,5 +1,5 @@
 {
-  "name": "pyro-td-3d",
+  "name": "forgebound-td",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -9,14 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "three": "^0.160.0",
-    "canvas-confetti": "^1.9.2"
+    "canvas-confetti": "^1.9.2",
+    "peerjs": "^1.5.5",
+    "three": "^0.160.0"
   },
   "devDependencies": {
-    "@types/three": "^0.160.0",
     "@types/canvas-confetti": "^1.9.0",
+    "@types/three": "^0.160.0",
     "typescript": "^5.3.3",
     "vite": "^5.0.12"
   }
 }
-

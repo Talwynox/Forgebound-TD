@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Grid, GridCoord, TileType } from '../grid/Grid';
 import { Pathfinder } from '../grid/Pathfinder';
-import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, TowerUpgradeDef, SOLDIER_ABILITIES, ARCHER_ABILITIES, EvoAbilityTier } from './TowerData';
+import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, TowerUpgradeDef, SOLDIER_ABILITIES, ARCHER_ABILITIES, MAGE_ABILITIES, EvoAbilityTier } from './TowerData';
 import { VFXManager } from '../vfx/VFXManager';
 import { audio } from '../engine/AudioSystem';
 import { Unit } from '../units/UnitManager';
@@ -13,6 +13,9 @@ export interface TowerInstance {
   gridCoord: GridCoord;
   worldPos: THREE.Vector3;
   mesh: THREE.Group;
+  ownerPeerId?: string;
+  ownerName?: string;
+  team?: 'SUN' | 'MOON';
   currentBranch: UpgradeBranch;
   branchLevel: number; // 0 = unbranched, 1 = rank 1, 2 = rank 2, 3 = rank 3...
   totalCostInvested: number;
@@ -26,9 +29,11 @@ export interface TowerInstance {
   accumulatedStackBonus: number; // Stacking bonus accumulated at the end of each round
   roundsStacked: number; // How many rounds this tower has stacked
   // Evolution Tower Special State
-  evoPath?: 'SOLDIER' | 'ARCHER';
-  ability1Level: number; // 0 to 3
-  ability2Level: number; // 0 to 3
+  evoPath?: 'SOLDIER' | 'ARCHER' | 'MAGE';
+  ability1Level: number; // 0 to 10
+  ability2Level: number; // 0 to 10
+  ability3Level: number; // 0 to 10
+  ability4Level: number; // 0 to 10
   hasEvolvedThisWave: boolean;
   // Dynamic visual parts for animation
   floatingElement?: THREE.Object3D;
@@ -44,9 +49,16 @@ export class TowerManager {
   public vfx: VFXManager;
 
   public selectedTower: TowerInstance | null = null;
+  public smartFocusEnabled: boolean = true;
   public rangeIndicator: THREE.Group | null = null;
   private rangeBorderMesh: THREE.Mesh | null = null;
   private rangeFillMesh: THREE.Mesh | null = null;
+  public onChampionEvolved: () => void = () => {};
+
+  toggleSmartFocus(): boolean {
+    this.smartFocusEnabled = !this.smartFocusEnabled;
+    return this.smartFocusEnabled;
+  }
 
   constructor(grid: Grid, pathfinder: Pathfinder, scene: THREE.Scene, vfx: VFXManager) {
     this.grid = grid;
@@ -68,9 +80,12 @@ export class TowerManager {
     const fillMat = new THREE.MeshBasicMaterial({
       color: 0x0284c7,
       transparent: true,
-      opacity: 0.16,
+      opacity: 0.18,
       depthWrite: false,
       depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -4,
       side: THREE.DoubleSide
     });
     this.rangeFillMesh = new THREE.Mesh(fillGeom, fillMat);
@@ -83,9 +98,12 @@ export class TowerManager {
     const ringMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.90,
       depthWrite: false,
       depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -6,
       side: THREE.DoubleSide
     });
     this.rangeBorderMesh = new THREE.Mesh(ringGeom, ringMat);
@@ -96,10 +114,21 @@ export class TowerManager {
     this.scene.add(this.rangeIndicator);
   }
 
+  getTowerCountByType(type: TowerType): number {
+    let count = 0;
+    for (const tower of this.towers.values()) {
+      if (tower.type === type) count++;
+    }
+    return count;
+  }
+
   canBuild(coord: GridCoord, type: TowerType, playerGold: number): { allowed: boolean; reason?: string } {
     const def = TOWER_DEFINITIONS[type];
     if (playerGold < def.cost) {
       return { allowed: false, reason: `Not enough gold! Need ${def.cost}g.` };
+    }
+    if (type === TowerType.GOLD && this.getTowerCountByType(TowerType.GOLD) >= 4) {
+      return { allowed: false, reason: 'Gold Spire limit reached! Maximum 4 Gold Spires allowed.' };
     }
     if (!this.grid.isBuildable(coord.x, coord.z)) {
       return { allowed: false, reason: 'Tile is occupied or not buildable.' };
@@ -110,7 +139,14 @@ export class TowerManager {
     return { allowed: true };
   }
 
-  buildTower(coord: GridCoord, type: TowerType): TowerInstance | null {
+  buildTower(
+    coord: GridCoord,
+    type: TowerType,
+    forcedId?: number,
+    ownerPeerId?: string,
+    ownerName?: string,
+    team?: 'SUN' | 'MOON'
+  ): TowerInstance | null {
     const def = TOWER_DEFINITIONS[type];
     const world = this.grid.gridToWorld(coord.x, coord.z);
     const worldPos = new THREE.Vector3(world.x, 0, world.z);
@@ -118,12 +154,20 @@ export class TowerManager {
     const mesh = this.createTowerMesh(type, worldPos);
     this.scene.add(mesh);
 
+    const id = forcedId !== undefined ? forcedId : this.nextId++;
+    if (forcedId !== undefined && forcedId >= this.nextId) {
+      this.nextId = forcedId + 1;
+    }
+
     const tower: TowerInstance = {
-      id: this.nextId++,
+      id,
       type,
       gridCoord: { ...coord },
       worldPos,
       mesh,
+      ownerPeerId,
+      ownerName,
+      team,
       currentBranch: UpgradeBranch.NONE,
       branchLevel: 0,
       totalCostInvested: def.cost,
@@ -139,6 +183,8 @@ export class TowerManager {
       evoPath: undefined,
       ability1Level: 0,
       ability2Level: 0,
+      ability3Level: 0,
+      ability4Level: 0,
       hasEvolvedThisWave: false
     };
 
@@ -195,17 +241,26 @@ export class TowerManager {
       }
       tower.currentBranch = branch;
       tower.branchLevel = 1;
-      tower.evoPath = branch === UpgradeBranch.BRANCH_A ? 'SOLDIER' : 'ARCHER';
+      tower.evoPath = branch === UpgradeBranch.BRANCH_A
+        ? 'SOLDIER'
+        : (branch === UpgradeBranch.BRANCH_B ? 'ARCHER' : 'MAGE');
       tower.level = 2;
-      const upgDef = branch === UpgradeBranch.BRANCH_A ? def.branchA[0] : def.branchB[0];
+      const upgDef = branch === UpgradeBranch.BRANCH_A
+        ? def.branchA[0]
+        : (branch === UpgradeBranch.BRANCH_B ? def.branchB[0] : (def.branchC ? def.branchC[0] : def.branchA[0]));
       tower.totalCostInvested += upgDef.cost;
       audio.playUpgrade();
-      const forgeColor = tower.evoPath === 'SOLDIER' ? 0x3b82f6 : 0x10b981;
+
+      // Transform the 3D visual mesh of the Evolution Tower to match the chosen path!
+      this.morphEvolutionTower(tower, tower.evoPath);
+
+      const forgeColor = tower.evoPath === 'SOLDIER' ? 0x3b82f6 : (tower.evoPath === 'ARCHER' ? 0x10b981 : 0xa855f7);
+      const forgeHex = tower.evoPath === 'SOLDIER' ? '#60a5fa' : (tower.evoPath === 'ARCHER' ? '#34d399' : '#c084fc');
       this.vfx.spawnAscensionPillar(tower.worldPos, forgeColor);
       this.vfx.spawnFloatingText(
         tower.worldPos.clone().add(new THREE.Vector3(0, 2.5, 0)),
         `FORGE CHOSEN: ${tower.evoPath}!`,
-        tower.evoPath === 'SOLDIER' ? '#60a5fa' : '#34d399',
+        forgeHex,
         1.8
       );
       return { success: true, cost: upgDef.cost };
@@ -245,11 +300,11 @@ export class TowerManager {
       tower.mesh.add(haloMesh);
       tower.rotatingRing = haloMesh;
     } else {
-      const scale = 1.0 + (tower.branchLevel - 1) * 0.25;
+      const scale = 1.0 + (tower.branchLevel - 1) * 0.08;
       tower.rotatingRing.scale.set(scale, scale, scale);
       const mat = (tower.rotatingRing as THREE.Mesh).material as THREE.MeshStandardMaterial;
       if (mat) {
-        mat.emissiveIntensity = 0.6 + tower.branchLevel * 0.25;
+        mat.emissiveIntensity = Math.min(2.0, 0.6 + (tower.branchLevel - 1) * 0.15);
       }
     }
 
@@ -263,28 +318,42 @@ export class TowerManager {
     return { success: true, cost: upgDef.cost };
   }
 
-  upgradeEvoAbility(towerId: number, abilityIndex: 1 | 2, playerGold: number): { success: boolean; cost: number; reason?: string } {
+  upgradeEvoAbility(towerId: number, abilityIndex: 1 | 2 | 3 | 4, playerGold: number): { success: boolean; cost: number; reason?: string } {
     const tower = this.towers.get(towerId);
     if (!tower) return { success: false, cost: 0, reason: 'Tower not found' };
     if (tower.type !== TowerType.EVOLUTION || !tower.evoPath) {
-      return { success: false, cost: 0, reason: 'Must choose Soldier or Archer path first!' };
+      return { success: false, cost: 0, reason: 'Must choose Soldier, Archer, or Mage path first!' };
     }
 
-    const currentLvl = abilityIndex === 1 ? tower.ability1Level : tower.ability2Level;
-    if (currentLvl >= 3) {
-      return { success: false, cost: 0, reason: 'Ability already at maximum Tier 3!' };
-    }
+    let currentLvl = 0;
+    if (abilityIndex === 1) currentLvl = tower.ability1Level;
+    else if (abilityIndex === 2) currentLvl = tower.ability2Level;
+    else if (abilityIndex === 3) currentLvl = tower.ability3Level;
+    else currentLvl = tower.ability4Level;
 
-    let tierDef: EvoAbilityTier | undefined;
+    let abilityList: EvoAbilityTier[];
     if (tower.evoPath === 'SOLDIER') {
-      tierDef = abilityIndex === 1
-        ? SOLDIER_ABILITIES.armorAura[currentLvl]
-        : SOLDIER_ABILITIES.crit[currentLvl];
+      if (abilityIndex === 1) abilityList = SOLDIER_ABILITIES.armorAura;
+      else if (abilityIndex === 2) abilityList = SOLDIER_ABILITIES.crit;
+      else if (abilityIndex === 3) abilityList = SOLDIER_ABILITIES.lifeRegen;
+      else abilityList = SOLDIER_ABILITIES.thorns;
+    } else if (tower.evoPath === 'ARCHER') {
+      if (abilityIndex === 1) abilityList = ARCHER_ABILITIES.multishot;
+      else if (abilityIndex === 2) abilityList = ARCHER_ABILITIES.damageAura;
+      else if (abilityIndex === 3) abilityList = ARCHER_ABILITIES.armorShred;
+      else abilityList = ARCHER_ABILITIES.rapidQuiver;
     } else {
-      tierDef = abilityIndex === 1
-        ? ARCHER_ABILITIES.multishot[currentLvl]
-        : ARCHER_ABILITIES.damageAura[currentLvl];
+      if (abilityIndex === 1) abilityList = MAGE_ABILITIES.manaGain;
+      else if (abilityIndex === 2) abilityList = MAGE_ABILITIES.fireball;
+      else if (abilityIndex === 3) abilityList = MAGE_ABILITIES.stun;
+      else abilityList = MAGE_ABILITIES.burn;
     }
+
+    if (currentLvl >= abilityList.length) {
+      return { success: false, cost: 0, reason: `Ability already at maximum Tier ${abilityList.length}!` };
+    }
+
+    const tierDef = abilityList[currentLvl];
 
     if (!tierDef) {
       return { success: false, cost: 0, reason: 'Invalid ability tier' };
@@ -296,18 +365,23 @@ export class TowerManager {
 
     if (abilityIndex === 1) {
       tower.ability1Level++;
-    } else {
+    } else if (abilityIndex === 2) {
       tower.ability2Level++;
+    } else if (abilityIndex === 3) {
+      tower.ability3Level++;
+    } else {
+      tower.ability4Level++;
     }
 
     tower.totalCostInvested += tierDef.cost;
     audio.playUpgrade();
-    const color = tower.evoPath === 'SOLDIER' ? 0x3b82f6 : 0x10b981;
+    const color = tower.evoPath === 'SOLDIER' ? 0x3b82f6 : (tower.evoPath === 'ARCHER' ? 0x10b981 : 0xa855f7);
+    const colorHex = tower.evoPath === 'SOLDIER' ? '#60a5fa' : (tower.evoPath === 'ARCHER' ? '#34d399' : '#c084fc');
     this.vfx.spawnBurstParticles(tower.worldPos.clone().add(new THREE.Vector3(0, 1.5, 0)), color, 12);
     this.vfx.spawnFloatingText(
       tower.worldPos.clone().add(new THREE.Vector3(0, 2.5, 0)),
       `UPGRADED: ${tierDef.name}!`,
-      tower.evoPath === 'SOLDIER' ? '#60a5fa' : '#34d399',
+      colorHex,
       1.5
     );
 
@@ -320,6 +394,35 @@ export class TowerManager {
         tower.hasEvolvedThisWave = false;
       }
     }
+  }
+
+  /**
+   * Replaces the 3D model of an Evolution Tower when a path (SOLDIER, ARCHER, or MAGE) is chosen
+   */
+  private morphEvolutionTower(tower: TowerInstance, path: 'SOLDIER' | 'ARCHER' | 'MAGE') {
+    this.scene.remove(tower.mesh);
+    tower.mesh.traverse(child => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
+
+    const newMesh = this.createTowerMesh(TowerType.EVOLUTION, tower.worldPos, path);
+    tower.mesh = newMesh;
+    tower.floatingElement = undefined;
+    tower.rotatingRing = undefined;
+
+    newMesh.traverse(child => {
+      if (child.name === 'floating') tower.floatingElement = child;
+      if (child.name === 'rotating') tower.rotatingRing = child;
+    });
+
+    this.scene.add(newMesh);
   }
 
   sellTower(towerId: number): number {
@@ -492,9 +595,12 @@ export class TowerManager {
         break;
       }
       case TowerType.FROST: {
-        const slow = Math.round((curUpg?.slowPercent ?? def.slowPercent ?? 0.40) * 100);
-        const dur = curUpg?.slowDuration ?? def.slowDuration ?? 3.2;
-        effectStr = `Chill: -${slow}% Movement Speed for ${dur.toFixed(1)}s`;
+        const slow = Math.round((curUpg?.slowPercent ?? def.slowPercent ?? 0.30) * 100);
+        const dur = curUpg?.slowDuration ?? def.slowDuration ?? 2.8;
+        const isAoE = tower.currentBranch === UpgradeBranch.BRANCH_B;
+        effectStr = isAoE
+          ? `Blizzard: -${slow}% AoE Movement Slow for ${dur.toFixed(1)}s (All units in range)`
+          : `Chill: -${slow}% Movement Slow for ${dur.toFixed(1)}s`;
         lifetimeStr = `Total Units Slowed: ${tower.totalHits}`;
         break;
       }
@@ -506,28 +612,40 @@ export class TowerManager {
         break;
       }
       case TowerType.GOLD: {
-        const g = curUpg?.goldPerHit ?? def.goldPerHit ?? 4;
-        const interest = curUpg?.roundInterestPercent ? ` + ${Math.round(curUpg.roundInterestPercent * 100)}% round interest` : '';
-        effectStr = `Income: +${g} Gold per hit${interest}`;
-        lifetimeStr = `Total Gold Minted: ${tower.totalBuffApplied}g (${tower.totalHits} hits)`;
+        if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
+          const interestPct = Math.round((curUpg?.roundInterestPercent ?? 0.10) * 100);
+          const minGold = curUpg?.roundFlatGold ?? 20;
+          effectStr = `Vault Reserve: ${interestPct}% Round Interest (Min ${minGold}g) | No on-hit gold`;
+          lifetimeStr = `Total Vault Interest: ${tower.totalBuffApplied}g`;
+        } else {
+          const g = curUpg?.goldPerHit ?? def.goldPerHit ?? 2;
+          effectStr = `Income: +${g} Gold per hit`;
+          lifetimeStr = `Total Gold Minted: ${tower.totalBuffApplied}g (${tower.totalHits} hits)`;
+        }
         break;
       }
       case TowerType.EVOLUTION: {
         if (!tower.evoPath) {
-          effectStr = 'Select Soldier or Archer path to forge champions (Requires 250 HP base units).';
+          effectStr = 'Select Soldier, Archer, or Mage path to forge champions (Requires 250 HP base units).';
           lifetimeStr = 'Quota: 1 unit per wave | Individual building abilities';
         } else if (tower.evoPath === 'SOLDIER') {
           const quotaStr = tower.hasEvolvedThisWave
             ? '🔒 1/1 Evolved this wave'
             : '⚡ Ready to Evolve (Requires 250 HP)';
           effectStr = `Forges Soldier (1,250 HP cap, Melee). Status: ${quotaStr}`;
-          lifetimeStr = `Armor Aura Lv.${tower.ability1Level}/3 | Crit Lv.${tower.ability2Level}/3 (${tower.totalHits} forged)`;
-        } else {
+          lifetimeStr = `Aura Lv.${tower.ability1Level} | Crit Lv.${tower.ability2Level} | Regen Lv.${tower.ability3Level} | Thorns Lv.${tower.ability4Level} (${tower.totalHits} forged)`;
+        } else if (tower.evoPath === 'ARCHER') {
           const quotaStr = tower.hasEvolvedThisWave
             ? '🔒 1/1 Evolved this wave'
             : '⚡ Ready to Evolve (Requires 250 HP)';
           effectStr = `Forges Archer (1,000 HP cap, Ranged). Status: ${quotaStr}`;
-          lifetimeStr = `Multishot Lv.${tower.ability1Level}/3 | Damage Aura Lv.${tower.ability2Level}/3 (${tower.totalHits} forged)`;
+          lifetimeStr = `Multishot Lv.${tower.ability1Level} | Aura Lv.${tower.ability2Level} | Sunder Lv.${tower.ability3Level} | Flurry Lv.${tower.ability4Level} (${tower.totalHits} forged)`;
+        } else {
+          const quotaStr = tower.hasEvolvedThisWave
+            ? '🔒 1/1 Evolved this wave'
+            : '⚡ Ready to Evolve (Requires 250 HP)';
+          effectStr = `Forges Mage (850 HP cap, Pyromancer). Status: ${quotaStr}`;
+          lifetimeStr = `Siphon Lv.${tower.ability1Level} | Fireball Lv.${tower.ability2Level} | Stun Lv.${tower.ability3Level} | Burn Lv.${tower.ability4Level} (${tower.totalHits} forged)`;
         }
         break;
       }
@@ -539,10 +657,10 @@ export class TowerManager {
   showRange(tower: TowerInstance) {
     if (!this.rangeIndicator || !this.rangeFillMesh || !this.rangeBorderMesh) return;
     const r = tower.effectiveRange;
-    this.rangeIndicator.position.set(tower.worldPos.x, 0.14, tower.worldPos.z);
+    this.rangeIndicator.position.set(tower.worldPos.x, 0.20, tower.worldPos.z);
 
     // Update fill area scale
-    this.rangeFillMesh.scale.set(r, r, 1);
+    this.rangeFillMesh.scale.setScalar(r);
 
     // Update outer perimeter boundary ring
     this.rangeBorderMesh.geometry.dispose();
@@ -585,16 +703,24 @@ export class TowerManager {
       const elapsed = (time - tower.lastActionTime) / 1000;
       if (elapsed < tower.effectiveRate) continue;
 
+      const def = TOWER_DEFINITIONS[tower.type];
+      const curUpg = this.getCurrentUpgrade(tower);
+
       // Find eligible friendly units in range that are traversing the maze
       const targetsInRange = units.filter(u => {
         if (!u.isFriendly || u.isDead || u.inCombat) return false;
         const dist = tower.worldPos.distanceTo(u.worldPos);
         if (dist > tower.effectiveRange) return false;
 
+        // Special Vitality Shrine logic:
+        // Do not attack/heal units that are already at full HP!
+        if (tower.type === TowerType.SHRINE && u.currentHp >= u.maxHp) {
+          return false;
+        }
+
         // Special Rulebreaker logic:
         // Do not attack a unit which already has more (or equal) HP than what this tower sets it to!
         if (tower.type === TowerType.RULEBREAKER) {
-          const curUpg = this.getCurrentUpgrade(tower);
           const targetFixedHp = curUpg?.fixedHp ?? def.fixedHp ?? 15;
           if (u.currentHp >= targetFixedHp) {
             return false;
@@ -603,7 +729,7 @@ export class TowerManager {
 
         // Special Evolution Spire logic:
         // 1. One evolution per wave strictly!
-        // 2. Must have chosen a path (Soldier or Archer)
+        // 2. Must have chosen a path (Soldier, Archer, or Mage)
         // 3. Unit must have reached max base HP (>= 250 HP)
         // 4. Unit must not already be an evolved champion
         if (tower.type === TowerType.EVOLUTION) {
@@ -613,9 +739,15 @@ export class TowerManager {
           if (u.currentHp < 250) {
             return false;
           }
-          if (u.unitClass === FriendlyClass.SOLDIER || u.unitClass === FriendlyClass.ARCHER) {
+          if (u.unitClass === FriendlyClass.SOLDIER || u.unitClass === FriendlyClass.ARCHER || u.unitClass === FriendlyClass.MAGE) {
             return false;
           }
+        }
+
+        // Special Gold Spire logic:
+        // Branch B (Vault Reserve) produces no on-hit gold; it strictly earns interest at round end
+        if (tower.type === TowerType.GOLD && tower.currentBranch === UpgradeBranch.BRANCH_B) {
+          return false;
         }
 
         return true;
@@ -623,12 +755,23 @@ export class TowerManager {
 
       if (targetsInRange.length === 0) continue;
 
-      // Select target
+      // Select target: for Vitality Shrines, prioritize the most wounded unit
+      if (tower.type === TowerType.SHRINE) {
+        targetsInRange.sort((a, b) => (a.currentHp / a.maxHp) - (b.currentHp / b.maxHp));
+      } else if (this.smartFocusEnabled && (tower.type === TowerType.FORGE || tower.type === TowerType.OBELISK)) {
+        // Smart Focus: prioritize evolved champions / higher tier units over normal recruits
+        targetsInRange.sort((a, b) => {
+          const rankA = (a.unitClass === FriendlyClass.SOLDIER || a.unitClass === FriendlyClass.ARCHER || a.unitClass === FriendlyClass.MAGE)
+            ? 3 : (a.unitClass !== FriendlyClass.RECRUIT ? 2 : 1);
+          const rankB = (b.unitClass === FriendlyClass.SOLDIER || b.unitClass === FriendlyClass.ARCHER || b.unitClass === FriendlyClass.MAGE)
+            ? 3 : (b.unitClass !== FriendlyClass.RECRUIT ? 2 : 1);
+          return rankB - rankA;
+        });
+      }
+
       const target = targetsInRange[0];
       const fireFrom = tower.worldPos.clone().add(new THREE.Vector3(0, 1.6, 0));
       const fireTo = target.worldPos.clone().add(new THREE.Vector3(0, 0.5, 0));
-      const def = TOWER_DEFINITIONS[tower.type];
-      const curUpg = this.getCurrentUpgrade(tower);
 
       // Perform Tower Effect
       let fired = false;
@@ -680,13 +823,33 @@ export class TowerManager {
         }
 
         case TowerType.FROST: {
-          const slowPct = curUpg?.slowPercent ?? def.slowPercent ?? 0.40;
-          const duration = curUpg?.slowDuration ?? def.slowDuration ?? 3.2;
-          target.applySlow(slowPct, duration);
-          tower.totalHits++;
-          audio.playFrostSlow();
-          this.vfx.spawnBeam(fireFrom, fireTo, 0x06b6d4);
-          this.vfx.spawnFloatingText(fireTo, `FROST SLOW -${Math.round(slowPct * 100)}%`, '#67e8f9');
+          const slowPct = curUpg?.slowPercent ?? def.slowPercent ?? 0.30;
+          const duration = curUpg?.slowDuration ?? def.slowDuration ?? 2.8;
+
+          if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
+            // Branch B: True AoE Blizzard Zone - pulses and chills ALL friendly units in range simultaneously!
+            for (const u of targetsInRange) {
+              u.applySlow(slowPct, duration);
+              const uPos = u.worldPos.clone().add(new THREE.Vector3(0, 0.5, 0));
+              this.vfx.spawnBurstParticles(uPos, 0xa5f3fc, 4);
+            }
+            tower.totalHits += targetsInRange.length;
+            audio.playFrostSlow();
+            this.vfx.spawnBurstParticles(fireFrom, 0x06b6d4, 16);
+            this.vfx.spawnFloatingText(
+              fireFrom.clone().add(new THREE.Vector3(0, 1.2, 0)),
+              `❄️ BLIZZARD -${Math.round(slowPct * 100)}% (${targetsInRange.length} units)`,
+              '#67e8f9',
+              1.2
+            );
+          } else {
+            // Branch A & Base: Focused single-target chill beam (caps at 80%)
+            target.applySlow(slowPct, duration);
+            tower.totalHits++;
+            audio.playFrostSlow();
+            this.vfx.spawnBeam(fireFrom, fireTo, 0x06b6d4);
+            this.vfx.spawnFloatingText(fireTo, `FROST SLOW -${Math.round(slowPct * 100)}%`, '#67e8f9');
+          }
           fired = true;
           break;
         }
@@ -715,29 +878,35 @@ export class TowerManager {
         }
 
         case TowerType.GOLD: {
-          const goldGain = curUpg?.goldPerHit ?? def.goldPerHit ?? 4;
-          addGoldCallback(goldGain);
-          tower.totalBuffApplied += goldGain;
-          tower.totalHits++;
-          audio.playGoldGain();
-          this.vfx.spawnBeam(fireFrom, fireTo, 0xeab308);
-          this.vfx.spawnFloatingText(fireTo, `+${goldGain} Gold`, '#facc15');
-          fired = true;
+          const goldGain = tower.currentBranch === UpgradeBranch.BRANCH_B
+            ? 0
+            : (curUpg?.goldPerHit ?? def.goldPerHit ?? 2);
+          if (goldGain > 0) {
+            addGoldCallback(goldGain);
+            tower.totalBuffApplied += goldGain;
+            tower.totalHits++;
+            audio.playGoldGain();
+            this.vfx.spawnBeam(fireFrom, fireTo, 0xeab308);
+            this.vfx.spawnFloatingText(fireTo, `+${goldGain} Gold`, '#facc15');
+            fired = true;
+          }
           break;
         }
 
         case TowerType.EVOLUTION: {
           if (tower.hasEvolvedThisWave || !tower.evoPath) break;
           if (target.currentHp < 250) break;
-          if (target.unitClass === FriendlyClass.SOLDIER || target.unitClass === FriendlyClass.ARCHER) break;
+          if (target.unitClass === FriendlyClass.SOLDIER || target.unitClass === FriendlyClass.ARCHER || target.unitClass === FriendlyClass.MAGE) break;
 
-          const isSoldier = tower.evoPath === 'SOLDIER';
-          const newClass = isSoldier ? FriendlyClass.SOLDIER : FriendlyClass.ARCHER;
+          const newClass = tower.evoPath === 'SOLDIER'
+            ? FriendlyClass.SOLDIER
+            : (tower.evoPath === 'ARCHER' ? FriendlyClass.ARCHER : FriendlyClass.MAGE);
 
           target.morphClass(newClass);
+          this.onChampionEvolved();
 
           // Apply abilities bought in THIS SPECIFIC evo tower
-          if (isSoldier) {
+          if (tower.evoPath === 'SOLDIER') {
             if (tower.ability1Level > 0) {
               const tier = SOLDIER_ABILITIES.armorAura[tower.ability1Level - 1];
               target.armorAuraBonus = tier.bonus || 0;
@@ -749,7 +918,18 @@ export class TowerManager {
               target.critMultiplier = tier.multiplier || 2.0;
               target.recordBuff(`Crit Lv.${tower.ability2Level} (${Math.round((tier.chance || 0) * 100)}% @ ${tier.multiplier}x)`);
             }
-          } else {
+            if (tower.ability3Level > 0) {
+              const tier = SOLDIER_ABILITIES.lifeRegen[tower.ability3Level - 1];
+              target.lifeRegen = tier.bonus || 0;
+              target.recordBuff(`Iron Vigor Lv.${tower.ability3Level} (+${tier.bonus} HP/s)`);
+            }
+            if (tower.ability4Level > 0) {
+              const tier = SOLDIER_ABILITIES.thorns[tower.ability4Level - 1];
+              target.thornsMultiplier = tier.multiplier || 0;
+              target.flatDmgReduction = tier.secondaryBonus || 0;
+              target.recordBuff(`Spiked Bulwark Lv.${tower.ability4Level} (${Math.round((tier.multiplier || 0) * 100)}% Thorns, -${tier.secondaryBonus} Dmg)`);
+            }
+          } else if (tower.evoPath === 'ARCHER') {
             if (tower.ability1Level > 0) {
               const tier = ARCHER_ABILITIES.multishot[tower.ability1Level - 1];
               target.multishotChance = tier.chance || 0;
@@ -761,17 +941,56 @@ export class TowerManager {
               target.damageAuraBonus = tier.bonus || 0;
               target.recordBuff(`Damage Aura Lv.${tower.ability2Level} (+${tier.bonus} Attack)`);
             }
+            if (tower.ability3Level > 0) {
+              const tier = ARCHER_ABILITIES.armorShred[tower.ability3Level - 1];
+              target.armorShredOnHit = tier.bonus || 0;
+              target.armorShredDuration = tier.duration || 4.0;
+              target.recordBuff(`Sundering Shot Lv.${tower.ability3Level} (-${tier.bonus} Enemy Armor)`);
+            }
+            if (tower.ability4Level > 0) {
+              const tier = ARCHER_ABILITIES.rapidQuiver[tower.ability4Level - 1];
+              target.attackSpeedBonus = tier.bonus || 0;
+              target.recordBuff(`Rapid Quiver Lv.${tower.ability4Level} (+${Math.round((tier.bonus || 0) * 100)}% Atk Speed)`);
+            }
+          } else {
+            // MAGE
+            if (tower.ability1Level > 0) {
+              const tier = MAGE_ABILITIES.manaGain[tower.ability1Level - 1];
+              target.manaGainPerAttack = tier.bonus || 25;
+              target.recordBuff(`Arcane Siphon Lv.${tower.ability1Level} (+${tier.bonus} Mana/Atk)`);
+            }
+            if (tower.ability2Level > 0) {
+              const tier = MAGE_ABILITIES.fireball[tower.ability2Level - 1];
+              target.fireballDamageMult = tier.multiplier || 2.2;
+              target.fireballRadius = tier.bonus || 2.4;
+              target.recordBuff(`Mega Fireball Lv.${tower.ability2Level} (${tier.multiplier}x Dmg, ${tier.bonus}m AoE)`);
+            }
+            if (tower.ability3Level > 0) {
+              const tier = MAGE_ABILITIES.stun[tower.ability3Level - 1];
+              target.stunChance = tier.chance || 0;
+              target.stunDuration = tier.duration || 1.5;
+              target.recordBuff(`Paralyzing Arc Lv.${tower.ability3Level} (${Math.round((tier.chance || 0) * 100)}% Stun @ ${tier.duration}s)`);
+            }
+            if (tower.ability4Level > 0) {
+              const tier = MAGE_ABILITIES.burn[tower.ability4Level - 1];
+              target.burnMultiplier = tier.multiplier || 0;
+              target.burnDuration = tier.duration || 3.0;
+              target.recordBuff(`Molten Pyre Lv.${tower.ability4Level} (${Math.round((tier.multiplier || 0) * 100)}% Burn DoT)`);
+            }
           }
 
           tower.hasEvolvedThisWave = true;
           tower.totalHits++;
           audio.playEvolution();
-          this.vfx.spawnBeam(fireFrom, fireTo, isSoldier ? 0x3b82f6 : 0x10b981, 0.4);
-          this.vfx.spawnAscensionPillar(target.worldPos, isSoldier ? 0x2563eb : 0x059669);
+          const evoColor = tower.evoPath === 'SOLDIER' ? 0x3b82f6 : (tower.evoPath === 'ARCHER' ? 0x10b981 : 0xa855f7);
+          const pillarColor = tower.evoPath === 'SOLDIER' ? 0x2563eb : (tower.evoPath === 'ARCHER' ? 0x059669 : 0x7c3aed);
+          const evoHex = tower.evoPath === 'SOLDIER' ? '#60a5fa' : (tower.evoPath === 'ARCHER' ? '#34d399' : '#c084fc');
+          this.vfx.spawnBeam(fireFrom, fireTo, evoColor, 0.4);
+          this.vfx.spawnAscensionPillar(target.worldPos, pillarColor);
           this.vfx.spawnFloatingText(
             fireTo,
             `⚡ FORGED ${target.stats.name.toUpperCase()}! (Max HP: ${target.maxHp})`,
-            isSoldier ? '#60a5fa' : '#34d399',
+            evoHex,
             2.2
           );
           fired = true;
@@ -788,16 +1007,16 @@ export class TowerManager {
   /**
    * Generates procedural 3D low-poly meshes for towers
    */
-  private createTowerMesh(type: TowerType, pos: THREE.Vector3): THREE.Group {
+  private createTowerMesh(type: TowerType, pos: THREE.Vector3, evoPath?: 'SOLDIER' | 'ARCHER' | 'MAGE'): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(pos);
 
-    // Stone base for all towers
+    // Medieval stone base with decorative trim
     const baseGeom = new THREE.CylinderGeometry(0.85, 0.95, 0.35, 8);
     const baseMat = new THREE.MeshStandardMaterial({
-      color: 0x334155,
-      roughness: 0.8,
-      metalness: 0.2
+      color: 0x5c4a3a, // Warm brown stone brick
+      roughness: 0.85,
+      metalness: 0.15
     });
     const base = new THREE.Mesh(baseGeom, baseMat);
     base.position.y = 0.175;
@@ -805,16 +1024,49 @@ export class TowerManager {
     base.receiveShadow = true;
     group.add(base);
 
+    // Stone ring trim at top of base
+    const trimRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.88, 0.05, 6, 16),
+      new THREE.MeshStandardMaterial({ color: 0x44362a, roughness: 0.8, metalness: 0.2 })
+    );
+    trimRing.position.y = 0.35;
+    trimRing.rotation.x = Math.PI / 2;
+    group.add(trimRing);
+
+    // Four stone buttresses around base
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2;
+      const buttress = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.3, 0.15),
+        baseMat
+      );
+      buttress.position.set(Math.cos(angle) * 0.85, 0.18, Math.sin(angle) * 0.85);
+      buttress.rotation.y = -angle;
+      buttress.castShadow = true;
+      group.add(buttress);
+    }
+
     const def = TOWER_DEFINITIONS[type];
 
     switch (type) {
       case TowerType.SHRINE: {
-        // Emerald crystal shrine
+        // Emerald crystal shrine with vine-wrapped pillar
         const pillarGeom = new THREE.CylinderGeometry(0.35, 0.5, 1.2, 6);
-        const pillarMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7 });
+        const pillarMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 0.8 });
         const pillar = new THREE.Mesh(pillarGeom, pillarMat);
         pillar.position.y = 0.8;
         group.add(pillar);
+
+        // Vine wraps on pillar
+        for (let i = 0; i < 3; i++) {
+          const vine = new THREE.Mesh(
+            new THREE.BoxGeometry(0.38, 0.06, 0.06),
+            new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.7 })
+          );
+          vine.position.set(0, 0.55 + i * 0.25, 0.32);
+          vine.rotation.y = i * 0.8;
+          group.add(vine);
+        }
 
         const crystalGeom = new THREE.OctahedronGeometry(0.45, 0);
         const crystalMat = new THREE.MeshStandardMaterial({
@@ -827,16 +1079,49 @@ export class TowerManager {
         crystal.name = 'floating';
         crystal.position.y = 1.6;
         group.add(crystal);
+
+        // Secondary smaller crystal shard
+        const shard = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.18, 0),
+          crystalMat.clone()
+        );
+        shard.position.set(0.3, 1.3, 0.15);
+        shard.rotation.z = 0.5;
+        group.add(shard);
         break;
       }
 
       case TowerType.FORGE: {
-        // Heavy iron anvil & glowing embers
+        // Heavy iron anvil, bellows & glowing embers
         const anvilGeom = new THREE.BoxGeometry(0.7, 0.6, 0.7);
         const anvilMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.8, roughness: 0.3 });
         const anvil = new THREE.Mesh(anvilGeom, anvilMat);
         anvil.position.y = 0.5;
         group.add(anvil);
+
+        // Bellows on the side
+        const bellows = new THREE.Mesh(
+          new THREE.ConeGeometry(0.2, 0.4, 4),
+          new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.6 })
+        );
+        bellows.position.set(-0.45, 0.45, 0);
+        bellows.rotation.z = Math.PI / 3;
+        group.add(bellows);
+
+        // Glowing coals/embers at base of anvil
+        for (let i = 0; i < 4; i++) {
+          const angle = (i / 4) * Math.PI * 2 + 0.3;
+          const coal = new THREE.Mesh(
+            new THREE.DodecahedronGeometry(0.08, 0),
+            new THREE.MeshStandardMaterial({
+              color: 0xff4500,
+              emissive: 0xff2200,
+              emissiveIntensity: 1.2
+            })
+          );
+          coal.position.set(Math.cos(angle) * 0.42, 0.38, Math.sin(angle) * 0.42);
+          group.add(coal);
+        }
 
         const hammerGeom = new THREE.BoxGeometry(0.35, 0.3, 0.6);
         const hammerMat = new THREE.MeshStandardMaterial({
@@ -852,7 +1137,7 @@ export class TowerManager {
       }
 
       case TowerType.OBELISK: {
-        // Tall fiery obelisk
+        // Tall fiery obelisk with rune carvings
         const obeliskGeom = new THREE.ConeGeometry(0.4, 1.6, 4);
         const obeliskMat = new THREE.MeshStandardMaterial({
           color: 0x7c2d12,
@@ -862,6 +1147,21 @@ export class TowerManager {
         const obelisk = new THREE.Mesh(obeliskGeom, obeliskMat);
         obelisk.position.y = 1.0;
         group.add(obelisk);
+
+        // Fire rune rings around the obelisk
+        [0.6, 1.0, 1.3].forEach((yOff, idx) => {
+          const runeRing = new THREE.Mesh(
+            new THREE.TorusGeometry(0.35 - idx * 0.08, 0.03, 4, 12),
+            new THREE.MeshStandardMaterial({
+              color: 0xf97316,
+              emissive: 0xea580c,
+              emissiveIntensity: 1.0
+            })
+          );
+          runeRing.position.y = yOff;
+          runeRing.rotation.x = Math.PI / 2;
+          group.add(runeRing);
+        });
 
         const flameGeom = new THREE.DodecahedronGeometry(0.35, 0);
         const flameMat = new THREE.MeshStandardMaterial({
@@ -877,133 +1177,548 @@ export class TowerManager {
       }
 
       case TowerType.AURA: {
-        // Arcane spire with rotating rings
-        const spireGeom = new THREE.CylinderGeometry(0.2, 0.4, 1.4, 8);
-        const spireMat = new THREE.MeshStandardMaterial({ color: 0x581c87, roughness: 0.4 });
+        // Arcane spire with twin gyroscopic rings and orbiting motes
+        const spireGeom = new THREE.CylinderGeometry(0.2, 0.42, 1.4, 8);
+        const spireMat = new THREE.MeshStandardMaterial({ color: 0x3b0764, roughness: 0.4, metalness: 0.3 });
         const spire = new THREE.Mesh(spireGeom, spireMat);
         spire.position.y = 0.9;
+        spire.castShadow = true;
         group.add(spire);
 
-        const ringGeom = new THREE.TorusGeometry(0.55, 0.08, 8, 24);
+        // Gold collar bands on the spire
+        [0.45, 1.1].forEach(yPos => {
+          const collar = new THREE.Mesh(
+            new THREE.TorusGeometry(0.32 - (yPos - 0.45) * 0.1, 0.03, 6, 16),
+            new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.8, roughness: 0.2 })
+          );
+          collar.position.y = yPos;
+          collar.rotation.x = Math.PI / 2;
+          group.add(collar);
+        });
+
+        // Primary rotating arcane ring
+        const ringGeom = new THREE.TorusGeometry(0.58, 0.06, 8, 24);
         ringGeom.rotateX(Math.PI / 2);
         const ringMat = new THREE.MeshStandardMaterial({
           color: 0xc084fc,
           emissive: 0xa855f7,
-          emissiveIntensity: 0.8
+          emissiveIntensity: 0.9
         });
         const ring = new THREE.Mesh(ringGeom, ringMat);
         ring.name = 'rotating';
-        ring.position.y = 1.3;
+        ring.position.y = 1.4;
         group.add(ring);
 
-        const orbGeom = new THREE.SphereGeometry(0.3, 12, 12);
+        // Floating central arcane orb
+        const orbGeom = new THREE.SphereGeometry(0.28, 12, 12);
         const orbMat = new THREE.MeshStandardMaterial({
           color: 0xf472b6,
           emissive: 0xec4899,
-          emissiveIntensity: 0.8
+          emissiveIntensity: 0.95
         });
         const orb = new THREE.Mesh(orbGeom, orbMat);
         orb.name = 'floating';
         orb.position.y = 1.8;
         group.add(orb);
+
+        // Orbiting arcane satellites (attached to group)
+        for (let i = 0; i < 3; i++) {
+          const angle = (i / 3) * Math.PI * 2;
+          const satellite = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.08),
+            new THREE.MeshStandardMaterial({
+              color: 0xe879f9,
+              emissive: 0xd946ef,
+              emissiveIntensity: 0.8
+            })
+          );
+          satellite.position.set(Math.cos(angle) * 0.45, 1.6, Math.sin(angle) * 0.45);
+          group.add(satellite);
+        }
         break;
       }
 
       case TowerType.FROST: {
-        // Ice crystal monolith
-        const iceGeom = new THREE.ConeGeometry(0.45, 1.7, 5);
+        // Glacial frost spire with jutting ice crystals and perimeter spikes
+        const iceGeom = new THREE.ConeGeometry(0.42, 1.8, 6);
         const iceMat = new THREE.MeshStandardMaterial({
-          color: 0x0891b2,
-          emissive: 0x06b6d4,
-          emissiveIntensity: 0.5,
+          color: 0x06b6d4,
+          emissive: 0x0891b2,
+          emissiveIntensity: 0.55,
           roughness: 0.1,
+          metalness: 0.1,
           transparent: true,
           opacity: 0.88
         });
         const ice = new THREE.Mesh(iceGeom, iceMat);
-        ice.position.y = 1.0;
+        ice.position.y = 1.05;
+        ice.castShadow = true;
         group.add(ice);
 
-        const floatIceGeom = new THREE.OctahedronGeometry(0.35);
+        // 4 Glacial spikes bursting outward from the base
+        for (let i = 0; i < 4; i++) {
+          const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+          const spike = new THREE.Mesh(
+            new THREE.ConeGeometry(0.12, 0.65, 4),
+            iceMat
+          );
+          spike.position.set(Math.cos(angle) * 0.55, 0.45, Math.sin(angle) * 0.55);
+          spike.rotation.z = Math.cos(angle) * -0.45;
+          spike.rotation.x = Math.sin(angle) * 0.45;
+          group.add(spike);
+        }
+
+        // Floating levitating ice prism
+        const floatIceGeom = new THREE.OctahedronGeometry(0.32);
         const floatIceMat = new THREE.MeshStandardMaterial({
-          color: 0xa5f3fc,
+          color: 0xe0f2fe,
           emissive: 0x38bdf8,
-          emissiveIntensity: 0.9
+          emissiveIntensity: 1.0,
+          roughness: 0.05
         });
         const floatIce = new THREE.Mesh(floatIceGeom, floatIceMat);
         floatIce.name = 'floating';
-        floatIce.position.y = 1.85;
+        floatIce.position.y = 1.95;
         group.add(floatIce);
         break;
       }
 
       case TowerType.RULEBREAKER: {
-        // Dark crimson monolith with floating cubic reality core
-        const corePillar = new THREE.CylinderGeometry(0.3, 0.5, 1.2, 4);
-        const coreMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.4 });
+        // Obsidian monolith with reality-distorting crimson tesseract
+        const corePillar = new THREE.CylinderGeometry(0.28, 0.48, 1.25, 4);
+        const coreMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.3, metalness: 0.8 });
         const pillar = new THREE.Mesh(corePillar, coreMat);
         pillar.position.y = 0.8;
+        pillar.castShadow = true;
         group.add(pillar);
 
-        const cubeGeom = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+        // Crimson runic vertical bands
+        for (let i = 0; i < 4; i++) {
+          const angle = (i / 4) * Math.PI * 2;
+          const rib = new THREE.Mesh(
+            new THREE.BoxGeometry(0.04, 0.9, 0.04),
+            new THREE.MeshStandardMaterial({
+              color: 0xef4444,
+              emissive: 0xdc2626,
+              emissiveIntensity: 1.2
+            })
+          );
+          rib.position.set(Math.cos(angle) * 0.32, 0.8, Math.sin(angle) * 0.32);
+          group.add(rib);
+        }
+
+        // 4 floating obsidian shards that guard the core
+        for (let i = 0; i < 4; i++) {
+          const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+          const shard = new THREE.Mesh(
+            new THREE.ConeGeometry(0.08, 0.35, 4),
+            coreMat
+          );
+          shard.position.set(Math.cos(angle) * 0.5, 1.5, Math.sin(angle) * 0.5);
+          shard.rotation.z = Math.cos(angle) * -0.3;
+          group.add(shard);
+        }
+
+        // Floating reality tesseract cube
+        const cubeGeom = new THREE.BoxGeometry(0.48, 0.48, 0.48);
         const cubeMat = new THREE.MeshStandardMaterial({
           color: 0xe11d48,
           emissive: 0xbe123c,
-          emissiveIntensity: 0.9
+          emissiveIntensity: 1.0,
+          roughness: 0.2
         });
         const cube = new THREE.Mesh(cubeGeom, cubeMat);
         cube.name = 'floating';
-        cube.position.y = 1.6;
+        cube.position.y = 1.65;
         group.add(cube);
         break;
       }
 
       case TowerType.GOLD: {
-        // Golden treasure monument
-        const pillarGeom = new THREE.CylinderGeometry(0.35, 0.45, 1.2, 8);
-        const pillarMat = new THREE.MeshStandardMaterial({ color: 0x713f12, roughness: 0.5 });
+        // Midas treasury pedestal with treasure pile and spinning gold medallion
+        const pillarGeom = new THREE.CylinderGeometry(0.35, 0.48, 1.15, 8);
+        const pillarMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.6 });
         const pillar = new THREE.Mesh(pillarGeom, pillarMat);
-        pillar.position.y = 0.8;
+        pillar.position.y = 0.75;
         group.add(pillar);
 
-        const coinGeom = new THREE.CylinderGeometry(0.45, 0.45, 0.1, 16);
-        coinGeom.rotateZ(Math.PI / 2);
+        // Gold coin pile around the base of the pillar
         const coinMat = new THREE.MeshStandardMaterial({
           color: 0xfacc15,
           emissive: 0xeab308,
-          emissiveIntensity: 0.7,
-          metalness: 0.8,
+          emissiveIntensity: 0.5,
+          metalness: 0.85,
           roughness: 0.2
         });
+        for (let i = 0; i < 6; i++) {
+          const angle = (i / 6) * Math.PI * 2;
+          const coinStack = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.12, 0.12, 0.18, 8),
+            coinMat
+          );
+          coinStack.position.set(Math.cos(angle) * 0.48, 0.42, Math.sin(angle) * 0.48);
+          group.add(coinStack);
+        }
+
+        // Sparkling ruby jewel on the pedestal
+        const gem = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.1),
+          new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xb91c1c, emissiveIntensity: 0.7 })
+        );
+        gem.position.set(0.15, 1.35, 0.15);
+        group.add(gem);
+
+        // Giant floating gold coin with rim
+        const coinGeom = new THREE.CylinderGeometry(0.48, 0.48, 0.1, 16);
+        coinGeom.rotateZ(Math.PI / 2);
         const coin = new THREE.Mesh(coinGeom, coinMat);
         coin.name = 'floating';
-        coin.position.y = 1.7;
+        coin.position.y = 1.75;
         group.add(coin);
         break;
       }
 
       case TowerType.EVOLUTION: {
-        // Arcane gateway arch with celestial core
-        const archGeom = new THREE.TorusGeometry(0.7, 0.15, 8, 16, Math.PI);
-        const archMat = new THREE.MeshStandardMaterial({
-          color: 0x6d28d9,
-          emissive: 0x4c1d95,
-          roughness: 0.3
-        });
-        const arch = new THREE.Mesh(archGeom, archMat);
-        arch.position.y = 0.8;
-        group.add(arch);
+        if (evoPath === 'SOLDIER') {
+          // --- SOLDIER FORGE (Knight's Armory & Bastion Gateway) ---
+          // Royal blue steel archway
+          const archGeom = new THREE.TorusGeometry(0.76, 0.16, 8, 20, Math.PI);
+          const archMat = new THREE.MeshStandardMaterial({
+            color: 0x1d4ed8,
+            emissive: 0x2563eb,
+            emissiveIntensity: 0.5,
+            metalness: 0.7,
+            roughness: 0.3
+          });
+          const arch = new THREE.Mesh(archGeom, archMat);
+          arch.position.y = 0.85;
+          group.add(arch);
 
-        const coreGeom = new THREE.DodecahedronGeometry(0.4, 0);
-        const coreMat = new THREE.MeshStandardMaterial({
-          color: 0xc4b5fd,
-          emissive: 0x8b5cf6,
-          emissiveIntensity: 0.9
-        });
-        const core = new THREE.Mesh(coreGeom, coreMat);
-        core.name = 'floating';
-        core.position.y = 1.4;
-        group.add(core);
+          // Twin fortress stone columns
+          [-0.75, 0.75].forEach(xOff => {
+            const pillar = new THREE.Mesh(
+              new THREE.BoxGeometry(0.38, 1.8, 0.38),
+              new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.5, roughness: 0.5 })
+            );
+            pillar.position.set(xOff, 0.9, 0);
+            pillar.castShadow = true;
+            group.add(pillar);
+
+            // Mounted knight heraldic shield on pillar front
+            const shield = new THREE.Mesh(
+              new THREE.BoxGeometry(0.06, 0.55, 0.38),
+              new THREE.MeshStandardMaterial({ color: 0x1e3a8a, metalness: 0.6, roughness: 0.3 })
+            );
+            shield.position.set(xOff, 1.1, 0.22);
+            group.add(shield);
+
+            // Gold cross emblem on shield
+            const crossV = new THREE.Mesh(
+              new THREE.BoxGeometry(0.07, 0.42, 0.08),
+              new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.8, roughness: 0.2 })
+            );
+            crossV.position.set(xOff, 1.1, 0.23);
+            group.add(crossV);
+
+            const crossH = new THREE.Mesh(
+              new THREE.BoxGeometry(0.07, 0.08, 0.26),
+              new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.8, roughness: 0.2 })
+            );
+            crossH.position.set(xOff, 1.15, 0.23);
+            group.add(crossH);
+          });
+
+          // Giant crossed claymores / broadswords above the arch
+          [-0.6, 0.6].forEach(angle => {
+            const sword = new THREE.Mesh(
+              new THREE.BoxGeometry(0.04, 1.0, 0.08),
+              new THREE.MeshStandardMaterial({ color: 0xf1f5f9, metalness: 0.9, roughness: 0.15 })
+            );
+            sword.position.set(0, 1.7, 0);
+            sword.rotation.z = angle;
+            group.add(sword);
+
+            // Sword crossguard
+            const guard = new THREE.Mesh(
+              new THREE.BoxGeometry(0.06, 0.06, 0.26),
+              new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.8 })
+            );
+            guard.position.set(Math.sin(angle) * -0.3, 1.7 + Math.cos(angle) * -0.3, 0);
+            guard.rotation.z = angle;
+            group.add(guard);
+          });
+
+          // Rotating Azure Starburst Valor Halo
+          const halo = new THREE.Mesh(
+            new THREE.TorusGeometry(0.52, 0.05, 6, 16),
+            new THREE.MeshStandardMaterial({
+              color: 0x60a5fa,
+              emissive: 0x3b82f6,
+              emissiveIntensity: 0.8
+            })
+          );
+          halo.name = 'rotating';
+          halo.position.y = 1.45;
+          halo.rotation.x = Math.PI / 4;
+          group.add(halo);
+
+          // Floating Golden Champion Crest
+          const crest = new THREE.Mesh(
+            new THREE.DodecahedronGeometry(0.38, 0),
+            new THREE.MeshStandardMaterial({
+              color: 0xfacc15,
+              emissive: 0xeab308,
+              emissiveIntensity: 1.0,
+              metalness: 0.8,
+              roughness: 0.2
+            })
+          );
+          crest.name = 'floating';
+          crest.position.y = 1.45;
+          group.add(crest);
+
+        } else if (evoPath === 'ARCHER') {
+          // --- ARCHER FORGE (Ranger's Fletcher Grove) ---
+          // Living elderwood gateway arch
+          const archGeom = new THREE.TorusGeometry(0.76, 0.16, 8, 20, Math.PI);
+          const archMat = new THREE.MeshStandardMaterial({
+            color: 0x065f46,
+            emissive: 0x047857,
+            emissiveIntensity: 0.5,
+            roughness: 0.6
+          });
+          const arch = new THREE.Mesh(archGeom, archMat);
+          arch.position.y = 0.85;
+          group.add(arch);
+
+          // Twin dark oak totem pylons wrapped in leaves
+          [-0.75, 0.75].forEach(xOff => {
+            const pylon = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.2, 0.3, 1.8, 6),
+              new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.7 })
+            );
+            pylon.position.set(xOff, 0.9, 0);
+            pylon.castShadow = true;
+            group.add(pylon);
+
+            // Leaf vine wrapping on pylon
+            for (let v = 0; v < 3; v++) {
+              const vine = new THREE.Mesh(
+                new THREE.BoxGeometry(0.48, 0.08, 0.08),
+                new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.6 })
+              );
+              vine.position.set(xOff, 0.5 + v * 0.4, 0.2);
+              vine.rotation.y = v * 0.7;
+              group.add(vine);
+            }
+
+            // Target roundel mounted on pillar
+            const target = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.24, 0.24, 0.05, 12),
+              new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.5 })
+            );
+            target.position.set(xOff, 1.25, 0.24);
+            target.rotation.x = Math.PI / 2;
+            group.add(target);
+
+            // Target bullseye dot
+            const bullseye = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.1, 0.1, 0.06, 12),
+              new THREE.MeshStandardMaterial({ color: 0xef4444 })
+            );
+            bullseye.position.set(xOff, 1.25, 0.25);
+            bullseye.rotation.x = Math.PI / 2;
+            group.add(bullseye);
+          });
+
+          // Giant elven recurve bow mounted atop the arch
+          const bow = new THREE.Mesh(
+            new THREE.TorusGeometry(0.68, 0.04, 4, 16, Math.PI * 1.1),
+            new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.4 })
+          );
+          bow.position.set(0, 1.75, 0);
+          bow.rotation.z = Math.PI;
+          group.add(bow);
+
+          // Silver bowstring
+          const string = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.008, 0.008, 1.1, 3),
+            new THREE.MeshStandardMaterial({ color: 0xf1f5f9, metalness: 0.8 })
+          );
+          string.position.set(0, 1.85, 0);
+          string.rotation.z = Math.PI / 2;
+          group.add(string);
+
+          // Rotating Jade Wind Halo
+          const halo = new THREE.Mesh(
+            new THREE.TorusGeometry(0.48, 0.045, 6, 16),
+            new THREE.MeshStandardMaterial({
+              color: 0x6ee7b7,
+              emissive: 0x10b981,
+              emissiveIntensity: 0.85
+            })
+          );
+          halo.name = 'rotating';
+          halo.position.y = 1.45;
+          halo.rotation.x = Math.PI / 4;
+          group.add(halo);
+
+          // Floating Radiant Emerald Wind Crystal
+          const crystal = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.36),
+            new THREE.MeshStandardMaterial({
+              color: 0x10b981,
+              emissive: 0x34d399,
+              emissiveIntensity: 1.1,
+              roughness: 0.1,
+              metalness: 0.2
+            })
+          );
+          crystal.name = 'floating';
+          crystal.position.y = 1.45;
+          group.add(crystal);
+
+        } else if (evoPath === 'MAGE') {
+          // --- MAGE SANCTUM (Pyromancer's Arcane Gateway) ---
+          // Violet & fiery amber gateway arch
+          const archGeom = new THREE.TorusGeometry(0.76, 0.16, 8, 20, Math.PI);
+          const archMat = new THREE.MeshStandardMaterial({
+            color: 0x6d28d9,
+            emissive: 0x7c3aed,
+            emissiveIntensity: 0.6,
+            roughness: 0.4
+          });
+          const arch = new THREE.Mesh(archGeom, archMat);
+          arch.position.y = 0.85;
+          group.add(arch);
+
+          // Twin obsidian wizard spire columns
+          [-0.75, 0.75].forEach(xOff => {
+            const pylon = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.2, 0.32, 1.8, 6),
+              new THREE.MeshStandardMaterial({ color: 0x1e1b4b, metalness: 0.6, roughness: 0.4 })
+            );
+            pylon.position.set(xOff, 0.9, 0);
+            pylon.castShadow = true;
+            group.add(pylon);
+
+            // Fiery brazier bowl atop each pylon
+            const brazier = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.24, 0.12, 0.18, 8),
+              new THREE.MeshStandardMaterial({ color: 0x451a03, metalness: 0.8 })
+            );
+            brazier.position.set(xOff, 1.85, 0);
+            group.add(brazier);
+
+            // Flaming coal inside brazier
+            const flame = new THREE.Mesh(
+              new THREE.SphereGeometry(0.1, 6, 6),
+              new THREE.MeshStandardMaterial({
+                color: 0xff4500,
+                emissive: 0xff2200,
+                emissiveIntensity: 1.5
+              })
+            );
+            flame.position.set(xOff, 1.96, 0);
+            group.add(flame);
+          });
+
+          // Floating Pyromancer Grimoire / Spellbook above the arch
+          const grimoire = new THREE.Mesh(
+            new THREE.BoxGeometry(0.28, 0.08, 0.22),
+            new THREE.MeshStandardMaterial({
+              color: 0x7c2d12,
+              emissive: 0xd97706,
+              emissiveIntensity: 0.4
+            })
+          );
+          grimoire.position.set(0, 1.75, 0);
+          grimoire.rotation.x = 0.3;
+          group.add(grimoire);
+
+          // Rotating Incandescent Solar / Firestorm Halo
+          const halo = new THREE.Mesh(
+            new THREE.TorusGeometry(0.52, 0.045, 6, 16),
+            new THREE.MeshStandardMaterial({
+              color: 0xfbbf24,
+              emissive: 0xf59e0b,
+              emissiveIntensity: 1.2
+            })
+          );
+          halo.name = 'rotating';
+          halo.position.y = 1.45;
+          halo.rotation.x = Math.PI / 4;
+          group.add(halo);
+
+          // Giant Floating Blazing Fireball Core
+          const fireball = new THREE.Mesh(
+            new THREE.SphereGeometry(0.38, 10, 8),
+            new THREE.MeshStandardMaterial({
+              color: 0xff4500,
+              emissive: 0xff2200,
+              emissiveIntensity: 1.8,
+              roughness: 0.1
+            })
+          );
+          fireball.name = 'floating';
+          fireball.position.y = 1.45;
+          group.add(fireball);
+
+        } else {
+          // --- UNCHOSEN EVOLUTION SPIRE (Base Celestial Gateway) ---
+          const archGeom = new THREE.TorusGeometry(0.72, 0.14, 8, 20, Math.PI);
+          const archMat = new THREE.MeshStandardMaterial({
+            color: 0x4c1d95,
+            emissive: 0x6d28d9,
+            emissiveIntensity: 0.5,
+            roughness: 0.3
+          });
+          const arch = new THREE.Mesh(archGeom, archMat);
+          arch.position.y = 0.85;
+          group.add(arch);
+
+          // Twin flanking crystal spires
+          [-0.72, 0.72].forEach(xOff => {
+            const spireMesh = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.12, 0.18, 1.5, 6),
+              new THREE.MeshStandardMaterial({ color: 0x312e81, metalness: 0.4, roughness: 0.5 })
+            );
+            spireMesh.position.set(xOff, 0.75, 0);
+            group.add(spireMesh);
+
+            const tipCrystal = new THREE.Mesh(
+              new THREE.ConeGeometry(0.12, 0.35, 6),
+              new THREE.MeshStandardMaterial({ color: 0x818cf8, emissive: 0x6366f1, emissiveIntensity: 0.8 })
+            );
+            tipCrystal.position.set(xOff, 1.6, 0);
+            group.add(tipCrystal);
+          });
+
+          // Rotating gyroscopic celestial halo
+          const haloGeom = new THREE.TorusGeometry(0.45, 0.04, 6, 16);
+          const haloMat = new THREE.MeshStandardMaterial({
+            color: 0xa78bfa,
+            emissive: 0x8b5cf6,
+            emissiveIntensity: 0.9
+          });
+          const halo = new THREE.Mesh(haloGeom, haloMat);
+          halo.name = 'rotating';
+          halo.position.y = 1.45;
+          halo.rotation.x = Math.PI / 4;
+          group.add(halo);
+
+          // Floating celestial core
+          const coreGeom = new THREE.DodecahedronGeometry(0.36, 0);
+          const coreMat = new THREE.MeshStandardMaterial({
+            color: 0xc4b5fd,
+            emissive: 0x8b5cf6,
+            emissiveIntensity: 0.95
+          });
+          const core = new THREE.Mesh(coreGeom, coreMat);
+          core.name = 'floating';
+          core.position.y = 1.45;
+          group.add(core);
+        }
         break;
       }
     }
