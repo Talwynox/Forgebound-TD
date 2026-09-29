@@ -12,14 +12,14 @@ import { buildUnitMesh, getUnitMeshHeight } from './UnitMeshFactory';
 import { VFXManager } from '../vfx/VFXManager';
 import { audio } from '../engine/AudioSystem';
 import { ArenaCastle } from '../engine/ArenaCastle';
-import { TeamId, opponentOf, sideX, forwardDir, forwardYaw } from '../game/Teams';
+import { TeamId, opponentOf, sideX, forwardDir, forwardYaw, mirrorX } from '../game/Teams';
 
 /** Called when a unit that pays a bounty dies (enemies; in PvP any unit). */
 export type KillCallback = (bounty: number, killed: Unit) => void;
 
 export const ARENA_BOUNDS = {
   minX: 1.2,
-  maxX: 25.4,
+  maxX: mirrorX(1.2),
   minZ: -8.4,
   maxZ: 8.4
 };
@@ -460,10 +460,6 @@ export class UnitManager {
   public focusTargets: Record<TeamId, Unit | null> = { SUN: null, MOON: null };
   /** PvP: both armies are recruit-type units; every kill pays a bounty and units wear team rings. */
   public pvpMode: boolean = false;
-
-  // Battlefield clash boundaries
-  public arenaMinX: number = 4;
-  public arenaMaxX: number = 24;
 
   private castles: Record<TeamId, ArenaCastle | null> = { SUN: null, MOON: null };
   private onCastleDestroyed: Record<TeamId, (() => void) | null> = { SUN: null, MOON: null };

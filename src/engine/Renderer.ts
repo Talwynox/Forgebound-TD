@@ -1,6 +1,24 @@
 import * as THREE from 'three';
 import { Grid, TileType } from '../grid/Grid';
-import { ARENA_MIRROR_X } from '../game/Teams';
+import { ARENA_MIRROR_X, ARENA_WIDTH, ARENA_CENTER_X, mirrorX } from '../game/Teams';
+import { PostFX } from './PostFX';
+import { createFlagstoneTexture, createGlowSprite, createMossTexture } from './ProceduralTextures';
+
+interface ParticleField {
+  points: THREE.Points;
+  velocities: Float32Array;
+  phases: Float32Array;
+  min: THREE.Vector3;
+  max: THREE.Vector3;
+  kind: 'ember' | 'wisp';
+}
+
+type CastleTheme = 'SUN' | 'MOON';
+
+const CASTLE_THEMES: Record<CastleTheme, { roof: number; banner: number; light: number }> = {
+  SUN: { roof: 0x232838, banner: 0x2f4a8a, light: 0xff9a4a },
+  MOON: { roof: 0x341015, banner: 0x7a1522, light: 0xff3b2a }
+};
 
 export class SceneRenderer {
   public scene: THREE.Scene;
@@ -8,6 +26,7 @@ export class SceneRenderer {
   public container: HTMLElement;
 
   public sunLight: THREE.DirectionalLight;
+  private postFX: PostFX | null = null;
   public ambientLight: THREE.AmbientLight;
   public hemiLight: THREE.HemisphereLight;
 
@@ -22,14 +41,16 @@ export class SceneRenderer {
   private floatingLeyCrystals: { mesh: THREE.Group; baseY: number; speed: number; phase: number }[] = [];
   private animatedClouds: THREE.Group[] = [];
   private lavaMaterials: THREE.MeshBasicMaterial[] = [];
+  private particleFields: ParticleField[] = [];
+  private glowSprite: THREE.Texture = createGlowSprite();
 
   constructor(container: HTMLElement) {
     this.container = container;
 
-    // 1. Scene - Medieval Twilight Atmosphere
+    // 1. Scene - Dark fantasy night: the void swallows everything beyond the islands
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x101624); // Rich twilight dusk
-    this.scene.fog = new THREE.FogExp2(0x131a2a, 0.0075); // Soft atmospheric distance haze
+    this.scene.background = new THREE.Color(0x07060c);
+    this.scene.fog = new THREE.FogExp2(0x0d0b17, 0.0085);
 
     // 2. WebGL Renderer
     this.renderer = new THREE.WebGLRenderer({
@@ -41,40 +62,40 @@ export class SceneRenderer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.25;
 
     container.appendChild(this.renderer.domElement);
 
-    // 3. Lighting
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // 3. Lighting - cold moonlight key, violet ambient, warm firelight accents
+    this.ambientLight = new THREE.AmbientLight(0x6d6694, 1.1);
     this.scene.add(this.ambientLight);
 
-    this.hemiLight = new THREE.HemisphereLight(0x7dd3fc, 0x1e293b, 0.45);
+    this.hemiLight = new THREE.HemisphereLight(0x94a3e8, 0x3a2418, 1.1);
     this.hemiLight.position.set(0, 50, 0);
     this.scene.add(this.hemiLight);
 
-    this.sunLight = new THREE.DirectionalLight(0xffedd5, 1.4);
-    this.sunLight.position.set(-15, 35, 25);
+    this.sunLight = new THREE.DirectionalLight(0xc3cfff, 2.1);
+    this.sunLight.position.set(-22, 38, 20);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.width = 2048;
     this.sunLight.shadow.mapSize.height = 2048;
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.shadow.camera.far = 120;
-    this.sunLight.shadow.camera.left = -40;
-    this.sunLight.shadow.camera.right = 40;
+    this.sunLight.shadow.camera.left = -60;
+    this.sunLight.shadow.camera.right = 60;
     this.sunLight.shadow.camera.top = 30;
     this.sunLight.shadow.camera.bottom = -30;
     this.sunLight.shadow.bias = -0.0005;
     this.scene.add(this.sunLight);
 
-    // Warm interior glow at castle
-    const castleLight = new THREE.PointLight(0xffa040, 0.6, 15);
-    castleLight.position.set(-34, 4, -12);
+    // Warm hearth glow at the barracks castle
+    const castleLight = new THREE.PointLight(0xff8a3d, 2.2, 24, 1.6);
+    castleLight.position.set(-34, 5, -12);
     this.scene.add(castleLight);
 
-    // Menacing atmosphere at enemy citadel
-    const citadelLight = new THREE.PointLight(0xff2020, 0.5, 15);
-    citadelLight.position.set(27, 5, 0);
+    // Menacing hellfire at the enemy citadel
+    const citadelLight = new THREE.PointLight(0xff2a1a, 2.4, 26, 1.6);
+    citadelLight.position.set(mirrorX(-0.4), 5, 0);
     this.scene.add(citadelLight);
 
     // 4. Ground Environment (Maze Island + Void + Arena Island)
@@ -90,26 +111,28 @@ export class SceneRenderer {
     this.buildEastInfernalTerrain();
     this.buildCentralChasmAndLeyLines();
     this.buildLowPolyCloudCover();
+    this.buildArenaEmbers();
 
     this.buildMazeIsland(this.scene, this.roadGroup);
 
     // ==========================================
     // 2. GRAND ARENA ISLAND (Right: X = 14, Z = 0)
     // ==========================================
-    const arenaIslandGeom = new THREE.BoxGeometry(28, 0.6, 20);
+    const arenaIslandGeom = new THREE.BoxGeometry(ARENA_WIDTH, 0.6, 20);
     const arenaIslandMat = new THREE.MeshStandardMaterial({
-      color: 0x36271a, // Dusty colosseum sand & scorched earth
-      roughness: 0.9,
-      metalness: 0.1
+      color: 0xb0a49c, // Tints the scorched flagstone texture
+      map: createFlagstoneTexture(ARENA_WIDTH / 4, 5),
+      roughness: 0.92,
+      metalness: 0.05
     });
     const arenaIsland = new THREE.Mesh(arenaIslandGeom, arenaIslandMat);
-    arenaIsland.position.set(14, -0.2, 0);
+    arenaIsland.position.set(ARENA_CENTER_X, -0.2, 0);
     arenaIsland.receiveShadow = true;
     this.scene.add(arenaIsland);
 
     // Stone materials for Colosseum
     const wallStoneMat = new THREE.MeshStandardMaterial({
-      color: 0x4a3b30, // Weathered Roman arena stone
+      color: 0x3b3634, // Cold weathered colosseum stone
       roughness: 0.85,
       metalness: 0.15
     });
@@ -120,15 +143,15 @@ export class SceneRenderer {
 
     // --- Colosseum Perimeter Walls with Battlements & Pillars ---
     // North Wall (Z = -10)
-    const nWall = new THREE.Mesh(new THREE.BoxGeometry(28.4, 1.5, 0.8), wallStoneMat);
-    nWall.position.set(14, 0.55, -10.0);
+    const nWall = new THREE.Mesh(new THREE.BoxGeometry(ARENA_WIDTH + 0.4, 1.5, 0.8), wallStoneMat);
+    nWall.position.set(ARENA_CENTER_X, 0.55, -10.0);
     nWall.castShadow = true;
     nWall.receiveShadow = true;
     this.scene.add(nWall);
 
     // South Wall (Z = +10)
-    const sWall = new THREE.Mesh(new THREE.BoxGeometry(28.4, 1.5, 0.8), wallStoneMat);
-    sWall.position.set(14, 0.55, 10.0);
+    const sWall = new THREE.Mesh(new THREE.BoxGeometry(ARENA_WIDTH + 0.4, 1.5, 0.8), wallStoneMat);
+    sWall.position.set(ARENA_CENTER_X, 0.55, 10.0);
     sWall.castShadow = true;
     sWall.receiveShadow = true;
     this.scene.add(sWall);
@@ -142,7 +165,7 @@ export class SceneRenderer {
     });
 
     // Colosseum Stone Pillars along North and South Walls
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < Math.floor(ARENA_WIDTH / 4); i++) {
       const px = 2 + i * 4.0;
       [-10.0, 10.0].forEach(pz => {
         const pillar = new THREE.Mesh(
@@ -164,7 +187,7 @@ export class SceneRenderer {
     }
 
     // Battlements / Crenellations along North & South Walls
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < Math.floor(ARENA_WIDTH / 2); i++) {
       const bx = 1 + i * 2.0;
       [-10.0, 10.0].forEach(bz => {
         const merlon = new THREE.Mesh(
@@ -184,38 +207,39 @@ export class SceneRenderer {
       outerRingGeom,
       new THREE.MeshStandardMaterial({ color: 0x2e2318, roughness: 0.9 })
     );
-    outerRing.position.set(13, 0.11, 0);
+    outerRing.position.set(ARENA_MIRROR_X, 0.11, 0);
     this.scene.add(outerRing);
 
     // Glowing runic duel circle
-    const clashRingGeom = new THREE.RingGeometry(4.0, 4.4, 32);
+    // Smouldering rune circle scorched into the flagstones
+    const clashRingGeom = new THREE.RingGeometry(4.1, 4.25, 64);
     clashRingGeom.rotateX(-Math.PI / 2);
     const clashRingMat = new THREE.MeshStandardMaterial({
-      color: 0xea580c,
-      emissive: 0xc2410c,
-      emissiveIntensity: 0.8,
+      color: 0x3a0f08,
+      emissive: 0xff4a14,
+      emissiveIntensity: 0.7,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.8,
       side: THREE.DoubleSide
     });
     const clashRing = new THREE.Mesh(clashRingGeom, clashRingMat);
-    clashRing.position.set(13, 0.12, 0);
+    clashRing.position.set(ARENA_MIRROR_X, 0.12, 0);
     this.scene.add(clashRing);
 
     // Inner gladiator sunburst insignia
-    const innerRingGeom = new THREE.RingGeometry(1.2, 1.5, 16);
+    const innerRingGeom = new THREE.RingGeometry(1.3, 1.4, 48);
     innerRingGeom.rotateX(-Math.PI / 2);
     const innerRing = new THREE.Mesh(
       innerRingGeom,
       new THREE.MeshStandardMaterial({
-        color: 0xf59e0b,
-        emissive: 0xd97706,
+        color: 0x3a1a06,
+        emissive: 0xffa032,
         emissiveIntensity: 0.6,
         transparent: true,
-        opacity: 0.5
+        opacity: 0.7
       })
     );
-    innerRing.position.set(13, 0.12, 0);
+    innerRing.position.set(ARENA_MIRROR_X, 0.12, 0);
     this.scene.add(innerRing);
 
     // Scorched battle blast marks near the clash zone
@@ -225,7 +249,7 @@ export class SceneRenderer {
         new THREE.MeshBasicMaterial({ color: 0x1c130b, transparent: true, opacity: 0.45 })
       );
       scorch.rotation.x = -Math.PI / 2;
-      scorch.position.set(12 + idx * 2.5, 0.11, zOff);
+      scorch.position.set(ARENA_MIRROR_X - 1.3 + idx * 2.5, 0.11, zOff);
       this.scene.add(scorch);
     });
 
@@ -271,7 +295,7 @@ export class SceneRenderer {
       boneGroup.add(skull, horn1, horn2);
 
       const angle = (i * 1.05) % (Math.PI * 2);
-      const rx = 14 + Math.cos(angle) * 11;
+      const rx = ARENA_CENTER_X + Math.cos(angle) * (ARENA_WIDTH / 2 - 3);
       const rz = Math.sin(angle) * 7.5;
       boneGroup.position.set(rx, 0.15, rz);
       boneGroup.rotation.y = i * 1.2;
@@ -283,14 +307,14 @@ export class SceneRenderer {
 
     // Arena Perimeter Torch Braziers on Stone Pillars
     [
-      { x: 4, z: -8.8 }, { x: 13, z: -8.8 }, { x: 22, z: -8.8 },
-      { x: 4, z: 8.8 },  { x: 13, z: 8.8 },  { x: 22, z: 8.8 }
+      { x: 4, z: -8.8 }, { x: ARENA_MIRROR_X, z: -8.8 }, { x: mirrorX(4), z: -8.8 },
+      { x: 4, z: 8.8 },  { x: ARENA_MIRROR_X, z: 8.8 },  { x: mirrorX(4), z: 8.8 }
     ].forEach(pos => {
       this.buildTorchBrazier(new THREE.Vector3(pos.x, 0, pos.z));
     });
 
     // Enemy Citadel Fortress (Far Right: X = 27, Z = 0)
-    this.enemyCitadel = this.buildEnemyCitadel(new THREE.Vector3(27, 0, 0));
+    this.enemyCitadel = this.buildEnemyCitadel(new THREE.Vector3(mirrorX(-0.4), 0, 0));
   }
 
   /**
@@ -305,12 +329,12 @@ export class SceneRenderer {
       side.position.x = 2 * ARENA_MIRROR_X;
 
       const moonRoad = new THREE.Group();
-      this.buildMazeIsland(side, moonRoad);
+      this.buildMazeIsland(side, moonRoad, 'MOON');
       this.buildRoadVisuals(sunGrid, moonRoad);
       this.buildMazeBedrock(side);
       this.buildArrivalTeleportPad(new THREE.Vector3(1.8, 0, 0), side);
 
-      const barrierMat = new THREE.MeshStandardMaterial({ color: 0x4a3b30, roughness: 0.85, metalness: 0.15 });
+      const barrierMat = new THREE.MeshStandardMaterial({ color: 0x3b3634, roughness: 0.85, metalness: 0.15 });
       [-6.7, 6.7].forEach(zPos => {
         const wall = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.5, 6.6), barrierMat);
         wall.position.set(-0.1, 0.55, zPos);
@@ -318,7 +342,7 @@ export class SceneRenderer {
         side.add(wall);
       });
 
-      const moonCastleLight = new THREE.PointLight(0xef4444, 1.2, 18);
+      const moonCastleLight = new THREE.PointLight(CASTLE_THEMES.MOON.light, 2.2, 24, 1.6);
       moonCastleLight.position.set(-34, 4, -12);
       side.add(moonCastleLight);
 
@@ -334,15 +358,16 @@ export class SceneRenderer {
    * Maze island at the Sun position (X = -22): plateau, trims, decor, road, barracks castle & teleport gate.
    * The PvP Moon side reuses this inside a group mirrored across the arena.
    */
-  private buildMazeIsland(parent: THREE.Object3D, roadGroup: THREE.Group) {
+  private buildMazeIsland(parent: THREE.Object3D, roadGroup: THREE.Group, theme: CastleTheme = 'SUN') {
     // ==========================================
     // 1. MAZE ISLAND (Left Plateau: X = -22, Z = 0)
     // ==========================================
     const mazeIslandGeom = new THREE.BoxGeometry(24, 0.5, 32);
     const mazeIslandMat = new THREE.MeshStandardMaterial({
-      color: 0x2d4a2e, // Dark forest green grass
-      roughness: 0.75,
-      metalness: 0.2
+      color: 0xd6dcc0, // Tints the damp moss texture
+      map: createMossTexture(4, 5),
+      roughness: 0.95,
+      metalness: 0.0
     });
     const mazeIsland = new THREE.Mesh(mazeIslandGeom, mazeIslandMat);
     mazeIsland.position.set(-22, -0.15, 0);
@@ -370,7 +395,7 @@ export class SceneRenderer {
 
     // Decorative grass and stones
     const grassGeom = new THREE.ConeGeometry(0.15, 0.4, 4);
-    const grassMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.9 });
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x4f6138, roughness: 0.9 });
     for (let i = 0; i < 14; i++) {
       const grass = new THREE.Mesh(grassGeom, grassMat);
       const angle = (i * 1.37) % (Math.PI * 2);
@@ -394,7 +419,8 @@ export class SceneRenderer {
     parent.add(roadGroup);
 
     // Player Castle (Start of Maze: X = -34, Z = -12)
-    this.buildPlayerCastle(new THREE.Vector3(-34, 0, -12), parent);
+    this.buildPlayerCastle(new THREE.Vector3(-34, 0, -12), parent, theme);
+    this.buildMazeWisps(parent);
 
     // Teleportation Gate (End of Maze: X = -10, Z = 12)
     this.buildTeleportationGate(new THREE.Vector3(-10, 0, 12), parent);
@@ -578,30 +604,31 @@ export class SceneRenderer {
     }
   }
 
-  private buildPlayerCastle(pos: THREE.Vector3, parent: THREE.Object3D = this.scene): THREE.Group {
+  private buildPlayerCastle(pos: THREE.Vector3, parent: THREE.Object3D = this.scene, theme: CastleTheme = 'SUN'): THREE.Group {
+    const palette = CASTLE_THEMES[theme];
     const group = new THREE.Group();
     group.position.copy(pos);
 
     // Castle Palette Materials
     const stoneBaseMat = new THREE.MeshStandardMaterial({
-      color: 0x334155, // Deep foundation granite
+      color: 0x2a2522, // Deep soot-stained foundation granite
       roughness: 0.8,
       metalness: 0.15
     });
     const fortressStoneMat = new THREE.MeshStandardMaterial({
-      color: 0x64748b, // Ashlar masonry stone
+      color: 0x55493f, // Weathered ashlar masonry
       roughness: 0.7,
       metalness: 0.15
     });
     const stoneTrimMat = new THREE.MeshStandardMaterial({
-      color: 0x94a3b8, // Carved limestone trims, corbels & parapets
+      color: 0x7a6c5e, // Carved limestone trims, corbels & parapets
       roughness: 0.6,
       metalness: 0.1
     });
     const royalBlueSlateMat = new THREE.MeshStandardMaterial({
-      color: 0x1d4ed8, // Royal cobalt blue spire tiles
-      roughness: 0.45,
-      metalness: 0.35
+      color: palette.roof, // Weathered slate spire tiles in the team's colour
+      roughness: 0.55,
+      metalness: 0.3
     });
     const gildedGoldMat = new THREE.MeshStandardMaterial({
       color: 0xf59e0b, // Heraldic royal gold finials & crests
@@ -831,7 +858,7 @@ export class SceneRenderer {
     flagGeom.setAttribute('position', new THREE.BufferAttribute(flagVertices, 3));
     flagGeom.computeVertexNormals();
     const flagMesh = new THREE.Mesh(flagGeom, new THREE.MeshStandardMaterial({
-      color: 0x1e40af,
+      color: palette.banner,
       side: THREE.DoubleSide,
       roughness: 0.5
     }));
@@ -848,7 +875,7 @@ export class SceneRenderer {
 
     // Arcane Gate Palette Materials
     const granitePlinthMat = new THREE.MeshStandardMaterial({
-      color: 0x334155, // Deep foundation granite
+      color: 0x2a2522, // Deep soot-stained foundation granite
       roughness: 0.8,
       metalness: 0.2
     });
@@ -1155,15 +1182,15 @@ export class SceneRenderer {
     const fireGeom = new THREE.SphereGeometry(0.18, 8, 8);
     const fireMat = new THREE.MeshStandardMaterial({
       color: 0xf97316,
-      emissive: 0xea580c,
-      emissiveIntensity: 0.8
+      emissive: 0xff6a1a,
+      emissiveIntensity: 3.2
     });
     const fire = new THREE.Mesh(fireGeom, fireMat);
     fire.position.y = 1.55;
     group.add(fire);
     
     // Fire Light
-    const fireLight = new THREE.PointLight(0xf97316, 0.4, 8);
+    const fireLight = new THREE.PointLight(0xff7a2a, 2.4, 11, 1.7);
     fireLight.position.y = 1.55;
     group.add(fireLight);
 
@@ -1583,22 +1610,22 @@ export class SceneRenderer {
 
     // --- Arena Island Bedrock (Infernal Dreadfort Basalt Foundation) ---
     const arenaBedrock = new THREE.Group();
-    arenaBedrock.position.set(14, 0, 0);
+    arenaBedrock.position.set(ARENA_CENTER_X, 0, 0);
 
     const basaltMat = new THREE.MeshStandardMaterial({ color: 0x1c1719, roughness: 0.85, metalness: 0.2 });
     const deepBasaltMat = new THREE.MeshStandardMaterial({ color: 0x120e10, roughness: 0.95 });
     const lavaVeinMat = new THREE.MeshBasicMaterial({ color: 0xff4500 });
     this.lavaMaterials.push(lavaVeinMat);
 
-    const a1 = new THREE.Mesh(new THREE.BoxGeometry(27.2, 1.4, 19.4), basaltMat);
+    const a1 = new THREE.Mesh(new THREE.BoxGeometry(ARENA_WIDTH - 0.8, 1.4, 19.4), basaltMat);
     a1.position.y = -0.8;
     arenaBedrock.add(a1);
 
-    const a2 = new THREE.Mesh(new THREE.BoxGeometry(23.5, 1.8, 16.0), deepBasaltMat);
+    const a2 = new THREE.Mesh(new THREE.BoxGeometry(ARENA_WIDTH - 4.5, 1.8, 16.0), deepBasaltMat);
     a2.position.y = -2.2;
     arenaBedrock.add(a2);
 
-    const a3 = new THREE.Mesh(new THREE.BoxGeometry(17.5, 2.2, 11.5), deepBasaltMat);
+    const a3 = new THREE.Mesh(new THREE.BoxGeometry(ARENA_WIDTH - 10.5, 2.2, 11.5), deepBasaltMat);
     a3.position.y = -4.0;
     arenaBedrock.add(a3);
 
@@ -1822,11 +1849,12 @@ export class SceneRenderer {
 
     // Crystalline Alpine Mountain River
     const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x2563eb,
-      roughness: 0.15,
-      metalness: 0.35,
+      color: 0x14203a,
+      emissive: 0x0b1a33,
+      roughness: 0.1,
+      metalness: 0.5,
       transparent: true,
-      opacity: 0.88
+      opacity: 0.9
     });
     const riverSegments = [
       { x: -44, z: -45, sx: 3.5, sz: 12, rot: 0.4 },
@@ -1892,7 +1920,7 @@ export class SceneRenderer {
 
     // Glowing Rivers of Molten Magma
     const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff3800 });
-    const lavaEdgeMat = new THREE.MeshBasicMaterial({ color: 0x991b1b });
+    const lavaEdgeMat = new THREE.MeshBasicMaterial({ color: 0x3a0906 });
     this.lavaMaterials.push(lavaMat);
 
     const lavaStreams = [
@@ -1904,20 +1932,36 @@ export class SceneRenderer {
       { x: 26, z: 22,  sx: 3.5, sz: 14, rot: 0.6 },
       { x: 12, z: 26,  sx: 4.2, sz: 12, rot: 0.9 }
     ];
-    lavaStreams.forEach(str => {
-      const lGeom = new THREE.PlaneGeometry(str.sx, str.sz);
-      lGeom.rotateX(-Math.PI / 2);
-      const lavaMesh = new THREE.Mesh(lGeom, lavaMat);
-      lavaMesh.position.set(str.x, -6.38, str.z);
-      lavaMesh.rotation.y = str.rot;
-      eastGroup.add(lavaMesh);
+    lavaStreams.forEach((str, idx) => {
+      // Each stream is a chain of narrow, slightly bending fissure segments
+      const segments = 5;
+      const segLen = str.sz / segments;
+      let angle = str.rot;
+      let cx = str.x - Math.sin(str.rot) * str.sz * 0.5;
+      let cz = str.z - Math.cos(str.rot) * str.sz * 0.5;
+      for (let i = 0; i < segments; i++) {
+        angle += Math.sin(idx * 3.1 + i * 1.7) * 0.35;
+        const width = str.sx * (0.12 + 0.08 * Math.abs(Math.sin(idx + i * 2.3)));
+        const midX = cx + Math.sin(angle) * segLen * 0.5;
+        const midZ = cz + Math.cos(angle) * segLen * 0.5;
 
-      const crustGeom = new THREE.PlaneGeometry(str.sx * 1.35, str.sz);
-      crustGeom.rotateX(-Math.PI / 2);
-      const crustMesh = new THREE.Mesh(crustGeom, lavaEdgeMat);
-      crustMesh.position.set(str.x, -6.42, str.z);
-      crustMesh.rotation.y = str.rot;
-      eastGroup.add(crustMesh);
+        const coreGeom = new THREE.PlaneGeometry(width, segLen * 1.08);
+        coreGeom.rotateX(-Math.PI / 2);
+        const core = new THREE.Mesh(coreGeom, lavaMat);
+        core.position.set(midX, -6.38, midZ);
+        core.rotation.y = angle;
+        eastGroup.add(core);
+
+        const crustGeom = new THREE.PlaneGeometry(width * 3.2, segLen * 1.12);
+        crustGeom.rotateX(-Math.PI / 2);
+        const crust = new THREE.Mesh(crustGeom, lavaEdgeMat);
+        crust.position.set(midX, -6.42, midZ);
+        crust.rotation.y = angle;
+        eastGroup.add(crust);
+
+        cx += Math.sin(angle) * segLen;
+        cz += Math.cos(angle) * segLen;
+      }
     });
 
     // Hexagonal Basalt Columns (Giant's Causeway style)
@@ -2027,10 +2071,10 @@ export class SceneRenderer {
    */
   private buildLowPolyCloudCover() {
     const cloudMat = new THREE.MeshStandardMaterial({
-      color: 0x33445e,
-      roughness: 0.9,
+      color: 0x241f33,
+      roughness: 1.0,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.38,
       depthWrite: false
     });
 
@@ -2068,6 +2112,105 @@ export class SceneRenderer {
     });
   }
 
+  private addParticleField(
+    parent: THREE.Object3D,
+    kind: 'ember' | 'wisp',
+    count: number,
+    min: THREE.Vector3,
+    max: THREE.Vector3,
+    color: THREE.Color,
+    size: number
+  ) {
+    const positions = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 3);
+    const phases = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = THREE.MathUtils.lerp(min.x, max.x, Math.random());
+      positions[i * 3 + 1] = THREE.MathUtils.lerp(min.y, max.y, Math.random());
+      positions[i * 3 + 2] = THREE.MathUtils.lerp(min.z, max.z, Math.random());
+      velocities[i * 3] = (Math.random() - 0.5) * 0.3;
+      velocities[i * 3 + 1] = kind === 'ember' ? 0.35 + Math.random() * 0.8 : (Math.random() - 0.5) * 0.15;
+      velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
+      phases[i] = Math.random() * Math.PI * 2;
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({
+      map: this.glowSprite,
+      color,
+      size,
+      sizeAttenuation: true,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const points = new THREE.Points(geom, mat);
+    points.frustumCulled = false;
+    parent.add(points);
+    this.particleFields.push({ points, velocities, phases, min, max, kind });
+  }
+
+  /** Embers drifting up from the scorched arena. */
+  private buildArenaEmbers() {
+    this.addParticleField(
+      this.scene,
+      'ember',
+      220,
+      new THREE.Vector3(-1, 0.2, -9.5),
+      new THREE.Vector3(ARENA_WIDTH + 1, 9, 9.5),
+      new THREE.Color().setRGB(2.4, 0.9, 0.3),
+      0.22
+    );
+  }
+
+  /** Pale spirit wisps hovering over a maze island (Sun coordinates; the Moon side is mirrored). */
+  private buildMazeWisps(parent: THREE.Object3D) {
+    this.addParticleField(
+      parent,
+      'wisp',
+      70,
+      new THREE.Vector3(-33, 0.6, -15),
+      new THREE.Vector3(-11, 4.5, 15),
+      new THREE.Color().setRGB(0.55, 1.5, 1.2),
+      0.3
+    );
+  }
+
+  private updateParticles(dt: number, timeSec: number) {
+    for (const field of this.particleFields) {
+      const attr = field.points.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const pos = attr.array as Float32Array;
+      const v = field.velocities;
+      const count = field.phases.length;
+      for (let i = 0; i < count; i++) {
+        const ix = i * 3;
+        const sway = Math.sin(timeSec * 0.8 + field.phases[i]);
+        pos[ix] += (v[ix] + sway * 0.12) * dt;
+        pos[ix + 1] += (field.kind === 'ember' ? v[ix + 1] : v[ix + 1] + Math.cos(timeSec + field.phases[i]) * 0.1) * dt;
+        pos[ix + 2] += (v[ix + 2] + Math.cos(timeSec * 0.6 + field.phases[i]) * 0.12) * dt;
+
+        // Recycle particles that drift out of their volume
+        if (field.kind === 'ember' && pos[ix + 1] > field.max.y) {
+          pos[ix] = THREE.MathUtils.lerp(field.min.x, field.max.x, Math.random());
+          pos[ix + 1] = field.min.y;
+          pos[ix + 2] = THREE.MathUtils.lerp(field.min.z, field.max.z, Math.random());
+        }
+        for (let a = 0; a < 3; a++) {
+          const lo = a === 0 ? field.min.x : a === 1 ? field.min.y : field.min.z;
+          const hi = a === 0 ? field.max.x : a === 1 ? field.max.y : field.max.z;
+          if (pos[ix + a] < lo) pos[ix + a] = hi;
+          else if (pos[ix + a] > hi) pos[ix + a] = lo;
+        }
+      }
+      attr.needsUpdate = true;
+
+      // Wisps breathe in and out
+      if (field.kind === 'wisp') {
+        (field.points.material as THREE.PointsMaterial).opacity = 0.65 + Math.sin(timeSec * 1.3) * 0.25;
+      }
+    }
+  }
+
   /**
    * Per-frame animation for dynamic world environment elements
    */
@@ -2093,14 +2236,27 @@ export class SceneRenderer {
       }
     }
 
+    this.updateParticles(dt, timeSec);
+
     // 4. Pulsating magma breathing glow
     const lavaPulse = 0.85 + Math.sin(timeSec * 2.5) * 0.15;
     for (let i = 0; i < this.lavaMaterials.length; i++) {
-      this.lavaMaterials[i].color.setRGB(1.0 * lavaPulse, 0.25 * lavaPulse, 0.0);
+      this.lavaMaterials[i].color.setRGB(2.0 * lavaPulse, 0.46 * lavaPulse, 0.06 * lavaPulse);
     }
   }
 
   handleResize() {
-    this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    this.renderer.setSize(w, h);
+    this.postFX?.setSize(w, h, this.renderer.getPixelRatio());
+  }
+
+  /** Renders a frame through the post-processing chain (bloom + colour grade). */
+  render(camera: THREE.Camera, now: number) {
+    if (!this.postFX) {
+      this.postFX = new PostFX(this.renderer, this.scene, camera, this.container.clientWidth, this.container.clientHeight);
+    }
+    this.postFX.render(now);
   }
 }

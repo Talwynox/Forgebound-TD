@@ -5,10 +5,18 @@ export function opponentOf(team: TeamId): TeamId {
 }
 
 /**
+ * Arena island layout. The Sun (west) side is fixed; the arena extends east far enough that
+ * level-1 ballistae (range 13) on either side don't reach the melee in the middle.
+ */
+export const ARENA_WIDTH = 38;
+export const ARENA_WEST_X = 0;
+export const ARENA_CENTER_X = ARENA_WEST_X + ARENA_WIDTH / 2;
+
+/**
  * The battlefield is symmetric around the middle of the arena: in PvP the Moon side
  * (maze island, castle, ballistae, arrival pad) mirrors the Sun side across this X.
  */
-export const ARENA_MIRROR_X = 13.3;
+export const ARENA_MIRROR_X = 18.3;
 
 export function mirrorX(x: number): number {
   return 2 * ARENA_MIRROR_X - x;

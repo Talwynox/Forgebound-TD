@@ -124,6 +124,14 @@ body, html {
   filter: grayscale(0.5);
 }
 
+/* PvP ready vote cast */
+.wave-btn.active,
+.wave-btn.active:hover {
+  background: linear-gradient(135deg, #059669, #047857);
+  border-color: #34d399;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.45);
+}
+
 .recruit-btn {
   background: linear-gradient(135deg, #1e3a5f, #0f243d);
   border-color: #38bdf8;
@@ -2133,3 +2141,501 @@ body, html {
   border-color: #ef4444;
 }
 
+
+/* ============================================================
+   DARK FANTASY THEME
+   Smoked obsidian panels, antique-gold trim, ember highlights.
+   Layered over the base styles above; keep new overrides here.
+   ============================================================ */
+:root {
+  --df-panel: linear-gradient(180deg, rgba(28, 22, 30, 0.94) 0%, rgba(14, 11, 17, 0.95) 100%);
+  --df-panel-solid: #16111a;
+  --df-inset: rgba(8, 6, 10, 0.72);
+  --df-gold: #c9a45a;
+  --df-gold-dim: rgba(201, 164, 90, 0.38);
+  --df-gold-faint: rgba(201, 164, 90, 0.16);
+  --df-ember: #f97316;
+  --df-ember-glow: rgba(249, 115, 22, 0.35);
+  --df-text: #ece4d4;
+  --df-text-dim: #a89f91;
+  --df-iron: linear-gradient(180deg, #2a2430 0%, #1a151d 100%);
+  --df-iron-hover: linear-gradient(180deg, #3a2f33 0%, #231b1f 100%);
+  --df-shadow: 0 14px 34px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 236, 200, 0.06);
+  --df-title-font: 'Cinzel', 'Trajan Pro', Georgia, serif;
+}
+
+body, html {
+  background-color: #07060c;
+  color: var(--df-text);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* --- Panels --- */
+.hud-top-bar,
+.hud-tower-palette,
+.hud-card,
+.hud-focus-banner,
+.modal-card,
+.mp-dialog,
+.achievement-toast,
+.grand-boss-bar {
+  background: var(--df-panel);
+  border: 1px solid var(--df-gold-dim);
+  box-shadow: var(--df-shadow);
+  color: var(--df-text);
+}
+
+.hud-card,
+.modal-card,
+.mp-dialog {
+  border-radius: 10px;
+}
+
+/* Gilded corner filigree on the big panels */
+.hud-top-bar::before,
+.hud-tower-palette::before,
+.modal-card::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1px solid var(--df-gold-faint);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.modal-card,
+.hud-tower-palette,
+.hud-top-bar {
+  position: relative;
+}
+
+.hud-tower-palette,
+.hud-top-bar {
+  position: absolute;
+}
+
+.modal-backdrop {
+  background: radial-gradient(ellipse at center, rgba(20, 10, 14, 0.7) 0%, rgba(3, 2, 6, 0.9) 100%);
+}
+
+/* --- Titles --- */
+.hud-mission-title,
+.card-title,
+.mission-title,
+.modal-header h2,
+.mp-title,
+.tutorial-headline,
+.boss-title,
+.toast-title,
+.trophy-name,
+.mp-sec-title,
+.victory-card h1,
+.defeat-card h1 {
+  font-family: var(--df-title-font);
+  letter-spacing: 0.06em;
+}
+
+.hud-mission-title,
+.card-title,
+.mp-title,
+.mp-sec-title {
+  color: #e8cf94;
+  text-shadow: 0 0 12px rgba(201, 164, 90, 0.25);
+}
+
+.victory-card h1 {
+  color: #f4d27a !important;
+  text-shadow: 0 0 22px rgba(244, 196, 90, 0.55);
+}
+
+.defeat-card h1 {
+  color: #ef4444 !important;
+  text-shadow: 0 0 22px rgba(239, 68, 68, 0.55);
+}
+
+/* --- Top bar: compact so every control fits --- */
+.hud-top-bar {
+  height: 54px;
+  padding: 0 12px;
+  border-radius: 10px;
+}
+
+.hud-top-bar .hud-group {
+  gap: 7px;
+}
+
+.hud-mission-title {
+  font-size: 14px;
+  max-width: 150px;
+  line-height: 1.1;
+}
+
+.hud-badge {
+  background: rgba(201, 164, 90, 0.1);
+  border: 1px solid var(--df-gold-dim);
+  color: #e8cf94;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+
+.hud-stat {
+  background: var(--df-inset);
+  border: 1px solid rgba(201, 164, 90, 0.18);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+  font-size: 13px;
+  padding: 5px 10px;
+}
+
+/* --- Buttons: forged iron that ignites on hover --- */
+.hud-btn,
+.btn-secondary,
+.mp-tab,
+.mp-copy-btn,
+.mp-switch-team-btn,
+.mp-leave-btn,
+.close-btn,
+.mp-close-btn {
+  background: var(--df-iron);
+  border: 1px solid rgba(201, 164, 90, 0.28);
+  color: var(--df-text);
+  box-shadow: inset 0 1px 0 rgba(255, 236, 200, 0.06), 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.hud-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+
+.hud-btn:hover,
+.btn-secondary:hover,
+.mp-tab:hover,
+.mp-copy-btn:hover,
+.mp-switch-team-btn:hover {
+  background: var(--df-iron-hover);
+  border-color: var(--df-gold);
+  box-shadow: 0 0 14px var(--df-ember-glow), inset 0 1px 0 rgba(255, 236, 200, 0.1);
+}
+
+.btn-primary,
+.mp-primary-btn,
+.mp-launch-btn,
+.btn-play-mission,
+.tech-upgrade-btn {
+  background: linear-gradient(180deg, #b4562a 0%, #7a2e14 100%);
+  border: 1px solid #e9a45b;
+  color: #fff4e0;
+  font-family: var(--df-title-font);
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 16px rgba(249, 115, 22, 0.3), inset 0 1px 0 rgba(255, 220, 180, 0.25);
+}
+
+.btn-primary:hover,
+.mp-primary-btn:hover,
+.mp-launch-btn:hover:not(:disabled),
+.btn-play-mission:hover,
+.tech-upgrade-btn:hover {
+  background: linear-gradient(180deg, #d0662f 0%, #8f3616 100%);
+  box-shadow: 0 0 24px rgba(249, 115, 22, 0.5), inset 0 1px 0 rgba(255, 220, 180, 0.3);
+}
+
+.mp-launch-btn:disabled {
+  filter: grayscale(0.7) brightness(0.7);
+  cursor: not-allowed;
+}
+
+/* Release Wave / Ready: the call to arms */
+.wave-btn {
+  background: linear-gradient(180deg, #9a3b1c 0%, #5c1f0e 100%);
+  border-color: #e9a45b;
+  box-shadow: 0 0 16px rgba(249, 115, 22, 0.35), inset 0 1px 0 rgba(255, 220, 180, 0.2);
+  font-family: var(--df-title-font);
+  letter-spacing: 0.04em;
+}
+
+.wave-btn:hover:not(.disabled) {
+  background: linear-gradient(180deg, #b8471f 0%, #6e2410 100%);
+}
+
+.recruit-btn {
+  border-color: rgba(96, 165, 250, 0.45);
+}
+
+.key-badge {
+  background: #0b080d;
+  border: 1px solid rgba(201, 164, 90, 0.5);
+  border-bottom-width: 2px;
+  color: #f4d27a;
+  font-size: 10.5px;
+  min-width: 18px;
+  height: 18px;
+}
+
+/* --- Tower palette: runestone slots --- */
+.hud-tower-palette {
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+
+.tower-btn {
+  background: radial-gradient(ellipse at 50% 0%, rgba(201, 164, 90, 0.12) 0%, transparent 60%), var(--df-iron);
+  border: 1px solid rgba(201, 164, 90, 0.25);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 236, 200, 0.06), 0 3px 8px rgba(0, 0, 0, 0.5);
+}
+
+.tower-btn:hover {
+  border-color: var(--df-gold);
+  box-shadow: 0 0 16px var(--df-ember-glow), inset 0 1px 0 rgba(255, 236, 200, 0.1);
+}
+
+.tower-btn-title {
+  font-family: var(--df-title-font);
+  letter-spacing: 0.04em;
+  color: var(--df-text);
+}
+
+.tower-tooltip {
+  background: var(--df-panel-solid);
+  border: 1px solid var(--df-gold-dim);
+  color: var(--df-text);
+}
+
+/* --- Cards & upgrade options --- */
+.card-header {
+  border-bottom: 1px solid var(--df-gold-faint);
+}
+
+.upgrade-btn,
+.tech-item,
+.mission-node,
+.trophy-card,
+.intel-battalion-card,
+.tutorial-card,
+.mp-player-card,
+.mp-empty-card,
+.mp-mode-btn {
+  background: var(--df-inset);
+  border: 1px solid rgba(201, 164, 90, 0.2);
+}
+
+.upgrade-btn:hover,
+.mission-node:hover,
+.mp-mode-btn:hover {
+  border-color: var(--df-gold);
+  box-shadow: 0 0 12px var(--df-ember-glow);
+}
+
+.mp-mode-btn.active,
+.mp-tab.active {
+  border-color: var(--df-gold);
+  background: linear-gradient(180deg, rgba(201, 164, 90, 0.18) 0%, rgba(20, 14, 18, 0.9) 100%);
+  box-shadow: 0 0 14px rgba(201, 164, 90, 0.25);
+}
+
+.mp-input {
+  background: #0b080d;
+  border: 1px solid rgba(201, 164, 90, 0.3);
+  color: var(--df-text);
+}
+
+.mp-input:focus {
+  outline: none;
+  border-color: var(--df-gold);
+  box-shadow: 0 0 10px rgba(201, 164, 90, 0.3);
+}
+
+/* --- Scrollbars inside panels --- */
+.hud-card::-webkit-scrollbar,
+.modal-card::-webkit-scrollbar {
+  width: 8px;
+}
+
+.hud-card::-webkit-scrollbar-thumb,
+.modal-card::-webkit-scrollbar-thumb {
+  background: rgba(201, 164, 90, 0.3);
+  border-radius: 4px;
+}
+
+/* Tactical buttons keep a coloured accent on forged iron */
+.recruit-btn,
+.btn-focus-fire,
+.btn-smart-focus,
+.wave-intel-btn {
+  background: var(--df-iron) !important;
+}
+
+.recruit-btn { border-color: rgba(96, 165, 250, 0.5) !important; color: #dbe7ff !important; }
+.btn-focus-fire { border-color: rgba(239, 68, 68, 0.55) !important; color: #fecaca !important; }
+.btn-smart-focus { border-color: rgba(167, 139, 250, 0.5) !important; color: #ddd6fe !important; }
+.btn-smart-focus.active { box-shadow: 0 0 12px rgba(167, 139, 250, 0.3); }
+.wave-intel-btn { border-color: var(--df-gold-dim) !important; color: #e8cf94 !important; }
+
+/* --- HUD layout: every chip stays on one line, hotkeys sit in a consistent slot --- */
+.hud-top-bar .hud-btn,
+.hud-top-bar .hud-stat,
+.hud-top-bar .hud-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  line-height: 1;
+  height: 32px;
+}
+
+.hud-top-bar .hud-badge {
+  height: 26px;
+  border-radius: 13px;
+}
+
+.hud-top-bar .hud-group {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.hud-top-bar .key-badge {
+  margin: 0;
+}
+
+.hud-mission-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
+  font-size: 13.5px;
+}
+
+.hud-top-bar .icon-btn {
+  min-width: 34px;
+  justify-content: center;
+  padding: 6px 9px;
+  font-size: 14px;
+}
+
+.trophies-badge-count {
+  font-size: 11.5px;
+}
+
+.recruit-count-badge {
+  background: rgba(96, 165, 250, 0.14);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  color: #bfd6ff;
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.hud-divider {
+  width: 1px;
+  height: 26px;
+  background: linear-gradient(180deg, transparent, var(--df-gold-dim), transparent);
+  margin: 0 2px;
+}
+
+/* Narrower windows: secondary buttons collapse to icons (labels & hotkeys stay in tooltips) */
+@media (max-width: 1680px) {
+  .hud-top-bar .btn-label,
+  .hud-top-bar .minor-key {
+    display: none;
+  }
+
+  .hud-mission-title {
+    max-width: 130px;
+  }
+
+  .hud-top-bar .hud-group {
+    gap: 5px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .hud-mission-title {
+    display: none;
+  }
+}
+
+/* --- Tower palette cards: hotkey row above the title so nothing overlaps --- */
+.tower-btn {
+  width: 90px;
+  height: 72px;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 0 6px 8px;
+}
+
+.tower-btn-hotkey {
+  top: 5px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  min-width: 18px;
+  height: 17px;
+  font-size: 10.5px;
+  padding: 0 4px;
+  background: #0b080d;
+  border: 1px solid rgba(201, 164, 90, 0.5);
+  border-bottom-width: 2px;
+  color: #f4d27a;
+}
+
+.tower-btn:hover:not(.unaffordable) .tower-btn-hotkey,
+.tower-btn.active .tower-btn-hotkey {
+  transform: translateX(-50%) scale(1.08);
+  background: #1a1410;
+  border-color: var(--df-gold);
+  color: #fde68a;
+  box-shadow: 0 0 10px rgba(244, 196, 90, 0.55);
+}
+
+.tower-btn-title {
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  max-width: 100%;
+}
+
+.tower-btn-cost {
+  margin-top: 0;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tower-btn:hover:not(.unaffordable) {
+  border-color: var(--df-gold);
+  background: radial-gradient(ellipse at 50% 0%, rgba(201, 164, 90, 0.2) 0%, transparent 65%), var(--df-iron-hover);
+  box-shadow: 0 6px 16px var(--df-ember-glow);
+}
+
+.tower-btn.active {
+  border-color: var(--df-gold);
+  background: radial-gradient(ellipse at 50% 100%, rgba(244, 196, 90, 0.22) 0%, transparent 70%), var(--df-iron);
+  box-shadow: 0 0 16px rgba(244, 196, 90, 0.35);
+}
+
+.tower-btn.recruit-card-btn {
+  border-color: rgba(96, 165, 250, 0.5);
+  background: radial-gradient(ellipse at 50% 0%, rgba(96, 165, 250, 0.16) 0%, transparent 65%), var(--df-iron);
+}
+
+.tower-btn.recruit-card-btn:hover:not(.unaffordable) {
+  border-color: #93c5fd;
+  background: radial-gradient(ellipse at 50% 0%, rgba(96, 165, 250, 0.26) 0%, transparent 65%), var(--df-iron-hover);
+  box-shadow: 0 0 16px rgba(96, 165, 250, 0.35);
+}
+
+.tower-btn.unaffordable {
+  background: var(--df-iron);
+  border-color: rgba(201, 164, 90, 0.12);
+}
+
+.tower-tooltip {
+  bottom: 82px;
+}
+
+/* --- Floating combat text: embossed, readable over the dark battlefield --- */
+.floating-combat-text {
+  font-family: var(--df-title-font) !important;
+  letter-spacing: 0.03em;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.95), 0 1px 2px #000 !important;
+}

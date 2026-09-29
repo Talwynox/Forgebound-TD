@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createMasonryTexture } from './ProceduralTextures';
 import { VFXManager } from '../vfx/VFXManager';
 import { audio } from './AudioSystem';
 
@@ -104,32 +105,36 @@ export class ArenaCastle {
       metalness: 0.1
     });
 
+    const teamGlow = this.isMoonTeam ? 0xff3b2a : 0x60a5fa;
+    const teamCloth = this.isMoonTeam ? 0x7a1522 : 0x2f4a8a;
+
     const fortressAshlarMat = new THREE.MeshStandardMaterial({
-      color: 0x4d3e33, // Weathered fortress stone masonry
-      roughness: 0.8,
-      metalness: 0.12
+      color: 0xc4b4a0, // Tints the weathered ashlar masonry texture
+      map: createMasonryTexture(2, 2),
+      roughness: 0.85,
+      metalness: 0.05
     });
 
     const stoneTrimMat = new THREE.MeshStandardMaterial({
-      color: 0x736050, // Carved limestone battlements & corbels
-      roughness: 0.7,
+      color: 0x8a7a68, // Carved limestone battlements & corbels
+      roughness: 0.75,
       metalness: 0.08
     });
 
     const royalBlueSlateMat = new THREE.MeshStandardMaterial({
-      color: 0x1d4ed8, // Royal cobalt blue spire tiles
-      roughness: 0.45,
-      metalness: 0.35
+      color: this.isMoonTeam ? 0x341015 : 0x232838, // Team-tinted weathered slate spires
+      roughness: 0.55,
+      metalness: 0.3
     });
 
     const gildedGoldMat = new THREE.MeshStandardMaterial({
-      color: 0xf59e0b, // Heraldic gold ornaments & crests
+      color: 0xc9a45a, // Antique heraldic gold ornaments & crests
       metalness: 0.85,
       roughness: 0.25
     });
 
     const darkIronMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b, // Wrought iron portcullis, wall bands & sconces
+      color: 0x2a2a30, // Wrought iron portcullis, wall bands & sconces
       metalness: 0.85,
       roughness: 0.3
     });
@@ -140,15 +145,21 @@ export class ArenaCastle {
     });
 
     const glowingWindowMat = new THREE.MeshStandardMaterial({
-      color: 0xffedd5,
-      emissive: 0xf59e0b,
-      emissiveIntensity: 0.95
+      color: 0xffd8a8,
+      emissive: 0xff9a3c,
+      emissiveIntensity: 2.2
     });
 
     const arcaneBeaconMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0284c7,
-      emissiveIntensity: 1.3
+      color: teamGlow,
+      emissive: teamGlow,
+      emissiveIntensity: 2.6
+    });
+
+    const bannerClothMat = new THREE.MeshStandardMaterial({
+      color: teamCloth,
+      roughness: 0.9,
+      side: THREE.DoubleSide
     });
 
     // Register materials that flash red on impact
@@ -239,7 +250,7 @@ export class ArenaCastle {
     beaconCrystal.position.set(-0.4, 11.7, 0);
     this.keepInnerGroup.add(beaconCrystal);
 
-    const beaconLight = new THREE.PointLight(0x38bdf8, 0.7, 10);
+    const beaconLight = new THREE.PointLight(teamGlow, 1.8, 14, 1.6);
     beaconLight.position.set(-0.4, 11.7, 0);
     this.keepInnerGroup.add(beaconLight);
 
@@ -296,7 +307,7 @@ export class ArenaCastle {
       lantern.position.set(1.75, 2.05, zL);
       this.keepInnerGroup.add(lantern);
 
-      const torchLight = new THREE.PointLight(0xffa040, 0.6, 6);
+      const torchLight = new THREE.PointLight(0xff8a3a, 1.6, 7, 1.7);
       torchLight.position.set(1.85, 2.05, zL);
       this.keepInnerGroup.add(torchLight);
     });
@@ -340,10 +351,15 @@ export class ArenaCastle {
       tFinial.position.y = 8.35;
       towerGroup.add(tFinial);
 
-      // Royal Blue Banner facing East
-      const banner = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.8, 0.45), royalBlueSlateMat);
+      // Team banner facing the arena, with a glowing sigil
+      const banner = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.8, 0.45), bannerClothMat);
       banner.position.set(0.88, 4.2, 0);
       towerGroup.add(banner);
+
+      const sigil = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), arcaneBeaconMat);
+      sigil.position.set(0.91, 4.45, 0);
+      sigil.scale.set(0.3, 1.3, 1);
+      towerGroup.add(sigil);
 
       const bTrim = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.47), gildedGoldMat);
       bTrim.position.set(0.88, 3.25, 0);

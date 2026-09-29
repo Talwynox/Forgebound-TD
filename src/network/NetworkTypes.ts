@@ -72,6 +72,8 @@ export interface StateSnapshot {
   buildTimer: number | null;
   /** PvP: seconds left for survivors to storm the enemy castle, else null. */
   stormTimer: number | null;
+  /** PvP round 1: peerIds that voted to start early. */
+  readyVotes: string[];
   sunCastle: CastleState;
   moonCastle: CastleState | null;
   /** peerId -> gold */
@@ -91,6 +93,7 @@ export type GameAction =
   | { kind: 'SELL_TOWER'; towerId: number }
   | { kind: 'BUY_RECRUIT' }
   | { kind: 'START_WAVE' }
+  | { kind: 'VOTE_READY'; ready: boolean }
   | { kind: 'UPGRADE_GUARDIAN'; guardianId: string; upgradeType: 'damage' | 'range' }
   | { kind: 'SET_FOCUS'; unitId: number | null }
   | { kind: 'TOGGLE_SMART_FOCUS' }

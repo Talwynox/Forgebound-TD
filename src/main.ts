@@ -35,7 +35,7 @@ import {
   encodeTowers,
   encodeUnit
 } from './network/StateSync';
-import { TeamId, TEAM_NAMES, mirrorX, opponentOf, sideX } from './game/Teams';
+import { TeamId, TEAM_NAMES, ARENA_MIRROR_X, mirrorX, opponentOf, sideX } from './game/Teams';
 
 /** Whoever performs a gameplay action: the solo player, or a player slot in a multiplayer match. */
 interface Actor {
@@ -53,11 +53,11 @@ const TEAMS: TeamId[] = ['SUN', 'MOON'];
 const SOLO_ACTOR_ID = 'local';
 const SNAPSHOT_INTERVAL_MS = 100;
 const GAME_SPEEDS = [1, 2, 4, 0];
-const ARENA_MSG_POS = new THREE.Vector3(12, 3, 0);
+const ARENA_MSG_POS = new THREE.Vector3(ARENA_MIRROR_X, 3, 0);
 const MAZE_ORIGIN_X = -22;
 const DEFAULT_CAMERA_X = -6;
 const CAMERA_MIN_X = -45;
-const CAMERA_MAX_X_SOLO = 38;
+const CAMERA_MAX_X_SOLO = 44;
 
 // PvP round flow
 const PVP_FIRST_BUILD_TIME = 45;
@@ -114,6 +114,8 @@ class GameApp {
   // PvP timers (seconds of game time); null when not running
   private buildTimer: number | null = null;
   private stormTimer: number | null = null;
+  /** PvP round 1: players who voted to start before the build timer runs out. */
+  private readyVotes = new Set<string>();
 
   // Army recruitment
   private readonly BASE_RECRUITS_PER_WAVE = 10;
@@ -226,6 +228,37 @@ class GameApp {
     return this.pvpActive ? TEAMS : ['SUN'];
   }
 
+  /** PvP: the first round can be started early once every commander votes ready. */
+  private get canVoteReady(): boolean {
+    return this.pvpActive && this.currentWaveIndex === 0 && !this.waveInProgress && !this.missionEnded;
+  }
+
+  /** Players still in the match who get a ready vote. */
+  private readyVoters(): string[] {
+    return this.networkManager.getPlayerList().filter(p => !p.disconnected).map(p => p.peerId);
+  }
+
+  /** Host: start round 1 early once everyone still connected has voted ready. */
+  private checkReadyVote() {
+    if (!this.canVoteReady) return;
+    const voters = this.readyVoters();
+    if (voters.length > 0 && voters.every(id => this.readyVotes.has(id))) {
+      this.vfx.spawnFloatingText(ARENA_MSG_POS.clone().add(new THREE.Vector3(0, 1, 0)), '✋ ALL COMMANDERS READY!', '#34d399', 2.0);
+      this.startWave();
+    }
+  }
+
+  /** Space / wave button: release the wave, or in PvP round 1 toggle the ready vote. */
+  private requestPrimaryAction() {
+    if (this.pvpActive) {
+      if (this.canVoteReady) {
+        this.requestAction({ kind: 'VOTE_READY', ready: !this.readyVotes.has(this.networkManager.localPeerId) });
+      }
+      return;
+    }
+    if (!this.waveInProgress) this.requestAction({ kind: 'START_WAVE' });
+  }
+
   /** The local player's gold: the solo wallet, or this player's slot in a multiplayer match. */
   private get playerGold(): number {
     return this.getLocalActor()?.wallet.gold ?? 0;
@@ -290,6 +323,8 @@ class GameApp {
         return recruitMsgPos(this.localTeam);
       case 'START_WAVE':
       case 'SET_GAME_SPEED':
+        return ARENA_MSG_POS.clone();
+      case 'VOTE_READY':
         return ARENA_MSG_POS.clone();
     }
     return this.lastPointerWorld.clone().add(new THREE.Vector3(0, 1.5, 0));
@@ -424,6 +459,25 @@ class GameApp {
         this.startWave(this.networkManager.inMatch ? actor.name : undefined);
         return null;
 
+      case 'VOTE_READY': {
+        if (!this.canVoteReady) return 'Ready votes only apply before the first round.';
+        const wasReady = this.readyVotes.has(actor.peerId);
+        if (action.ready === wasReady) return null;
+        if (action.ready) this.readyVotes.add(actor.peerId);
+        else this.readyVotes.delete(actor.peerId);
+
+        const count = this.readyVoters().filter(id => this.readyVotes.has(id)).length;
+        this.vfx.spawnFloatingText(
+          ARENA_MSG_POS.clone(),
+          `${action.ready ? '✋' : '⏸️'} ${actor.name} ${action.ready ? 'IS READY' : 'NEEDS MORE TIME'} (${count}/${this.readyVoters().length})`,
+          action.ready ? '#34d399' : '#94a3b8',
+          1.8
+        );
+        this.updateHUD();
+        this.checkReadyVote();
+        return null;
+      }
+
       case 'UPGRADE_GUARDIAN': {
         const guardian = this.portalGuardianManager.getGuardian(action.guardianId);
         if (!guardian || !guardian.group.visible) return 'Unknown guardian.';
@@ -472,7 +526,7 @@ class GameApp {
   // --- UI & network wiring ---
 
   private setupUIHandlers() {
-    this.ui.onStartWave = () => this.requestAction({ kind: 'START_WAVE' });
+    this.ui.onStartWave = () => this.requestPrimaryAction();
     this.ui.onBuyRecruit = () => this.requestAction({ kind: 'BUY_RECRUIT' });
     this.ui.onToggleFocusFire = () => this.toggleFocusFireMode();
     this.ui.onClearFocusTarget = () => this.requestAction({ kind: 'SET_FOCUS', unitId: null });
@@ -708,6 +762,7 @@ class GameApp {
       focusUnitIds: [aliveFocus('SUN'), aliveFocus('MOON')],
       buildTimer: this.buildTimer,
       stormTimer: this.stormTimer,
+      readyVotes: Array.from(this.readyVotes),
       sunCastle: encodeCastle(this.arenaCastle),
       moonCastle: this.pvpActive && this.moonCastle ? encodeCastle(this.moonCastle) : null,
       economy,
@@ -730,6 +785,7 @@ class GameApp {
     this.gameSpeed = s.gameSpeed;
     this.buildTimer = s.buildTimer;
     this.stormTimer = s.stormTimer;
+    this.readyVotes = new Set(s.readyVotes);
     this.towerManager.setSmartFocus('SUN', s.smartFocus[0]);
     this.towerManager.setSmartFocus('MOON', s.smartFocus[1]);
     if (waveChanged) this.toggleFocusFireMode(false);
@@ -779,7 +835,8 @@ class GameApp {
       this.towerManager.smartFocusEnabled,
       this.countAssembledRecruits('SUN'), this.countAssembledRecruits('MOON'),
       this.buildTimer === null ? '' : Math.ceil(this.buildTimer),
-      this.stormTimer === null ? '' : Math.ceil(this.stormTimer)
+      this.stormTimer === null ? '' : Math.ceil(this.stormTimer),
+      Array.from(this.readyVotes).sort().join('+'), this.canVoteReady
     ].join(',');
   }
 
@@ -885,6 +942,7 @@ class GameApp {
     this.recruitsToSpawn = { SUN: 0, MOON: 0 };
     this.stormTimer = null;
     this.buildTimer = this.pvpActive ? PVP_FIRST_BUILD_TIME : null;
+    this.readyVotes.clear();
     this.setFocusTarget(null, 'SUN');
     this.setFocusTarget(null, 'MOON');
 
@@ -959,6 +1017,7 @@ class GameApp {
     this.wavePhase = 'MAZE_RUN';
     this.buildTimer = null;
     this.stormTimer = null;
+    this.readyVotes.clear();
     this.towerManager.resetWaveEvolutions();
 
     for (const team of this.armyTeams) {
@@ -979,7 +1038,7 @@ class GameApp {
   private triggerArenaClash() {
     this.wavePhase = 'ARENA_CLASH';
     audio.playEvolution();
-    this.vfx.spawnFloatingText(new THREE.Vector3(13, 3, 0), '⚔️ THE ARENA CLASH BEGINS! CHARGE! ⚔️', '#facc15', 3.0);
+    this.vfx.spawnFloatingText(ARENA_MSG_POS, '⚔️ THE ARENA CLASH BEGINS! CHARGE! ⚔️', '#facc15', 3.0);
     this.vfx.spawnAscensionPillar(new THREE.Vector3(2, 0, 0), 0x38bdf8);
     this.vfx.spawnAscensionPillar(new THREE.Vector3(this.pvpActive ? mirrorX(2) : 22, 0, 0), 0xef4444);
 
@@ -1114,7 +1173,7 @@ class GameApp {
     this.wavePhase = 'IDLE';
 
     audio.playVictory();
-    this.vfx.spawnAscensionPillar(new THREE.Vector3(13, 0, 0), 0xfacc15);
+    this.vfx.spawnAscensionPillar(new THREE.Vector3(ARENA_MIRROR_X, 0, 0), 0xfacc15);
 
     let earnedStars = 1;
     if (this.castleHp >= this.castleMaxHp * 0.75) earnedStars = 3;
@@ -1213,7 +1272,14 @@ class GameApp {
       canBuyRecruit,
       this.castleHp,
       this.pvpActive && this.moonCastle ? this.moonCastle.currentHp : undefined,
-      this.pvpActive ? `Round ${this.currentWaveIndex + 1}` : undefined
+      this.pvpActive ? `Round ${this.currentWaveIndex + 1}` : undefined,
+      this.canVoteReady
+        ? {
+            voted: this.readyVotes.has(this.networkManager.localPeerId),
+            count: this.readyVoters().filter(id => this.readyVotes.has(id)).length,
+            total: this.readyVoters().length
+          }
+        : undefined
     );
 
     this.ui.renderTowerPalette(gold, totalRecruits, currentRecruitCost, canBuyRecruit);
@@ -1660,8 +1726,8 @@ class GameApp {
       }
 
       if (e.code === 'Space' || e.key === ' ' || e.code === 'Enter') {
-        if (!this.waveInProgress && !this.pvpActive) {
-          this.requestAction({ kind: 'START_WAVE' });
+        if (!this.waveInProgress) {
+          this.requestPrimaryAction();
           e.preventDefault();
           return;
         }
@@ -1876,6 +1942,7 @@ class GameApp {
       if (this.pvpActive && this.buildTimer !== null && !this.waveInProgress) {
         this.buildTimer -= dt;
         if (this.buildTimer <= 0) this.startWave();
+        else this.checkReadyVote();
       }
 
       if (this.waveInProgress) {
@@ -2092,7 +2159,7 @@ class GameApp {
       }
     }
 
-    this.renderer.renderer.render(this.renderer.scene, this.cameraCtrl.camera);
+    this.renderer.render(this.cameraCtrl.camera, now);
   }
 }
 

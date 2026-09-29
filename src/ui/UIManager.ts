@@ -185,7 +185,8 @@ export class UIManager {
     canBuyRecruit: boolean = true,
     sunCastleHp?: number,
     moonCastleHp?: number,
-    waveLabel?: string
+    waveLabel?: string,
+    readyVote?: { voted: boolean; count: number; total: number }
   ) {
     this.lastPlayerGold = gold;
     this.lastTotalRecruits = totalRecruits;
@@ -200,9 +201,9 @@ export class UIManager {
 
     this.topBarEl.innerHTML = `
       <div class="hud-group">
-        ${isPvp ? '' : `<div class="hud-mission-title">${mission.title}</div>`}
+        ${isPvp ? '' : `<div class="hud-mission-title" title="${mission.title}">${mission.title}</div>`}
         <div class="hud-badge wave-badge">${waveLabel ?? `Wave ${currentWave} / ${totalWaves}`}</div>
-        ${isPvp ? '' : `<button id="btn-wave-intel" class="hud-btn wave-intel-btn" title="Scout incoming enemy battalion intel (Hotkey: I)">👁️ Intel <span class="key-badge">I</span></button>`}
+        ${isPvp ? '' : `<button id="btn-wave-intel" class="hud-btn wave-intel-btn" title="Scout incoming enemy battalion intel (Hotkey: I)">👁️<span class="btn-label">Intel</span><span class="key-badge minor-key">I</span></button>`}
         <div class="hud-badge phase-badge font-bold">${phaseText}</div>
       </div>
 
@@ -220,25 +221,30 @@ export class UIManager {
 
       <div class="hud-group controls">
         <button id="btn-recruit" class="hud-btn recruit-btn ${canAffordRecruit ? '' : 'disabled'}" title="Hire an additional Recruit for this wave (Hotkey: R)">
-          🛡️ Recruit +1 <span class="key-badge">R</span><span class="${gold >= recruitCost ? 'text-amber-400 font-bold' : 'cost-locked'}">🪙${recruitCost}g</span> <span class="recruit-count-badge">Army: ${totalRecruits}</span>
+          🛡️<span class="btn-label">Recruit</span><span class="${gold >= recruitCost ? 'text-amber-400 font-bold' : 'cost-locked'}">🪙${recruitCost}</span><span class="recruit-count-badge" title="Army size this wave">⚔ ${totalRecruits}</span><span class="key-badge minor-key">R</span>
         </button>
         <button id="btn-focus-fire" class="hud-btn btn-focus-fire" title="Focus Fire: Direct all towers in range and champions to focus on an enemy (Hotkey: F)">
-          🎯 Focus Fire <span class="key-badge">F</span>
+          🎯<span class="btn-label">Focus</span><span class="key-badge minor-key">F</span>
         </button>
         <button id="btn-smart-focus" class="hud-btn btn-smart-focus ${this.towerManager?.smartFocusEnabled ? 'active' : ''}" title="Smart Focus: Damage (Obelisk) & Armor (Forge) towers prioritize evolved Champions over normal recruits in range (Hotkey: Z)">
-          ✨ Smart Focus: <span class="${this.towerManager?.smartFocusEnabled ? 'text-amber-400 font-bold' : 'text-slate-400'}">${this.towerManager?.smartFocusEnabled ? 'ON' : 'OFF'}</span> <span class="key-badge">Z</span>
+          ✨<span class="btn-label">Smart</span><span class="${this.towerManager?.smartFocusEnabled ? 'text-amber-400 font-bold' : 'text-slate-400'}">${this.towerManager?.smartFocusEnabled ? 'ON' : 'OFF'}</span><span class="key-badge minor-key">Z</span>
         </button>
         <button id="btn-speed" class="hud-btn speed-btn">${gameSpeed === 0 ? '⏸️ PAUSED' : gameSpeed + 'x'}</button>
-        ${isPvp ? '' : `<button id="btn-send-wave" class="hud-btn wave-btn ${waveInProgress ? 'disabled' : ''}" title="Release Wave (Hotkey: Space or Enter)">
-          ${waveInProgress ? '⚔️ Wave Active' : '⚔️ Release Wave <span class="key-badge" style="margin-left: 4px; margin-right: 0;">Space</span>'}
+        ${isPvp
+          ? (readyVote ? `<button id="btn-send-wave" class="hud-btn wave-btn ${readyVote.voted ? 'active' : ''}" title="Vote to start the first round early once every commander is ready (Hotkey: Space)">
+          ${readyVote.voted ? '✅' : '✋'} Ready ${readyVote.count}/${readyVote.total}<span class="key-badge">Space</span>
+        </button>` : '')
+          : `<button id="btn-send-wave" class="hud-btn wave-btn ${waveInProgress ? 'disabled' : ''}" title="Release Wave (Hotkey: Space or Enter)">
+          ${waveInProgress ? '⚔️ Wave Active' : '⚔️ Release Wave<span class="key-badge">Space</span>'}
         </button>`}
-        <button id="btn-multiplayer" class="hud-btn mp-btn" title="Multiplayer War Room: Co-Op & 4v4 PvP">🤝 Multiplayer</button>
+        <span class="hud-divider"></span>
+        <button id="btn-multiplayer" class="hud-btn icon-btn mp-btn" title="Multiplayer War Room: Co-Op & 4v4 PvP">🤝</button>
         <button id="btn-trophies" class="hud-btn icon-btn" title="Royal Hall of Trophies / Achievements (Hotkey: Y)">
-          🏆 Trophies ${this.achievementManager ? `<span class="trophies-badge-count text-amber-400 font-bold">(${this.achievementManager.getTotalTrophiesEarned().unlocked}/${this.achievementManager.getTotalTrophiesEarned().total})</span>` : ''}
+          🏆${this.achievementManager ? `<span class="trophies-badge-count text-amber-400 font-bold">${this.achievementManager.getTotalTrophiesEarned().unlocked}/${this.achievementManager.getTotalTrophiesEarned().total}</span>` : ''}
         </button>
-        <button id="btn-tech" class="hud-btn icon-btn" title="Armory / Tech Tree">🛠️ Tech</button>
-        <button id="btn-campaign" class="hud-btn icon-btn" title="Campaign Map">🗺️ Map</button>
-        <button id="btn-guide" class="hud-btn icon-btn" title="How to Play / Game Mechanics Guide (Hotkey: H or ?)">❓ Guide</button>
+        <button id="btn-tech" class="hud-btn icon-btn" title="Armory / Tech Tree">🛠️</button>
+        <button id="btn-campaign" class="hud-btn icon-btn" title="Campaign Map">🗺️</button>
+        <button id="btn-guide" class="hud-btn icon-btn" title="How to Play / Game Mechanics Guide (Hotkey: H or ?)">❓</button>
         <button id="btn-audio" class="hud-btn icon-btn" title="Audio Toggle">${audio.enabled ? '🔊' : '🔇'}</button>
       </div>
     `;
@@ -314,13 +320,13 @@ export class UIManager {
       if (isAiming || target) {
         btn.classList.add('active');
         if (target) {
-          btn.innerHTML = `🎯 Focusing <span class="key-badge">F</span>`;
+          btn.innerHTML = `🎯<span class="btn-label">Locked</span><span class="key-badge minor-key">F</span>`;
         } else {
-          btn.innerHTML = `🎯 Aiming... <span class="key-badge">F</span>`;
+          btn.innerHTML = `🎯<span class="btn-label">Aiming</span><span class="key-badge minor-key">F</span>`;
         }
       } else {
         btn.classList.remove('active');
-        btn.innerHTML = `🎯 Focus Fire <span class="key-badge">F</span>`;
+        btn.innerHTML = `🎯<span class="btn-label">Focus</span><span class="key-badge minor-key">F</span>`;
       }
     }
 

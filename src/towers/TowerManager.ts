@@ -6,6 +6,12 @@ import { audio } from '../engine/AudioSystem';
 import { Unit } from '../units/UnitManager';
 import { FriendlyClass } from '../units/UnitData';
 import { TeamId } from '../game/Teams';
+import { createGlowSprite, createMasonryTexture } from '../engine/ProceduralTextures';
+
+/** Emissive parts (gems, runes, embers) are pushed past the bloom threshold so they glow at night. */
+const TOWER_EMISSIVE_BOOST = 2.2;
+let towerGlowTexture: THREE.Texture | null = null;
+let towerStoneTexture: THREE.Texture | null = null;
 
 export interface TowerInstance {
   id: number;
@@ -1038,10 +1044,12 @@ export class TowerManager {
 
     // Medieval stone base with decorative trim
     const baseGeom = new THREE.CylinderGeometry(0.85, 0.95, 0.35, 8);
+    towerStoneTexture ??= createMasonryTexture(2, 0.5);
     const baseMat = new THREE.MeshStandardMaterial({
-      color: 0x5c4a3a, // Warm brown stone brick
+      color: 0x9a8e82, // Tints the soot-darkened masonry plinth
+      map: towerStoneTexture,
       roughness: 0.85,
-      metalness: 0.15
+      metalness: 0.1
     });
     const base = new THREE.Mesh(baseGeom, baseMat);
     base.position.y = 0.175;
@@ -1049,10 +1057,11 @@ export class TowerManager {
     base.receiveShadow = true;
     group.add(base);
 
-    // Stone ring trim at top of base
+    // Glowing sigil ring in the tower's accent colour
+    const accent = TOWER_DEFINITIONS[type].accentColor;
     const trimRing = new THREE.Mesh(
-      new THREE.TorusGeometry(0.88, 0.05, 6, 16),
-      new THREE.MeshStandardMaterial({ color: 0x44362a, roughness: 0.8, metalness: 0.2 })
+      new THREE.TorusGeometry(0.88, 0.03, 6, 32),
+      new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 0.38, roughness: 0.4, metalness: 0.2 })
     );
     trimRing.position.y = 0.35;
     trimRing.rotation.x = Math.PI / 2;
@@ -1747,6 +1756,32 @@ export class TowerManager {
         break;
       }
     }
+
+    // Soft pool of light on the ground around the tower
+    towerGlowTexture ??= createGlowSprite();
+    const glowGeom = new THREE.CircleGeometry(1.5, 32);
+    glowGeom.rotateX(-Math.PI / 2);
+    const glow = new THREE.Mesh(glowGeom, new THREE.MeshBasicMaterial({
+      map: towerGlowTexture,
+      color: accent,
+      transparent: true,
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    }));
+    glow.position.y = 0.13;
+    group.add(glow);
+
+    group.traverse(child => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      for (const mat of mats) {
+        if (mat instanceof THREE.MeshStandardMaterial && mat.emissiveIntensity > 0 && !mat.userData.glowBoosted) {
+          mat.emissiveIntensity *= TOWER_EMISSIVE_BOOST;
+          mat.userData.glowBoosted = true;
+        }
+      }
+    });
 
     return group;
   }
