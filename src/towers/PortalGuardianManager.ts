@@ -535,6 +535,18 @@ export class PortalGuardian {
     return true;
   }
 
+  /** Multiplayer client: mirror the host's authoritative upgrade levels & stats. */
+  public applyNetworkState(damageLevel: number, rangeLevel: number, totalDamageDealt: number, totalKills: number, shotsFired: number) {
+    this.damageLevel = damageLevel;
+    if (this.rangeLevel !== rangeLevel) {
+      this.rangeLevel = rangeLevel;
+      this.rebuildRangeIndicator();
+    }
+    this.totalDamageDealt = totalDamageDealt;
+    this.totalKills = totalKills;
+    this.shotsFired = shotsFired;
+  }
+
   private rebuildRangeIndicator() {
     const r = this.getRange();
     this.rangeFillMesh.scale.setScalar(r);
@@ -697,6 +709,10 @@ export class PortalGuardianManager {
     this.select(null);
   }
 
+  public getGuardian(id: string): PortalGuardian | undefined {
+    return this.guardians.find(g => g.id === id);
+  }
+
   public getSelectedGuardian(): PortalGuardian | null {
     return this.selectedGuardian;
   }
@@ -709,7 +725,16 @@ export class PortalGuardianManager {
     }
   }
 
-  public update(dt: number, time: number, onKillEnemy: (bounty: number, enemyClass?: any, isBoss?: boolean) => void, inCombat: boolean) {
+  /**
+   * @param allowFiring false on multiplayer clients: ballistae only track targets, the host resolves shots.
+   */
+  public update(
+    dt: number,
+    time: number,
+    onKillEnemy: (bounty: number, enemyClass?: any, isBoss?: boolean) => void,
+    inCombat: boolean,
+    allowFiring: boolean = true
+  ) {
     // Validate focus target
     if (this.focusTarget && (this.focusTarget.isDead || this.focusTarget.isDying || !this.focusTarget.inCombat)) {
       this.focusTarget = null;
@@ -739,7 +764,7 @@ export class PortalGuardianManager {
     }
 
     // 2. Targeting & Firing (ONLY after the fight has started in Arena Clash!)
-    if (!inCombat || activeCombatEnemies.length === 0) return;
+    if (!allowFiring || !inCombat || activeCombatEnemies.length === 0) return;
 
     for (const guardian of this.guardians) {
       const elapsed = (time - guardian.lastAttackTime) / 1000;

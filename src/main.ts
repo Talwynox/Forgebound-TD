@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { SceneRenderer } from './engine/Renderer';
 import { CameraController } from './engine/Camera';
-import { AudioSystem, audio } from './engine/AudioSystem';
+import { audio } from './engine/AudioSystem';
 import { Grid, TileType, GridCoord } from './grid/Grid';
 import { Pathfinder } from './grid/Pathfinder';
 import { VFXManager } from './vfx/VFXManager';
-import { TowerManager } from './towers/TowerManager';
+import { TowerInstance, TowerManager } from './towers/TowerManager';
 import { Unit, UnitManager } from './units/UnitManager';
 import { TechTreeManager } from './campaign/TechTree';
 import { UIManager } from './ui/UIManager';
@@ -15,8 +15,46 @@ import { TowerType, UpgradeBranch, TOWER_DEFINITIONS } from './towers/TowerData'
 import { PortalGuardian, PortalGuardianManager } from './towers/PortalGuardianManager';
 import { AchievementManager } from './achievements/AchievementManager';
 import { ArenaCastle } from './engine/ArenaCastle';
-import { NetworkManager } from './network/NetworkManager';
-import { GameMode, TeamId, UnitSnapshot } from './network/NetworkTypes';
+import { NetworkManager, SessionEndReason } from './network/NetworkManager';
+import {
+  GameAction,
+  GameMode,
+  HostEvent,
+  MERCENARY_DEFINITIONS,
+  PlayerSlot,
+  StateSnapshot,
+  TeamId,
+  WavePhase
+} from './network/NetworkTypes';
+import { FxRelay } from './network/FxRelay';
+import {
+  applyCastleState,
+  applyGuardianStates,
+  applyTowerStates,
+  applyUnitStates,
+  encodeCastle,
+  encodeGuardians,
+  encodeTowers,
+  encodeUnit
+} from './network/StateSync';
+
+/** Whoever performs a gameplay action: the solo player, or a player slot in a multiplayer match. */
+interface Actor {
+  peerId: string;
+  name: string;
+  team: TeamId;
+  wallet: { gold: number };
+  slot: PlayerSlot | null;
+}
+
+/** null on success, otherwise the reason the action was rejected. */
+type ActionResult = string | null;
+
+const SOLO_ACTOR_ID = 'local';
+const SNAPSHOT_INTERVAL_MS = 100;
+const GAME_SPEEDS = [1, 2, 4, 0];
+const RECRUIT_MSG_POS = new THREE.Vector3(-34, 4, -12);
+const ARENA_MSG_POS = new THREE.Vector3(12, 3, 0);
 
 class GameApp {
   private container: HTMLElement;
@@ -25,32 +63,38 @@ class GameApp {
   private grid: Grid;
   private pathfinder: Pathfinder;
   private vfx: VFXManager;
+  private fx: FxRelay;
   private towerManager: TowerManager;
   private unitManager: UnitManager;
-  private arenaCastle!: ArenaCastle;
+  private arenaCastle: ArenaCastle;
   private moonCastle: ArenaCastle | null = null;
   private techTree: TechTreeManager;
   private ui: UIManager;
   private portalGuardianManager: PortalGuardianManager;
   public achievementManager: AchievementManager;
-  public networkManager!: NetworkManager;
+  public networkManager: NetworkManager;
+
+  // Multiplayer sync
   private lastSnapshotTime: number = 0;
-  private castleHpAtWaveStart: number = 3000;
+  private lastClientHudKey: string = '';
+  private lastGuardianLevelsKey: string = '';
+  private lastAssembledCount: number = 0;
+  /** The board currently holds a multiplayer match (possibly finished, awaiting "Back to Lobby"). */
+  private multiplayerBoardActive: boolean = false;
 
   // Game State
   private currentMission: CampaignMission;
   private currentWaveIndex: number = 0;
-  private playerGold: number = 250;
+  private soloWallet = { gold: 250 };
   private castleHp: number = 800;
   private castleMaxHp: number = 800;
+  private castleHpAtWaveStart: number = 3000;
 
   private gameSpeed: number = 1;
   private waveInProgress: boolean = false;
   private waveCleared: boolean = false;
   private friendlyUnitsToSpawn: number = 0;
   private friendlySpawnTimer: number = 0;
-  private enemiesToSpawnQueue: { enemyClass: EnemyClass; delay: number }[] = [];
-  private enemySpawnTimer: number = 0;
 
   // Army recruitment
   private readonly BASE_RECRUITS_PER_WAVE = 10;
@@ -61,13 +105,14 @@ class GameApp {
   }
 
   // Phase and Mission lifecycle
-  private wavePhase: 'IDLE' | 'MAZE_RUN' | 'ARENA_CLASH' = 'IDLE';
+  private wavePhase: WavePhase = 'IDLE';
   private missionEnded: boolean = false;
 
   // Raycasting & Mouse Interaction
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private lastPointerWorld = new THREE.Vector3();
   private placementGhost: THREE.Mesh | null = null;
   private ghostRangeRing: THREE.Group | null = null;
   private ghostBorderMesh: THREE.Mesh | null = null;
@@ -90,10 +135,11 @@ class GameApp {
     this.pathfinder = new Pathfinder(this.grid);
     this.pathfinder.setScene(this.renderer.scene);
     this.vfx = new VFXManager(this.renderer.scene, this.cameraCtrl.camera, this.container);
+    this.fx = new FxRelay(this.vfx, audio);
     this.towerManager = new TowerManager(this.grid, this.pathfinder, this.renderer.scene, this.vfx);
     this.unitManager = new UnitManager(this.renderer.scene, this.vfx, this.cameraCtrl.camera);
     this.arenaCastle = new ArenaCastle(this.renderer.scene, this.vfx, this.castleMaxHp);
-    this.unitManager.setArenaCastle(this.arenaCastle, () => this.resolveMissionDefeat());
+    this.unitManager.setArenaCastle(this.arenaCastle, () => this.handleSunCastleFallen());
     this.portalGuardianManager = new PortalGuardianManager(this.renderer.scene, this.vfx, this.unitManager);
     this.techTree = new TechTreeManager();
     this.achievementManager = new AchievementManager();
@@ -102,9 +148,7 @@ class GameApp {
 
     this.networkManager = new NetworkManager();
     this.networkManager.setScene(this.renderer.scene);
-    this.ui.initMultiplayer(this.networkManager, (mode) => {
-      this.startMultiplayerMatch(mode);
-    });
+    this.ui.initMultiplayer(this.networkManager);
     this.setupNetworkHandlers();
 
     this.towerManager.onChampionEvolved = () => {
@@ -140,12 +184,286 @@ class GameApp {
     this.animate();
   }
 
+  // --- Multiplayer role helpers ---
+
+  /** Receiving the host's simulation; must not simulate or mutate authoritative state locally. */
+  private get isClient(): boolean {
+    return this.networkManager.isClientInMatch;
+  }
+
+  private get isHostInMatch(): boolean {
+    return this.networkManager.isHostInMatch;
+  }
+
+  /** The local player's gold: the solo wallet, or this player's slot in a multiplayer match. */
+  private get playerGold(): number {
+    return this.getLocalActor()?.wallet.gold ?? 0;
+  }
+
+  private getActor(peerId: string): Actor | null {
+    if (!this.networkManager.inMatch) {
+      return { peerId: SOLO_ACTOR_ID, name: 'Commander', team: 'SUN', wallet: this.soloWallet, slot: null };
+    }
+    const slot = this.networkManager.getPlayer(peerId);
+    if (!slot) return null;
+    return { peerId, name: slot.name, team: slot.team, wallet: slot, slot };
+  }
+
+  private getLocalActor(): Actor | null {
+    return this.getActor(this.networkManager.inMatch ? this.networkManager.localPeerId : SOLO_ACTOR_ID);
+  }
+
+  private isLocalActor(actor: Actor): boolean {
+    return actor.peerId === SOLO_ACTOR_ID || actor.peerId === this.networkManager.localPeerId;
+  }
+
+  /** Owners manage their towers; towers of players who left the match can be managed by anyone. */
+  private canManageTower(actor: Actor, tower: TowerInstance): boolean {
+    if (!this.networkManager.inMatch) return true;
+    if (!tower.ownerPeerId || tower.ownerPeerId === actor.peerId) return true;
+    return !this.networkManager.isPlayerPresent(tower.ownerPeerId);
+  }
+
+  /** UI feedback for the local player only; never replicated to other peers. */
+  private localToast(pos: THREE.Vector3, text: string, color: string = '#ef4444', duration: number = 1.5, errorSound: boolean = false) {
+    this.fx.local(() => {
+      if (errorSound) audio.playDefeat();
+      this.vfx.spawnFloatingText(pos, text, color, duration);
+    });
+  }
+
+  private showActionError(reason: string, action: GameAction) {
+    this.localToast(this.feedbackPosFor(action), reason, '#ef4444', 1.6, true);
+  }
+
+  /** Where to show feedback about an action: at the tower/guardian involved, else where the player pointed. */
+  private feedbackPosFor(action: GameAction): THREE.Vector3 {
+    switch (action.kind) {
+      case 'UPGRADE_TOWER':
+      case 'EVO_UPGRADE':
+      case 'SELL_TOWER': {
+        const tower = this.towerManager.towers.get(action.towerId);
+        if (tower) return tower.worldPos.clone().add(new THREE.Vector3(0, 1.5, 0));
+        break;
+      }
+      case 'UPGRADE_GUARDIAN': {
+        const guardian = this.portalGuardianManager.getGuardian(action.guardianId);
+        if (guardian) return guardian.position.clone().add(new THREE.Vector3(0, 3.5, 0));
+        break;
+      }
+      case 'BUY_RECRUIT':
+        return RECRUIT_MSG_POS.clone();
+      case 'START_WAVE':
+      case 'SET_GAME_SPEED':
+      case 'SEND_MERCENARY':
+        return ARENA_MSG_POS.clone();
+    }
+    return this.lastPointerWorld.clone().add(new THREE.Vector3(0, 1.5, 0));
+  }
+
+  // --- Action pipeline ---
+
+  /**
+   * Entry point for every gameplay action the local player performs. Solo play executes immediately;
+   * in a match the action goes to the host (directly if we are the host) for validation.
+   */
+  private requestAction(action: GameAction) {
+    if (this.networkManager.inMatch) {
+      this.networkManager.sendAction(action);
+      return;
+    }
+    const actor = this.getLocalActor();
+    if (!actor) return;
+    const rejection = this.executeAction(actor, action);
+    if (rejection) this.showActionError(rejection, action);
+  }
+
+  /**
+   * Validates and applies an action. Runs in solo play and on the multiplayer host (for every player);
+   * never on multiplayer clients. Action payloads from peers are untrusted.
+   */
+  private executeAction(actor: Actor, action: GameAction): ActionResult {
+    if (this.missionEnded) return 'The battle is over.';
+
+    switch (action.kind) {
+      case 'BUILD_TOWER': {
+        const { coord, towerType } = action;
+        const def = TOWER_DEFINITIONS[towerType];
+        if (!def || !isGridCoord(coord)) return 'Invalid tower placement.';
+        const check = this.towerManager.canBuild(coord, towerType, actor.wallet.gold);
+        if (!check.allowed) return check.reason || 'Cannot build here!';
+
+        const tower = this.towerManager.buildTower(coord, towerType, undefined, actor.peerId, actor.name, actor.team);
+        if (!tower) return 'Cannot build here!';
+        actor.wallet.gold -= def.cost;
+        this.rerouteActiveUnits();
+
+        if (this.isHostInMatch) {
+          this.vfx.spawnFloatingText(tower.worldPos.clone(), `🏗️ ${actor.name} BUILT ${def.name}!`, '#38bdf8', 1.8);
+          this.networkManager.broadcastEvent({ kind: 'TOWER_BUILT', id: tower.id, team: actor.team, ownerPeerId: actor.peerId, towerType, coord });
+        }
+        this.updatePlacementGhost();
+        this.updateHUD();
+        return null;
+      }
+
+      case 'UPGRADE_TOWER': {
+        const tower = this.towerManager.towers.get(action.towerId);
+        if (!tower) return 'Tower not found.';
+        if (!isUpgradeBranch(action.branch)) return 'Invalid upgrade.';
+        if (!this.canManageTower(actor, tower)) return '⛔ Only the builder can upgrade this tower!';
+
+        const res = this.towerManager.upgradeTower(tower.id, action.branch, actor.wallet.gold);
+        if (!res.success) return res.reason || 'Cannot upgrade this tower.';
+        actor.wallet.gold -= res.cost;
+        if (tower.level >= 10 && this.isLocalActor(actor)) {
+          this.achievementManager.recordTowerMaxed(tower.type);
+        }
+
+        this.networkManager.broadcastEvent({ kind: 'TOWER_UPGRADED', id: tower.id, branch: action.branch });
+        this.refreshTowerCardIfOpen(tower);
+        this.updateHUD();
+        return null;
+      }
+
+      case 'EVO_UPGRADE': {
+        const tower = this.towerManager.towers.get(action.towerId);
+        if (!tower) return 'Tower not found.';
+        if (![1, 2, 3, 4].includes(action.abilityIndex)) return 'Invalid ability.';
+        if (!this.canManageTower(actor, tower)) return '⛔ Only the builder can evolve this tower!';
+
+        const res = this.towerManager.upgradeEvoAbility(tower.id, action.abilityIndex, actor.wallet.gold);
+        if (!res.success) return res.reason || 'Cannot upgrade this ability.';
+        actor.wallet.gold -= res.cost;
+        if (this.isLocalActor(actor) && tower.ability1Level >= 10 && tower.ability2Level >= 10 && tower.ability3Level >= 10 && tower.ability4Level >= 10) {
+          this.achievementManager.recordTowerMaxed(TowerType.EVOLUTION);
+        }
+
+        this.networkManager.broadcastEvent({ kind: 'EVO_UPGRADED', id: tower.id, abilityIndex: action.abilityIndex });
+        this.refreshTowerCardIfOpen(tower);
+        this.updateHUD();
+        return null;
+      }
+
+      case 'SELL_TOWER': {
+        const tower = this.towerManager.towers.get(action.towerId);
+        if (!tower) return 'Tower not found.';
+        if (!this.canManageTower(actor, tower)) return '⛔ Only the builder can sell this tower!';
+
+        const pos = tower.worldPos.clone();
+        const refund = this.removeTower(tower.id);
+        actor.wallet.gold += refund;
+        if (this.isHostInMatch) {
+          this.vfx.spawnFloatingText(pos, `💰 ${actor.name} SOLD TOWER (+${refund}g)`, '#94a3b8', 1.8);
+        }
+        this.networkManager.broadcastEvent({ kind: 'TOWER_SOLD', id: tower.id });
+        this.rerouteActiveUnits();
+        this.updateHUD();
+        return null;
+      }
+
+      case 'BUY_RECRUIT': {
+        if (this.wavePhase === 'ARENA_CLASH') return 'Cannot recruit during Arena Clash!';
+        if (this.networkManager.inMatch && this.networkManager.mode === 'PVP' && actor.team !== 'SUN') {
+          return 'Only Team Sun commands the maze army. Send mercenaries instead!';
+        }
+        const cost = this.getRecruitCost();
+        if (actor.wallet.gold < cost) return `Need 🪙${cost}g for Recruit!`;
+
+        actor.wallet.gold -= cost;
+        this.extraPurchasedRecruits++;
+        const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits;
+        const nextCost = this.getRecruitCost();
+        const hirer = this.networkManager.inMatch ? `${actor.name}: ` : '';
+        audio.playBuild();
+
+        if (this.wavePhase === 'MAZE_RUN') {
+          this.friendlyUnitsToSpawn++;
+          this.vfx.spawnFloatingText(RECRUIT_MSG_POS, `🛡️ ${hirer}RECRUIT REINFORCEMENT! (${totalRecruits} total, next 🪙${nextCost}g)`, '#38bdf8', 2.0);
+        } else {
+          this.vfx.spawnFloatingText(RECRUIT_MSG_POS, `🛡️ ${hirer}+1 RECRUIT HIRED! (${totalRecruits} total, next 🪙${nextCost}g)`, '#38bdf8', 2.0);
+        }
+        this.vfx.spawnAscensionPillar(new THREE.Vector3(-34, 0, -12), 0x38bdf8);
+        this.updateHUD();
+        return null;
+      }
+
+      case 'SEND_MERCENARY': {
+        if (!this.networkManager.inMatch || this.networkManager.mode !== 'PVP' || !actor.slot) {
+          return 'Mercenaries are only available in PvP matches.';
+        }
+        const def = MERCENARY_DEFINITIONS[action.enemyClass];
+        if (!def) return 'Unknown mercenary.';
+        if (actor.wallet.gold < def.cost) return `Need 🪙${def.cost}g to hire ${def.name}!`;
+
+        actor.wallet.gold -= def.cost;
+        actor.slot.income += def.incomeBonus;
+
+        const fightsForSun = actor.team === 'SUN';
+        const spawnPos = new THREE.Vector3(fightsForSun ? 3.0 : 21.0, 0.4, (Math.random() - 0.5) * 4.0);
+        this.unitManager.spawnMercenary(def.enemyClass, spawnPos, fightsForSun, this.currentWaveIndex);
+        this.vfx.spawnFloatingText(spawnPos, `⚔️ ${actor.name} SENT ${def.name.toUpperCase()}!`, fightsForSun ? '#facc15' : '#ef4444', 2.0);
+        audio.playEvolution();
+        this.updateHUD();
+        return null;
+      }
+
+      case 'START_WAVE':
+        this.startWave(this.networkManager.inMatch ? actor.name : undefined);
+        return null;
+
+      case 'UPGRADE_GUARDIAN': {
+        const guardian = this.portalGuardianManager.getGuardian(action.guardianId);
+        if (!guardian) return 'Unknown guardian.';
+        if (action.upgradeType !== 'damage' && action.upgradeType !== 'range') return 'Invalid upgrade.';
+        return this.upgradeGuardian(actor, guardian, action.upgradeType);
+      }
+
+      case 'SET_FOCUS': {
+        if (action.unitId === null) {
+          this.setFocusTarget(null);
+          return null;
+        }
+        const target = this.unitManager.units.find(u => u.id === action.unitId && !u.isFriendly && !u.isDead && !u.isDying);
+        if (target) this.setFocusTarget(target);
+        return null;
+      }
+
+      case 'TOGGLE_SMART_FOCUS': {
+        const active = this.towerManager.toggleSmartFocus();
+        audio.playUpgrade();
+        this.vfx.spawnFloatingText(
+          new THREE.Vector3(0, 3, 0),
+          `🎯 SMART FOCUS: ${active ? 'ON (Champions First)' : 'OFF (Lead Recruits)'}`,
+          active ? '#a5b4fc' : '#94a3b8',
+          1.4
+        );
+        this.updateHUD();
+        if (this.towerManager.selectedTower) this.refreshTowerCardIfOpen(this.towerManager.selectedTower);
+        return null;
+      }
+
+      case 'SET_GAME_SPEED': {
+        if (this.networkManager.inMatch && actor.peerId !== this.networkManager.localPeerId) {
+          return 'Only the host can change the game speed.';
+        }
+        if (!GAME_SPEEDS.includes(action.speed)) return 'Invalid game speed.';
+        this.gameSpeed = action.speed;
+        this.updateHUD();
+        return null;
+      }
+    }
+    return 'Unknown action.';
+  }
+
+  // --- UI & network wiring ---
+
   private setupUIHandlers() {
-    this.ui.onStartWave = () => this.startWave();
-    this.ui.onBuyRecruit = () => this.buyRecruit();
+    this.ui.onStartWave = () => this.requestAction({ kind: 'START_WAVE' });
+    this.ui.onBuyRecruit = () => this.requestAction({ kind: 'BUY_RECRUIT' });
     this.ui.onToggleFocusFire = () => this.toggleFocusFireMode();
-    this.ui.onClearFocusTarget = () => this.setFocusTarget(null);
-    this.ui.onToggleSmartFocus = () => this.toggleSmartFocus();
+    this.ui.onClearFocusTarget = () => this.requestAction({ kind: 'SET_FOCUS', unitId: null });
+    this.ui.onToggleSmartFocus = () => this.requestAction({ kind: 'TOGGLE_SMART_FOCUS' });
     this.ui.onSelectTowerPlacement = (type) => {
       if (type) {
         if (this.towerManager.selectedTower) {
@@ -159,365 +477,307 @@ class GameApp {
       }
       this.updatePlacementGhost();
     };
-    this.ui.onSetGameSpeed = (speed: number) => {
-      this.gameSpeed = speed;
-      this.updateHUD();
-    };
+    this.ui.onSetGameSpeed = (speed: number) => this.requestAction({ kind: 'SET_GAME_SPEED', speed });
     this.ui.onSelectMission = (mission: CampaignMission) => {
+      if (this.multiplayerBoardActive) {
+        this.localToast(ARENA_MSG_POS, 'Leave the multiplayer match before starting a campaign mission.', '#f87171', 2.0, true);
+        return;
+      }
       this.loadMission(mission);
     };
   }
 
   private setupNetworkHandlers() {
-    const prevMatchStarted = this.networkManager.onMatchStarted;
-    this.networkManager.onMatchStarted = (mode, missionId, startingGold) => {
-      if (this.ui.multiplayerModal) {
-        this.ui.multiplayerModal.close();
-      }
-      if (prevMatchStarted) {
-        prevMatchStarted(mode, missionId, startingGold);
-      }
-      this.startMultiplayerMatch(mode, missionId, startingGold);
-    };
+    const nm = this.networkManager;
 
-    this.networkManager.onRemoteBuildTower = (peerId, team, coord, towerType) => {
-      const player = this.networkManager.getPlayer(peerId);
-      const def = TOWER_DEFINITIONS[towerType];
-      if (player && player.gold >= def.cost) {
-        const canBuild = this.towerManager.canBuild(coord, towerType, player.gold);
-        if (canBuild.allowed) {
-          const ownerName = player.name;
-          const tower = this.towerManager.buildTower(coord, towerType, undefined, peerId, ownerName, team);
-          if (tower) {
-            player.gold -= def.cost;
-            if (peerId === this.networkManager.localPeerId) {
-              this.playerGold = player.gold;
-            }
-            this.rerouteActiveUnits();
-            this.updateHUD();
-            this.networkManager.conn.broadcast({
-              type: 'EVENT_TOWER_BUILT',
-              id: tower.id,
-              team,
-              ownerPeerId: peerId,
-              towerType,
-              coord
-            });
-          }
-        }
-      }
-    };
+    nm.onMatchStarted = (mode, missionId) => this.startMultiplayerMatch(mode, missionId);
 
-    this.networkManager.onRemoteUpgradeTower = (peerId, towerId, branch) => {
-      const player = this.networkManager.getPlayer(peerId);
-      const tower = this.towerManager.towers.get(towerId);
-      if (!player || !tower) return;
-
-      // Ownership protection: only the owner can upgrade their tower!
-      if (tower.ownerPeerId && tower.ownerPeerId !== peerId) {
-        return;
-      }
-
-      const res = this.towerManager.upgradeTower(towerId, branch, player.gold);
-      if (res.success) {
-        player.gold -= res.cost;
-        if (peerId === this.networkManager.localPeerId) {
-          this.playerGold = player.gold;
-        }
-        if (this.towerManager.selectedTower?.id === towerId) {
-          this.openTowerCard(tower);
-        }
-        this.updateHUD();
-        this.networkManager.conn.broadcast({
-          type: 'EVENT_TOWER_UPGRADED',
-          id: towerId,
-          ownerPeerId: peerId,
-          branch,
-          level: tower.level
-        });
-      }
-    };
-
-    this.networkManager.onRemoteSellTower = (peerId, towerId) => {
-      const player = this.networkManager.getPlayer(peerId);
-      const tower = this.towerManager.towers.get(towerId);
-      if (!player || !tower) return;
-
-      // Ownership protection: only the owner can sell their tower!
-      if (tower.ownerPeerId && tower.ownerPeerId !== peerId) {
-        return;
-      }
-
-      const refund = this.towerManager.sellTower(towerId);
-      player.gold += refund;
-      if (peerId === this.networkManager.localPeerId) {
-        this.playerGold = player.gold;
-      }
-      if (this.towerManager.selectedTower?.id === towerId) {
-        this.towerManager.selectTower(null);
-        this.ui.hideTowerCard();
-      }
-      this.rerouteActiveUnits();
-      this.updateHUD();
-      this.networkManager.conn.broadcast({
-        type: 'EVENT_TOWER_SOLD',
-        id: towerId,
-        ownerPeerId: peerId,
-        refundGold: refund
-      });
-    };
-
-    this.networkManager.onRemoteBuyRecruit = (peerId, _team) => {
-      const player = this.networkManager.getPlayer(peerId);
-      const cost = this.getRecruitCost();
-      if (player && player.gold >= cost) {
-        player.gold -= cost;
-        this.extraPurchasedRecruits++;
-        if (peerId === this.networkManager.localPeerId) {
-          this.playerGold = player.gold;
-        }
-        audio.playBuild();
-        this.updateHUD();
-      }
-    };
-
-    this.networkManager.onRemoteMercenarySend = (peerId, team, enemyClass) => {
-      const player = this.networkManager.getPlayer(peerId);
-      if (!player) return;
-      const isSun = team === 'SUN';
-      const spawnX = isSun ? 3.0 : 21.0;
-      const spawnPos = new THREE.Vector3(spawnX, 0.4, (Math.random() - 0.5) * 4.0);
-      const unit = this.unitManager.spawnEnemy(enemyClass, spawnPos, false, this.currentWaveIndex);
-      if (unit) {
-        unit.inCombat = true;
-      }
-      this.vfx.spawnFloatingText(spawnPos, `⚔️ ${player.name} SENT ${enemyClass}!`, isSun ? '#facc15' : '#ef4444', 2.0);
-      audio.playEvolution();
-      this.updateHUD();
-    };
-
-    this.networkManager.onSnapshotReceived = (snapshot) => {
-      this.castleHp = snapshot.sunCastleHp;
-      this.castleMaxHp = snapshot.sunCastleMaxHp;
-      this.arenaCastle.currentHp = snapshot.sunCastleHp;
-      this.arenaCastle.maxHp = snapshot.sunCastleMaxHp;
-      this.arenaCastle.updateHpBar();
-
-      if (snapshot.moonCastleHp !== undefined && this.moonCastle) {
-        this.moonCastle.currentHp = snapshot.moonCastleHp;
-        if (snapshot.moonCastleMaxHp) this.moonCastle.maxHp = snapshot.moonCastleMaxHp;
-        this.moonCastle.updateHpBar();
-      }
-
-      const mySlot = this.networkManager.getLocalPlayer();
-      if (mySlot && snapshot.playerGolds[this.networkManager.localPeerId] !== undefined) {
-        this.playerGold = snapshot.playerGolds[this.networkManager.localPeerId];
-      }
-
-      this.wavePhase = snapshot.wavePhase;
-      this.updateHUD();
-    };
-
-    this.networkManager.onWaveCountdown = (secondsLeft) => {
-      this.vfx.spawnFloatingText(
-        new THREE.Vector3(12, 3, 0),
-        secondsLeft > 0 ? `⚔️ BATTLE IN ${secondsLeft}... ⚔️` : '⚔️ CHARGE! ⚔️',
-        '#facc15',
-        0.8
-      );
-      audio.playBuild();
-    };
-
-    this.networkManager.onMatchEnd = (winningTeam, isCoopVictory) => {
-      this.missionEnded = true;
-      this.waveInProgress = false;
-      const isMyWin = this.networkManager.mode === 'COOP' ? isCoopVictory : this.networkManager.localTeam === winningTeam;
-      if (isMyWin) {
-        this.ui.showVictory(3, () => this.ui.multiplayerModal.open('host'), () => this.loadMission(this.currentMission));
+    // Host: validate & execute actions from any player (including itself); replicate their VFX.
+    nm.onGameAction = (peerId, action) => {
+      const actor = this.getActor(peerId);
+      if (!actor) return;
+      const rejection = this.fx.record(() => this.executeAction(actor, action));
+      if (!rejection) return;
+      if (peerId === nm.localPeerId) {
+        this.showActionError(rejection, action);
       } else {
-        this.ui.showDefeat(() => this.ui.multiplayerModal.open('host'));
+        nm.sendEventTo(peerId, { kind: 'ACTION_REJECTED', reason: rejection, action });
       }
     };
 
-    this.networkManager.onRemoteTowerBuilt = (id, team, ownerPeerId, towerType, coord) => {
-      if (!this.networkManager.isHost) {
-        const owner = this.networkManager.getPlayer(ownerPeerId);
-        const ownerName = owner ? owner.name : 'Teammate';
-        const tower = this.towerManager.buildTower(coord, towerType, id, ownerPeerId, ownerName, team);
-        if (tower) {
-          this.vfx.spawnFloatingText(tower.worldPos, `🏗️ ${ownerName} BUILT ${TOWER_DEFINITIONS[towerType].name}!`, '#38bdf8', 1.8);
-          audio.playBuild();
-          this.rerouteActiveUnits();
-          this.updateHUD();
-        }
-      }
-    };
-
-    this.networkManager.onRemoteTowerUpgraded = (id, ownerPeerId, branch, level) => {
-      if (!this.networkManager.isHost) {
-        const tower = this.towerManager.towers.get(id);
-        if (tower) {
-          this.towerManager.upgradeTower(id, branch, 999999);
-          const owner = this.networkManager.getPlayer(ownerPeerId);
-          const ownerName = owner ? owner.name : 'Teammate';
-          this.vfx.spawnFloatingText(tower.worldPos, `⚡ ${ownerName} UPGRADED (LV ${level})!`, '#facc15', 1.8);
-          audio.playUpgrade();
-          if (this.towerManager.selectedTower?.id === id) {
-            this.openTowerCard(tower);
-          }
-          this.updateHUD();
-        }
-      }
-    };
-
-    this.networkManager.onRemoteTowerSold = (id, ownerPeerId, refundGold) => {
-      if (!this.networkManager.isHost) {
-        const tower = this.towerManager.towers.get(id);
-        if (tower) {
-          const pos = tower.worldPos.clone();
-          this.towerManager.sellTower(id);
-          const owner = this.networkManager.getPlayer(ownerPeerId);
-          const ownerName = owner ? owner.name : 'Teammate';
-          this.vfx.spawnFloatingText(pos, `💰 ${ownerName} SOLD TOWER (+${refundGold}g)`, '#94a3b8', 1.8);
-          if (this.towerManager.selectedTower?.id === id) {
-            this.towerManager.selectTower(null);
-            this.ui.hideTowerCard();
-          }
-          this.rerouteActiveUnits();
-          this.updateHUD();
-        }
-      }
-    };
-
-    this.networkManager.onMercenarySummoned = (senderPeerId, senderTeam, enemyClass) => {
-      if (!this.networkManager.isHost) {
-        const isSun = senderTeam === 'SUN';
-        const spawnX = isSun ? 3.0 : 21.0;
-        const spawnPos = new THREE.Vector3(spawnX, 0.4, (Math.random() - 0.5) * 4.0);
-        const unit = this.unitManager.spawnEnemy(enemyClass, spawnPos, false, this.currentWaveIndex);
-        if (unit) unit.inCombat = true;
-        const sender = this.networkManager.getPlayer(senderPeerId);
-        const senderName = sender ? sender.name : 'Opponent';
-        this.vfx.spawnFloatingText(spawnPos, `⚔️ ${senderName} SENT ${enemyClass}!`, isSun ? '#facc15' : '#ef4444', 2.0);
-        audio.playEvolution();
-        this.updateHUD();
-      }
-    };
+    nm.onHostEvent = (event) => this.applyHostEvent(event);
+    nm.onSnapshot = (snapshot) => this.applySnapshot(snapshot);
+    nm.onSessionEnded = (reason, detail) => this.handleSessionEnded(reason, detail);
   }
 
-  private startMultiplayerMatch(mode: GameMode, missionId: number = 1, startingGold: number = 250) {
-    this.playerGold = startingGold;
+  /** Client: apply a discrete world change made by the host. Its VFX arrive via FX replay, so they are muted here. */
+  private applyHostEvent(event: HostEvent) {
+    switch (event.kind) {
+      case 'TOWER_BUILT': {
+        const owner = this.networkManager.getPlayer(event.ownerPeerId);
+        this.fx.mute(() => this.towerManager.buildTower(event.coord, event.towerType, event.id, event.ownerPeerId, owner?.name ?? 'Teammate', event.team));
+        this.updatePlacementGhost();
+        this.updateHUD();
+        break;
+      }
+
+      case 'TOWER_UPGRADED': {
+        const tower = this.towerManager.towers.get(event.id);
+        if (!tower) break;
+        this.fx.mute(() => this.towerManager.upgradeTower(event.id, event.branch, Infinity));
+        this.refreshTowerCardIfOpen(tower);
+        break;
+      }
+
+      case 'EVO_UPGRADED': {
+        const tower = this.towerManager.towers.get(event.id);
+        if (!tower) break;
+        this.fx.mute(() => this.towerManager.upgradeEvoAbility(event.id, event.abilityIndex, Infinity));
+        this.refreshTowerCardIfOpen(tower);
+        break;
+      }
+
+      case 'TOWER_SOLD':
+        this.fx.mute(() => this.removeTower(event.id));
+        this.updatePlacementGhost();
+        this.updateHUD();
+        break;
+
+      case 'ACTION_REJECTED':
+        this.showActionError(event.reason, event.action);
+        break;
+
+      case 'MATCH_END':
+        this.missionEnded = true;
+        this.waveInProgress = false;
+        this.showMatchResult(event.winningTeam, event.isCoopVictory);
+        break;
+    }
+  }
+
+  private startMultiplayerMatch(mode: GameMode, missionId: number) {
+    this.ui.multiplayerModal.close();
+    this.ui.hideResultModals();
+    this.fx.clear();
+    this.multiplayerBoardActive = true;
+    this.gameSpeed = 1;
+    this.lastClientHudKey = '';
+    this.lastGuardianLevelsKey = '';
+    this.toggleFocusFireMode(false);
+
     const mission = CAMPAIGN_MISSIONS.find(m => m.id === missionId) || CAMPAIGN_MISSIONS[0];
     this.loadMission(mission);
 
     if (mode === 'PVP') {
       this.ui.mercenaryMenu.show();
       if (!this.moonCastle) {
-        this.moonCastle = new ArenaCastle(
-          this.renderer.scene,
-          this.vfx,
-          1500,
-          new THREE.Vector3(24.5, 0, 0),
-          true
-        );
+        this.moonCastle = new ArenaCastle(this.renderer.scene, this.vfx, 1500, new THREE.Vector3(24.5, 0, 0), true);
       } else {
         this.moonCastle.reset(1500);
         this.moonCastle.group.visible = true;
       }
-      this.unitManager.setMoonCastle(this.moonCastle, () => {
-        this.resolvePvPMatchEnd('SUN');
-      });
-      this.unitManager.onCastleDestroyed = () => {
-        this.resolvePvPMatchEnd('MOON');
-      };
-      this.vfx.spawnFloatingText(new THREE.Vector3(12, 3, 0), '⚔️ 4V4 CLASH OF STRONGHOLDS BEGINS! ⚔️', '#ef4444', 3.0);
+      this.unitManager.setMoonCastle(this.moonCastle, () => this.handleMoonCastleFallen());
+      this.vfx.spawnFloatingText(ARENA_MSG_POS, '⚔️ 4V4 CLASH OF STRONGHOLDS BEGINS! ⚔️', '#ef4444', 3.0);
     } else {
       this.ui.mercenaryMenu.hide();
-      this.unitManager.setMoonCastle(null);
-      this.unitManager.onCastleDestroyed = () => {
-        this.resolveMissionDefeat();
-      };
-      if (this.moonCastle) {
-        this.moonCastle.group.visible = false;
-      }
-      this.vfx.spawnFloatingText(new THREE.Vector3(12, 3, 0), '🤝 CO-OP ALLIED BASTION DEFENSE! 🤝', '#38bdf8', 3.0);
+      this.hideMoonCastle();
+      this.vfx.spawnFloatingText(ARENA_MSG_POS, '🤝 CO-OP ALLIED BASTION DEFENSE! 🤝', '#38bdf8', 3.0);
     }
 
     this.updateHUD();
   }
 
-  private resolvePvPMatchEnd(winningTeam: TeamId) {
+  private hideMoonCastle() {
+    this.unitManager.setMoonCastle(null);
+    if (this.moonCastle) this.moonCastle.group.visible = false;
+  }
+
+  /** Restores a clean solo board after a multiplayer match. */
+  private resetToSoloBoard() {
+    if (!this.multiplayerBoardActive) return;
+    this.multiplayerBoardActive = false;
+    this.ui.hideResultModals();
+    this.ui.mercenaryMenu.hide();
+    this.hideMoonCastle();
+    this.fx.clear();
+    this.gameSpeed = 1;
+    this.toggleFocusFireMode(false);
+    this.loadMission(this.currentMission);
+  }
+
+  private returnToLobby() {
+    this.resetToSoloBoard();
+    if (this.networkManager.isInRoom) {
+      this.ui.multiplayerModal.open(this.networkManager.isHost ? 'host' : 'join');
+    }
+  }
+
+  private handleSessionEnded(reason: SessionEndReason, detail?: string) {
+    this.resetToSoloBoard();
+    if (reason === 'left') return;
+    this.ui.multiplayerModal.setStatusMessage(detail ?? 'Disconnected from the room.');
+    if (!this.ui.multiplayerModal.isOpen()) {
+      this.ui.multiplayerModal.open(reason === 'rejected' ? 'join' : 'host');
+    }
+  }
+
+  /** Host: ends the match for everyone. */
+  private finishMultiplayerMatch(winningTeam: TeamId, isCoopVictory: boolean) {
     if (this.missionEnded) return;
     this.missionEnded = true;
     this.waveInProgress = false;
+    this.wavePhase = 'IDLE';
 
-    if (winningTeam === 'SUN') {
-      if (this.moonCastle && !this.moonCastle.isDestroyed) {
-        this.moonCastle.triggerDestruction();
-      }
-    } else {
-      if (this.arenaCastle && !this.arenaCastle.isDestroyed) {
-        this.arenaCastle.triggerDestruction();
-      }
+    if (!isCoopVictory) {
+      const losingCastle = winningTeam === 'SUN' ? this.moonCastle : this.arenaCastle;
+      if (losingCastle && !losingCastle.isDestroyed) losingCastle.triggerDestruction();
     }
 
-    if (this.networkManager.isHost) {
-      this.networkManager.conn.broadcast({
-        type: 'EVENT_MATCH_END',
-        winningTeam
-      });
-    }
+    // Flush the final state (including the destruction VFX) before announcing the result.
+    this.broadcastStateSnapshot();
+    this.networkManager.broadcastEvent({ kind: 'MATCH_END', winningTeam, isCoopVictory });
+    this.networkManager.endMatch();
+    this.showMatchResult(winningTeam, isCoopVictory);
+  }
 
-    const isMyWin = this.networkManager.localTeam === winningTeam;
+  private showMatchResult(winningTeam: TeamId, isCoopVictory: boolean) {
+    const isCoop = this.networkManager.mode === 'COOP';
+    const won = isCoop ? isCoopVictory : this.networkManager.localTeam === winningTeam;
+    const winnerName = winningTeam === 'SUN' ? 'Sun' : 'Moon';
+
     setTimeout(() => {
-      if (isMyWin) {
-        this.ui.showVictory(3, () => this.ui.multiplayerModal.open('host'), () => this.loadMission(this.currentMission));
+      if (won) {
+        this.ui.showVictory(3, () => this.returnToLobby(), null, {
+          next: 'Back to Lobby',
+          message: isCoop ? 'Your alliance held the line against every wave!' : `Team ${winnerName} razed the enemy stronghold!`
+        });
       } else {
-        this.ui.showDefeat(() => this.ui.multiplayerModal.open('host'));
+        this.ui.showDefeat(() => this.returnToLobby(), {
+          retry: 'Back to Lobby',
+          message: isCoop ? 'The allied stronghold was overrun!' : `Team ${winnerName} razed your stronghold!`
+        });
       }
     }, 1200);
   }
 
-  private broadcastStateSnapshot() {
-    if (!this.networkManager || !this.networkManager.isHost) return;
+  // --- State snapshots ---
 
-    const playerGolds: Record<string, number> = {};
-    const playerIncomes: Record<string, number> = {};
+  private broadcastStateSnapshot() {
+    if (!this.isHostInMatch) return;
+
+    const economy: StateSnapshot['economy'] = {};
     for (const p of this.networkManager.players.values()) {
-      playerGolds[p.peerId] = p.gold;
-      playerIncomes[p.peerId] = p.income;
+      economy[p.peerId] = [p.gold, p.income];
     }
 
-    const units: UnitSnapshot[] = this.unitManager.units.map(u => ({
-      id: u.id,
-      isFriendly: u.isFriendly,
-      team: 'SUN',
-      unitClass: u.unitClass,
-      x: u.worldPos.x,
-      y: u.worldPos.y,
-      z: u.worldPos.z,
-      rotY: u.mesh.rotation.y,
-      currentHp: u.currentHp,
-      maxHp: u.maxHp,
-      isDead: u.isDead,
-      inCombat: u.inCombat,
-      tier: u.stats.tier
-    }));
-
-    this.networkManager.conn.broadcast({
-      type: 'STATE_SNAPSHOT',
-      snapshot: {
-        waveNumber: this.currentWaveIndex + 1,
-        wavePhase: this.wavePhase,
-        sunCastleHp: this.arenaCastle.currentHp,
-        sunCastleMaxHp: this.arenaCastle.maxHp,
-        moonCastleHp: this.moonCastle ? this.moonCastle.currentHp : undefined,
-        moonCastleMaxHp: this.moonCastle ? this.moonCastle.maxHp : undefined,
-        playerGolds,
-        playerIncomes,
-        units
-      }
+    this.networkManager.broadcastSnapshot({
+      waveIndex: this.currentWaveIndex,
+      wavePhase: this.wavePhase,
+      waveInProgress: this.waveInProgress,
+      extraRecruits: this.extraPurchasedRecruits,
+      gameSpeed: this.gameSpeed,
+      smartFocus: this.towerManager.smartFocusEnabled,
+      focusUnitId: this.focusTarget && !this.focusTarget.isDead ? this.focusTarget.id : null,
+      sunCastle: encodeCastle(this.arenaCastle),
+      moonCastle: this.networkManager.mode === 'PVP' && this.moonCastle ? encodeCastle(this.moonCastle) : null,
+      economy,
+      units: this.unitManager.units.filter(u => !u.isDead).map(encodeUnit),
+      towers: encodeTowers(this.towerManager),
+      guardians: encodeGuardians(this.portalGuardianManager),
+      fx: this.fx.flush()
     });
+  }
+
+  /** Client: mirror the host's authoritative state. */
+  private applySnapshot(s: StateSnapshot) {
+    this.fx.replay(s.fx);
+
+    const waveChanged = s.waveIndex !== this.currentWaveIndex;
+    this.currentWaveIndex = s.waveIndex;
+    this.wavePhase = s.wavePhase;
+    this.waveInProgress = s.waveInProgress;
+    this.extraPurchasedRecruits = s.extraRecruits;
+    this.gameSpeed = s.gameSpeed;
+    this.towerManager.smartFocusEnabled = s.smartFocus;
+    if (waveChanged) this.toggleFocusFireMode(false);
+
+    applyCastleState(this.arenaCastle, s.sunCastle);
+    this.castleHp = this.arenaCastle.currentHp;
+    this.castleMaxHp = this.arenaCastle.maxHp;
+    if (s.moonCastle && this.moonCastle) applyCastleState(this.moonCastle, s.moonCastle);
+
+    applyUnitStates(this.unitManager, s.units, (unit) => {
+      if (!unit.isFriendly) this.achievementManager.recordKill(unit.unitClass as EnemyClass, unit.isBoss);
+    });
+    applyTowerStates(this.towerManager, s.towers);
+    applyGuardianStates(this.portalGuardianManager, s.guardians);
+
+    // Guardian levels changed (someone upgraded): refresh an open guardian card
+    const guardianKey = s.guardians.map(g => `${g[0]}:${g[1]}:${g[2]}`).join('|');
+    if (guardianKey !== this.lastGuardianLevelsKey) {
+      this.lastGuardianLevelsKey = guardianKey;
+      const selected = this.portalGuardianManager.getSelectedGuardian();
+      if (selected && this.ui.isGuardianCardOpen()) this.openGuardianCard(selected);
+    }
+
+    // Shared focus-fire target
+    if ((this.focusTarget?.id ?? null) !== s.focusUnitId) {
+      const target = s.focusUnitId === null ? null : this.unitManager.units.find(u => u.id === s.focusUnitId && !u.isDying) ?? null;
+      this.focusTarget = target;
+      this.portalGuardianManager.setFocusTarget(target);
+      this.updateFocusVisuals();
+    }
+
+    // Re-rendering the HUD rebuilds its buttons, so only do it when something visible changed
+    const local = this.networkManager.getLocalPlayer();
+    const hudKey = [
+      local?.gold, local?.income, this.castleHp, this.castleMaxHp, s.moonCastle?.[0],
+      s.waveIndex, s.wavePhase, s.waveInProgress, s.extraRecruits, s.gameSpeed, s.smartFocus,
+      this.countAssembledRecruits()
+    ].join(',');
+    if (hudKey !== this.lastClientHudKey) {
+      this.lastClientHudKey = hudKey;
+      this.updateHUD();
+    }
+  }
+
+  // --- Economy helpers (solo player / multiplayer host) ---
+
+  private towerOwnerSlot(tower: TowerInstance): PlayerSlot | null {
+    if (!this.networkManager.inMatch || !tower.ownerPeerId) return null;
+    const owner = this.networkManager.getPlayer(tower.ownerPeerId);
+    return owner && !owner.disconnected ? owner : null;
+  }
+
+  /** Pays a tower's gold output to its owner (or splits it across the owner's team if they left). */
+  private creditTowerGold(tower: TowerInstance, amount: number) {
+    if (!this.networkManager.inMatch) {
+      this.soloWallet.gold += amount;
+      this.achievementManager.recordGold(amount);
+      return;
+    }
+    const owner = this.towerOwnerSlot(tower);
+    if (owner) {
+      owner.gold += amount;
+    } else {
+      this.networkManager.awardTeamGold(tower.team ?? 'SUN', amount);
+    }
+    if (tower.ownerPeerId === this.networkManager.localPeerId) {
+      this.achievementManager.recordGold(amount);
+    }
+  }
+
+  private awardKillBounty(bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) {
+    if (this.networkManager.inMatch) {
+      this.networkManager.awardTeamGold('SUN', bounty);
+    } else {
+      this.soloWallet.gold += bounty;
+    }
+    this.achievementManager.recordGold(bounty);
+    if (enemyClass) {
+      this.achievementManager.recordKill(enemyClass, isBoss || false);
+    }
+    this.updateHUD();
   }
 
   private setupPlacementGhost() {
@@ -576,22 +836,22 @@ class GameApp {
     this.missionEnded = false;
     this.wavePhase = 'IDLE';
     this.extraPurchasedRecruits = 0;
+    this.friendlyUnitsToSpawn = 0;
     this.setFocusTarget(null);
 
-    this.playerGold = mission.startingGold + this.techTree.getBonusStartingGold();
+    // Multiplayer starting gold is set per player by the host
+    if (!this.networkManager.inMatch) {
+      this.soloWallet.gold = mission.startingGold + this.techTree.getBonusStartingGold();
+    }
     this.castleHp = mission.castleMaxHp;
     this.castleMaxHp = mission.castleMaxHp;
-    if (this.arenaCastle) {
-      this.arenaCastle.reset(this.castleMaxHp);
-    }
+    this.arenaCastle.reset(this.castleMaxHp);
 
     this.unitManager.clearAll();
-    if (this.portalGuardianManager) {
-      this.portalGuardianManager.resetAll();
-    }
-    if (this.ui) {
-      this.ui.hideGuardianCard();
-    }
+    this.portalGuardianManager.resetAll();
+    this.ui.hideGuardianCard();
+    this.ui.hideTowerCard();
+    this.ui.hideUnitCard();
     for (const id of Array.from(this.towerManager.towers.keys())) {
       this.towerManager.sellTower(id);
     }
@@ -604,12 +864,11 @@ class GameApp {
   }
 
   private prepareWaveEnemiesInArena() {
-    for (let i = this.unitManager.units.length - 1; i >= 0; i--) {
-      const u = this.unitManager.units[i];
-      if (!u.isFriendly) {
-        this.renderer.scene.remove(u.mesh);
-        this.unitManager.units.splice(i, 1);
-      }
+    // Multiplayer clients receive the host's enemies through snapshots
+    if (this.isClient) return;
+
+    for (const u of this.unitManager.units.filter(u => !u.isFriendly && !u.isMercenary)) {
+      this.unitManager.despawnUnit(u);
     }
 
     const currentWave = this.currentMission.waves[this.currentWaveIndex];
@@ -639,8 +898,8 @@ class GameApp {
     }
   }
 
-  private startWave() {
-    if (this.waveInProgress) return;
+  private startWave(starterName?: string) {
+    if (this.waveInProgress || this.missionEnded) return;
     if (this.currentWaveIndex >= this.currentMission.waves.length) return;
 
     this.waveInProgress = true;
@@ -653,6 +912,9 @@ class GameApp {
     this.castleHpAtWaveStart = this.castleHp;
 
     audio.playBuild();
+    if (starterName) {
+      this.vfx.spawnFloatingText(ARENA_MSG_POS, `⚔️ ${starterName} RELEASED WAVE ${this.currentWaveIndex + 1}! ⚔️`, '#facc15', 2.0);
+    }
     this.updateHUD();
   }
 
@@ -664,14 +926,11 @@ class GameApp {
     this.vfx.spawnAscensionPillar(new THREE.Vector3(22, 0, 0), 0xef4444);
 
     for (const u of this.unitManager.units) {
-      if (u.isFriendly && !u.isDead) {
+      if (u.isDead) continue;
+      if (u.isFriendly) {
         u.inCombat = true;
         u.stagingPos = null;
-      }
-    }
-
-    for (const u of this.unitManager.units) {
-      if (!u.isFriendly && !u.isDead) {
+      } else {
         u.isWaitingInArena = false;
         u.inCombat = true;
       }
@@ -720,23 +979,22 @@ class GameApp {
     this.wavePhase = 'IDLE';
 
     const waveDef = this.currentMission.waves[this.currentWaveIndex];
-    if (this.networkManager.isConnected && this.networkManager.isHost) {
-      this.networkManager.awardTeamBounty('SUN', waveDef.rewardGold);
+    if (this.networkManager.inMatch) {
+      this.networkManager.awardTeamGold('SUN', waveDef.rewardGold);
       this.networkManager.payoutRoundIncome();
-      const mySlot = this.networkManager.getLocalPlayer();
-      if (mySlot) this.playerGold = mySlot.gold;
     } else {
-      this.playerGold += waveDef.rewardGold;
+      this.soloWallet.gold += waveDef.rewardGold;
     }
     this.achievementManager.recordGold(waveDef.rewardGold);
 
+    // Vault Reserve Gold Spires pay interest on their owner's reserve
     for (const tower of this.towerManager.towers.values()) {
       if (tower.type === TowerType.GOLD && tower.currentBranch === UpgradeBranch.BRANCH_B) {
         const curUpg = this.towerManager.getCurrentUpgrade(tower) || TOWER_DEFINITIONS[TowerType.GOLD].branchB[0];
-        const interest = Math.round(this.playerGold * (curUpg.roundInterestPercent ?? 0.10));
+        const ownerGold = this.networkManager.inMatch ? (this.towerOwnerSlot(tower)?.gold ?? 0) : this.soloWallet.gold;
+        const interest = Math.round(ownerGold * (curUpg.roundInterestPercent ?? 0.10));
         const payout = Math.max(curUpg.roundFlatGold ?? 20, interest);
-        this.playerGold += payout;
-        this.achievementManager.recordGold(payout);
+        this.creditTowerGold(tower, payout);
         tower.totalBuffApplied += payout;
         audio.playGoldGain();
         this.vfx.spawnFloatingText(tower.worldPos.clone().add(new THREE.Vector3(0, 2, 0)), `VAULT INTEREST: +${payout}g`, '#facc15', 2.0);
@@ -750,7 +1008,7 @@ class GameApp {
       this.vfx.spawnFloatingText(ev.pos, ev.message, ev.color, 2.5);
     }
     if (this.towerManager.selectedTower) {
-      this.openTowerCard(this.towerManager.selectedTower);
+      this.refreshTowerCardIfOpen(this.towerManager.selectedTower);
     }
 
     if (this.castleHp >= this.castleHpAtWaveStart) {
@@ -763,23 +1021,16 @@ class GameApp {
     this.setFocusTarget(null);
     this.toggleFocusFireMode(false);
 
-    for (let i = this.unitManager.units.length - 1; i >= 0; i--) {
-      const u = this.unitManager.units[i];
-      if (u.isFriendly) {
-        this.renderer.scene.remove(u.mesh);
-        this.unitManager.units.splice(i, 1);
-      }
+    for (const u of this.unitManager.units.filter(u => u.isFriendly)) {
+      this.unitManager.despawnUnit(u);
     }
 
     if (this.currentWaveIndex >= this.currentMission.waves.length) {
-      if (this.networkManager.isConnected && this.networkManager.isHost) {
-        this.networkManager.conn.broadcast({
-          type: 'EVENT_MATCH_END',
-          winningTeam: 'SUN',
-          isCoopVictory: true
-        });
+      if (this.networkManager.inMatch) {
+        this.finishMultiplayerMatch('SUN', true);
+      } else {
+        this.resolveMissionVictory();
       }
-      this.resolveMissionVictory();
     } else {
       const bonusHp = this.currentMission.castleHpPerWave ?? 150;
       this.arenaCastle.addWaveFortification(bonusHp);
@@ -825,7 +1076,7 @@ class GameApp {
     this.waveInProgress = false;
     this.wavePhase = 'IDLE';
 
-    if (this.arenaCastle && !this.arenaCastle.isDestroyed) {
+    if (!this.arenaCastle.isDestroyed) {
       this.arenaCastle.triggerDestruction();
     }
 
@@ -834,83 +1085,62 @@ class GameApp {
     }, 1200);
   }
 
-  private checkCastleDamage() {
-    if (this.missionEnded || !this.arenaCastle) return;
-
-    this.castleHp = this.arenaCastle.currentHp;
-    if (this.arenaCastle.isDestroyed || this.castleHp <= 0) {
-      if (this.networkManager.mode === 'PVP' && this.networkManager.isConnected) {
-        this.resolvePvPMatchEnd('MOON');
-      } else {
-        this.resolveMissionDefeat();
-      }
-      return;
-    }
-
-    if (this.networkManager.mode === 'PVP' && this.networkManager.isConnected && this.moonCastle) {
-      if (this.moonCastle.isDestroyed || this.moonCastle.currentHp <= 0) {
-        this.resolvePvPMatchEnd('SUN');
-      }
+  private handleSunCastleFallen() {
+    if (this.isClient || this.missionEnded) return;
+    if (this.isHostInMatch) {
+      this.finishMultiplayerMatch('MOON', false);
+    } else {
+      this.resolveMissionDefeat();
     }
   }
 
-  private buyRecruit() {
-    if (this.networkManager.isConnected) {
-      this.networkManager.sendBuyRecruit(this.networkManager.localTeam);
+  private handleMoonCastleFallen() {
+    if (this.isHostInMatch) {
+      this.finishMultiplayerMatch('SUN', false);
+    }
+  }
+
+  private checkCastleDamage() {
+    if (this.missionEnded || this.isClient) return;
+
+    this.castleHp = this.arenaCastle.currentHp;
+    if (this.arenaCastle.isDestroyed || this.castleHp <= 0) {
+      this.handleSunCastleFallen();
       return;
     }
 
-    if (this.wavePhase === 'ARENA_CLASH') {
-      audio.playDefeat();
-      this.vfx.spawnFloatingText(new THREE.Vector3(-34, 4, -12), 'Cannot recruit during Arena Clash!', '#f87171', 2.0);
-      return;
+    if (this.moonCastle && this.moonCastle.group.visible && (this.moonCastle.isDestroyed || this.moonCastle.currentHp <= 0)) {
+      this.handleMoonCastleFallen();
     }
+  }
 
-    const cost = this.getRecruitCost();
-    if (this.playerGold < cost) {
-      audio.playDefeat();
-      this.vfx.spawnFloatingText(new THREE.Vector3(-34, 4, -12), `Need 🪙${cost}g for Recruit!`, '#f87171', 1.5);
-      return;
-    }
-
-    this.playerGold -= cost;
-    this.extraPurchasedRecruits++;
-    const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits;
-    const nextCost = this.getRecruitCost();
-    audio.playBuild();
-
-    if (this.wavePhase === 'MAZE_RUN') {
-      this.friendlyUnitsToSpawn++;
-      this.vfx.spawnFloatingText(new THREE.Vector3(-34, 4, -12), `🛡️ RECRUIT REINFORCEMENT! (${totalRecruits} total, next 🪙${nextCost}g)`, '#38bdf8', 2.0);
-    } else {
-      this.vfx.spawnFloatingText(new THREE.Vector3(-34, 4, -12), `🛡️ +1 RECRUIT HIRED! (${totalRecruits} total, next 🪙${nextCost}g)`, '#38bdf8', 2.0);
-    }
-    this.vfx.spawnAscensionPillar(new THREE.Vector3(-34, 0, -12), 0x38bdf8);
-
-    this.updateHUD();
+  /** Recruits of the maze army that reached the arena (excludes PvP mercenaries). */
+  private countAssembledRecruits(): number {
+    return this.unitManager.units.filter(u => u.isFriendly && !u.isMercenary && !u.isDead && u.hasCompletedMaze).length;
   }
 
   private updateHUD() {
     const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits;
     const currentRecruitCost = this.getRecruitCost();
+    const gold = this.playerGold;
 
     let phaseText = 'Prepare Maze';
     if (this.waveInProgress) {
       if (this.wavePhase === 'MAZE_RUN') {
-        const assembled = this.unitManager.units.filter(u => u.isFriendly && u.hasCompletedMaze).length;
-        phaseText = `🏃 Maze (${assembled}/${totalRecruits})`;
+        phaseText = `🏃 Maze (${this.countAssembledRecruits()}/${totalRecruits})`;
       } else {
         phaseText = '⚔️ Arena Clash!';
       }
     }
 
     const canBuyRecruit = this.wavePhase !== 'ARENA_CLASH';
+    const isPvp = this.networkManager.inMatch && this.networkManager.mode === 'PVP';
 
     this.ui.renderTopBar(
       this.currentMission,
       Math.min(this.currentWaveIndex + 1, this.currentMission.waves.length),
       this.currentMission.waves.length,
-      this.playerGold,
+      gold,
       this.castleHp,
       this.castleMaxHp,
       this.gameSpeed,
@@ -918,18 +1148,37 @@ class GameApp {
       phaseText,
       totalRecruits,
       currentRecruitCost,
-      canBuyRecruit
+      canBuyRecruit,
+      this.castleHp,
+      isPvp && this.moonCastle ? this.moonCastle.currentHp : undefined
     );
 
-    this.ui.renderTowerPalette(this.playerGold, totalRecruits, currentRecruitCost, canBuyRecruit);
+    this.ui.renderTowerPalette(gold, totalRecruits, currentRecruitCost, canBuyRecruit);
 
     if (this.towerManager.selectedTower && this.ui.isTowerCardOpen()) {
-      this.ui.updateTowerCardLiveStats(this.towerManager.selectedTower, this.playerGold);
+      this.ui.updateTowerCardLiveStats(this.towerManager.selectedTower, gold);
     }
 
     if (this.ui.mercenaryMenu && this.ui.mercenaryMenu.visible) {
-      this.ui.mercenaryMenu.render(this.playerGold);
+      this.ui.mercenaryMenu.render(gold);
     }
+  }
+
+  private raycastGround(): THREE.Vector3 | null {
+    this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
+    const point = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(this.groundPlane, point) ? point : null;
+  }
+
+  private pickEnemyUnderCursor(): Unit | null {
+    this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
+    const enemyUnits = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead && !u.isDying);
+    for (const enemy of enemyUnits) {
+      if (this.raycaster.intersectObjects(enemy.mesh.children, true).length > 0) {
+        return enemy;
+      }
+    }
+    return null;
   }
 
   private setupMouseEvents() {
@@ -940,12 +1189,10 @@ class GameApp {
 
       this.updatePlacementGhost();
 
-      if (this.networkManager.isConnected) {
-        this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
-        const point = new THREE.Vector3();
-        if (this.raycaster.ray.intersectPlane(this.groundPlane, point)) {
-          this.networkManager.sendCursorMove(point.x, point.z, this.ui.selectedTowerTypeForPlacement || undefined);
-        }
+      const point = this.raycastGround();
+      if (point) {
+        this.lastPointerWorld.copy(point);
+        this.networkManager.sendCursorMove(point.x, point.z);
       }
     });
 
@@ -955,77 +1202,40 @@ class GameApp {
       this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
 
       if (this.isFocusFireMode) {
-        let clickedEnemy: Unit | null = null;
-        const enemyUnits = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead && !u.isDying);
-        for (const enemy of enemyUnits) {
-          const intersects = this.raycaster.intersectObjects(enemy.mesh.children, true);
-          if (intersects.length > 0) {
-            clickedEnemy = enemy;
-            break;
-          }
-        }
-
+        const clickedEnemy = this.pickEnemyUnderCursor();
         if (clickedEnemy) {
-          this.setFocusTarget(clickedEnemy);
+          this.requestAction({ kind: 'SET_FOCUS', unitId: clickedEnemy.id });
         }
         this.toggleFocusFireMode(false);
         return;
       }
 
       if (this.ui.selectedTowerTypeForPlacement) {
-        const point = new THREE.Vector3();
-        if (this.raycaster.ray.intersectPlane(this.groundPlane, point)) {
-          const coord = this.grid.worldToGrid(point.x, point.z);
-          if (coord) {
-            const tile = this.grid.getTile(coord.x, coord.z);
-            if (tile === TileType.ROAD) {
-              this.vfx.spawnFloatingText(point, 'Road tile! Build alongside the path.', '#ef4444', 1.5);
-              return;
-            }
+        const point = this.raycastGround();
+        const coord = point ? this.grid.worldToGrid(point.x, point.z) : null;
+        if (!point || !coord) return;
 
-            const check = this.towerManager.canBuild(coord, this.ui.selectedTowerTypeForPlacement, this.playerGold);
-            if (check.allowed) {
-              const currentType = this.ui.selectedTowerTypeForPlacement;
-              const def = TOWER_DEFINITIONS[currentType];
-
-              if (this.networkManager.isConnected) {
-                this.networkManager.sendBuildTower(this.networkManager.localTeam, coord, currentType);
-                if (!e.shiftKey) {
-                  this.ui.selectedTowerTypeForPlacement = null;
-                }
-                this.ui.renderTowerPalette();
-                this.updatePlacementGhost();
-                return;
-              }
-
-              const tower = this.towerManager.buildTower(
-                coord,
-                currentType,
-                undefined,
-                'local',
-                'Commander',
-                'SUN'
-              );
-              if (tower) {
-                this.playerGold -= def.cost;
-
-                const isGoldLimit = currentType === TowerType.GOLD && this.towerManager.getTowerCountByType(TowerType.GOLD) >= 4;
-                if (e.shiftKey && this.playerGold >= def.cost && !isGoldLimit) {
-                  this.ui.selectedTowerTypeForPlacement = currentType;
-                } else {
-                  this.ui.selectedTowerTypeForPlacement = null;
-                }
-
-                this.ui.renderTowerPalette();
-                this.updatePlacementGhost();
-                this.rerouteActiveUnits();
-                this.updateHUD();
-              }
-            } else {
-              this.vfx.spawnFloatingText(point, check.reason || 'Cannot build here!', '#ef4444', 1.5);
-            }
-          }
+        if (this.grid.getTile(coord.x, coord.z) === TileType.ROAD) {
+          this.localToast(point, 'Road tile! Build alongside the path.');
+          return;
         }
+
+        const currentType = this.ui.selectedTowerTypeForPlacement;
+        const check = this.towerManager.canBuild(coord, currentType, this.playerGold);
+        if (!check.allowed) {
+          this.localToast(point, check.reason || 'Cannot build here!');
+          return;
+        }
+
+        this.requestAction({ kind: 'BUILD_TOWER', coord, towerType: currentType });
+
+        // Shift keeps placing the same tower type. Clients can't know the outcome yet; the host will reject if unaffordable.
+        const def = TOWER_DEFINITIONS[currentType];
+        const isGoldLimit = currentType === TowerType.GOLD && this.towerManager.getTowerCountByType(TowerType.GOLD) >= 4;
+        const keepPlacing = e.shiftKey && (this.isClient || (this.playerGold >= def.cost && !isGoldLimit));
+        this.ui.selectedTowerTypeForPlacement = keepPlacing ? currentType : null;
+        this.ui.renderTowerPalette();
+        this.updatePlacementGhost();
         return;
       }
 
@@ -1035,10 +1245,9 @@ class GameApp {
         return;
       }
 
-      let clickedTower: any = null;
+      let clickedTower: TowerInstance | null = null;
       for (const tower of this.towerManager.towers.values()) {
-        const intersects = this.raycaster.intersectObjects(tower.mesh.children, true);
-        if (intersects.length > 0) {
+        if (this.raycaster.intersectObjects(tower.mesh.children, true).length > 0) {
           clickedTower = tower;
           break;
         }
@@ -1049,10 +1258,9 @@ class GameApp {
         return;
       }
 
-      let clickedUnit: any = null;
+      let clickedUnit: Unit | null = null;
       for (const unit of this.unitManager.units) {
-        const intersects = this.raycaster.intersectObjects(unit.mesh.children, true);
-        if (intersects.length > 0) {
+        if (this.raycaster.intersectObjects(unit.mesh.children, true).length > 0) {
           clickedUnit = unit;
           break;
         }
@@ -1089,36 +1297,25 @@ class GameApp {
         return;
       }
 
-      this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
-      let clickedEnemy: Unit | null = null;
-      const enemyUnits = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead && !u.isDying);
-      for (const enemy of enemyUnits) {
-        const intersects = this.raycaster.intersectObjects(enemy.mesh.children, true);
-        if (intersects.length > 0) {
-          clickedEnemy = enemy;
-          break;
-        }
-      }
-
+      const clickedEnemy = this.pickEnemyUnderCursor();
       if (clickedEnemy) {
-        this.setFocusTarget(clickedEnemy);
+        this.requestAction({ kind: 'SET_FOCUS', unitId: clickedEnemy.id });
       } else if (this.focusTarget) {
-        this.setFocusTarget(null);
+        this.requestAction({ kind: 'SET_FOCUS', unitId: null });
       }
     });
   }
 
   private selectTowerForPlacement(type: TowerType) {
+    const msgPos = new THREE.Vector3(0, 2, 0);
     if (type === TowerType.GOLD && this.towerManager.getTowerCountByType(TowerType.GOLD) >= 4 && this.ui.selectedTowerTypeForPlacement !== type) {
-      audio.playDefeat();
-      this.vfx.spawnFloatingText(new THREE.Vector3(0, 2, 0), 'Gold Spire limit reached! Maximum 4 allowed.', '#ef4444', 1.5);
+      this.localToast(msgPos, 'Gold Spire limit reached! Maximum 4 allowed.', '#ef4444', 1.5, true);
       return;
     }
 
     const def = TOWER_DEFINITIONS[type];
     if (this.playerGold < def.cost && this.ui.selectedTowerTypeForPlacement !== type) {
-      audio.playDefeat();
-      this.vfx.spawnFloatingText(new THREE.Vector3(0, 2, 0), `Need 🪙${def.cost}g for ${def.name}!`, '#ef4444', 1.5);
+      this.localToast(msgPos, `Need 🪙${def.cost}g for ${def.name}!`, '#ef4444', 1.5, true);
       return;
     }
 
@@ -1134,7 +1331,7 @@ class GameApp {
         this.unitManager.selectUnit(null);
         this.ui.hideUnitCard();
       }
-      audio.playBuild();
+      this.fx.local(() => audio.playBuild());
     }
 
     this.ui.renderTowerPalette();
@@ -1162,21 +1359,7 @@ class GameApp {
     this.ui.updateFocusFireState(this.isFocusFireMode, this.focusTarget);
   }
 
-  private toggleSmartFocus() {
-    const active = this.towerManager.toggleSmartFocus();
-    audio.playUpgrade();
-    this.vfx.spawnFloatingText(
-      new THREE.Vector3(0, 3, 0),
-      `🎯 SMART FOCUS: ${active ? 'ON (Champions First)' : 'OFF (Lead Recruits)'}`,
-      active ? '#a5b4fc' : '#94a3b8',
-      1.4
-    );
-    this.updateHUD();
-    if (this.towerManager.selectedTower && this.ui.isTowerCardOpen()) {
-      this.openTowerCard(this.towerManager.selectedTower);
-    }
-  }
-
+  /** Authoritative focus-fire change (solo player / multiplayer host). */
   private setFocusTarget(target: Unit | null) {
     this.focusTarget = target;
     this.portalGuardianManager.setFocusTarget(target);
@@ -1190,11 +1373,18 @@ class GameApp {
         '#ef4444',
         1.6
       );
+    }
+    this.updateFocusVisuals();
+  }
+
+  /** Reticle & banner for the current focus target. */
+  private updateFocusVisuals() {
+    const target = this.focusTarget;
+    if (target && !target.isDead && !target.isDying) {
       this.createFocusReticle(target);
     } else {
       this.removeFocusReticle();
     }
-
     this.ui.updateFocusFireState(this.isFocusFireMode, this.focusTarget);
   }
 
@@ -1304,7 +1494,7 @@ class GameApp {
 
       if (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z') {
         e.preventDefault();
-        this.toggleSmartFocus();
+        this.requestAction({ kind: 'TOGGLE_SMART_FOCUS' });
         return;
       }
 
@@ -1320,9 +1510,8 @@ class GameApp {
 
       if (e.code === 'KeyG' || e.key === 'g' || e.key === 'G') {
         e.preventDefault();
-        this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
-        const point = new THREE.Vector3();
-        if (this.raycaster.ray.intersectPlane(this.groundPlane, point)) {
+        const point = this.raycastGround();
+        if (point) {
           this.networkManager.sendMapPing(point.x, point.z);
         }
         return;
@@ -1333,35 +1522,20 @@ class GameApp {
         if (guardian) {
           if (e.key === '1' || e.code === 'Numpad1') {
             e.preventDefault();
-            this.upgradeGuardian(guardian, 'damage');
+            this.requestAction({ kind: 'UPGRADE_GUARDIAN', guardianId: guardian.id, upgradeType: 'damage' });
             return;
           } else if (e.key === '2' || e.code === 'Numpad2') {
             e.preventDefault();
-            this.upgradeGuardian(guardian, 'range');
+            this.requestAction({ kind: 'UPGRADE_GUARDIAN', guardianId: guardian.id, upgradeType: 'range' });
             return;
           }
         }
       } else if (this.ui.isTowerCardOpen()) {
-        if (e.key === '1' || e.code === 'Numpad1') {
-          if (this.ui.triggerTowerUpgradeHotkey(1)) {
-            e.preventDefault();
-            return;
-          }
-        } else if (e.key === '2' || e.code === 'Numpad2') {
-          if (this.ui.triggerTowerUpgradeHotkey(2)) {
-            e.preventDefault();
-            return;
-          }
-        } else if (e.key === '3' || e.code === 'Numpad3') {
-          if (this.ui.triggerTowerUpgradeHotkey(3)) {
-            e.preventDefault();
-            return;
-          }
-        } else if (e.key === '4' || e.code === 'Numpad4') {
-          if (this.ui.triggerTowerUpgradeHotkey(4)) {
-            e.preventDefault();
-            return;
-          }
+        const hotkeys: Record<string, 1 | 2 | 3 | 4> = { '1': 1, '2': 2, '3': 3, '4': 4 };
+        const slot = hotkeys[e.key] ?? hotkeys[e.code.replace('Numpad', '')];
+        if (slot && this.ui.triggerTowerUpgradeHotkey(slot)) {
+          e.preventDefault();
+          return;
         }
       } else {
         const placementTypes: TowerType[] = [
@@ -1386,22 +1560,21 @@ class GameApp {
         }
 
         if (targetIndex >= 0 && targetIndex < placementTypes.length) {
-          const selectedType = placementTypes[targetIndex];
-          this.selectTowerForPlacement(selectedType);
+          this.selectTowerForPlacement(placementTypes[targetIndex]);
           e.preventDefault();
           return;
         }
       }
 
       if (e.code === 'KeyR' || e.key === 'r' || e.key === 'R' || e.key === '0' || e.code === 'Numpad0') {
-        this.buyRecruit();
+        this.requestAction({ kind: 'BUY_RECRUIT' });
         e.preventDefault();
         return;
       }
 
       if (e.code === 'Space' || e.key === ' ' || e.code === 'Enter') {
         if (!this.waveInProgress) {
-          this.startWave();
+          this.requestAction({ kind: 'START_WAVE' });
           e.preventDefault();
           return;
         }
@@ -1411,8 +1584,7 @@ class GameApp {
         e.preventDefault();
         const speeds = [1, 2, 4];
         const curIdx = speeds.indexOf(this.gameSpeed);
-        this.gameSpeed = speeds[(curIdx + 1) % speeds.length];
-        this.updateHUD();
+        this.requestAction({ kind: 'SET_GAME_SPEED', speed: speeds[(curIdx + 1) % speeds.length] });
         return;
       }
 
@@ -1434,7 +1606,7 @@ class GameApp {
           e.preventDefault();
           return;
         } else if (this.focusTarget) {
-          this.setFocusTarget(null);
+          this.requestAction({ kind: 'SET_FOCUS', unitId: null });
           e.preventDefault();
           return;
         } else if (this.ui.isAchievementsModalOpen()) {
@@ -1468,81 +1640,40 @@ class GameApp {
     });
   }
 
-  private openTowerCard(tower: any) {
+  private refreshTowerCardIfOpen(tower: TowerInstance) {
+    if (this.towerManager.selectedTower === tower && this.ui.isTowerCardOpen()) {
+      this.openTowerCard(tower, false);
+    }
+  }
+
+  /** Sells a tower, closing its card if it was open. Returns the refund. */
+  private removeTower(towerId: number): number {
+    const wasSelected = this.towerManager.selectedTower?.id === towerId;
+    const refund = this.towerManager.sellTower(towerId);
+    if (wasSelected) this.ui.hideTowerCard();
+    return refund;
+  }
+
+  private openTowerCard(tower: TowerInstance, announceOwnership: boolean = true) {
     this.portalGuardianManager.deselect();
     this.ui.hideGuardianCard();
     this.unitManager.selectUnit(null);
     this.ui.hideUnitCard();
     this.towerManager.selectTower(tower);
 
-    const isMultiplayer = Boolean(this.networkManager && this.networkManager.isConnected);
-    const localPeerId = this.networkManager?.localPeerId;
-    const isOwner = !isMultiplayer || !tower.ownerPeerId || tower.ownerPeerId === localPeerId || tower.ownerPeerId === 'local';
+    const localActor = this.getLocalActor();
+    const isOwner = localActor ? this.canManageTower(localActor, tower) : false;
 
-    if (!isOwner) {
-      const ownerLabel = tower.ownerName || 'Teammate';
-      this.vfx.spawnFloatingText(tower.worldPos, `🛡️ ${ownerLabel}'s Tower (View Only)`, '#38bdf8', 1.5);
+    if (!isOwner && announceOwnership) {
+      this.localToast(tower.worldPos, `🛡️ ${tower.ownerName || 'Teammate'}'s Tower (View Only)`, '#38bdf8', 1.5);
     }
 
     this.ui.showTowerCard(
       tower,
       this.playerGold,
-      (branch: UpgradeBranch) => {
-        if (!isOwner) {
-          this.vfx.spawnFloatingText(tower.worldPos, '⛔ Only the builder can upgrade this tower!', '#ef4444', 1.5);
-          return;
-        }
-        if (this.networkManager.isConnected) {
-          this.networkManager.sendUpgradeTower(tower.id, branch);
-          return;
-        }
-        const res = this.towerManager.upgradeTower(tower.id, branch, this.playerGold);
-        if (res.success) {
-          this.playerGold -= res.cost;
-          if (tower.level >= 10) {
-            this.achievementManager.recordTowerMaxed(tower.type);
-          }
-          this.updateHUD();
-          this.openTowerCard(tower);
-        } else if (res.reason) {
-          audio.playDefeat();
-          this.vfx.spawnFloatingText(tower.worldPos, res.reason, '#ef4444', 1.2);
-        }
-      },
-      () => {
-        if (!isOwner) {
-          this.vfx.spawnFloatingText(tower.worldPos, '⛔ Only the builder can sell this tower!', '#ef4444', 1.5);
-          return;
-        }
-        if (this.networkManager.isConnected) {
-          this.networkManager.sendSellTower(tower.id);
-          this.ui.hideTowerCard();
-          return;
-        }
-        const refund = this.towerManager.sellTower(tower.id);
-        this.playerGold += refund;
-        this.rerouteActiveUnits();
-        this.ui.hideTowerCard();
-        this.updateHUD();
-      },
-      (abilityIndex: 1 | 2 | 3 | 4) => {
-        if (!isOwner) {
-          this.vfx.spawnFloatingText(tower.worldPos, '⛔ Only the builder can evolve this tower!', '#ef4444', 1.5);
-          return;
-        }
-        const res = this.towerManager.upgradeEvoAbility(tower.id, abilityIndex, this.playerGold);
-        if (res.success) {
-          this.playerGold -= res.cost;
-          if (tower.ability1Level >= 10 && tower.ability2Level >= 10 && tower.ability3Level >= 10 && tower.ability4Level >= 10) {
-            this.achievementManager.recordTowerMaxed(TowerType.EVOLUTION);
-          }
-          this.updateHUD();
-          this.openTowerCard(tower);
-        } else if (res.reason) {
-          audio.playDefeat();
-          this.vfx.spawnFloatingText(tower.worldPos, res.reason, '#ef4444', 1.2);
-        }
-      },
+      (branch: UpgradeBranch) => this.requestAction({ kind: 'UPGRADE_TOWER', towerId: tower.id, branch }),
+      () => this.requestAction({ kind: 'SELL_TOWER', towerId: tower.id }),
+      (abilityIndex: 1 | 2 | 3 | 4) => this.requestAction({ kind: 'EVO_UPGRADE', towerId: tower.id, abilityIndex }),
       isOwner
     );
   }
@@ -1558,7 +1689,7 @@ class GameApp {
       guardian,
       this.playerGold,
       (upgradeType: 'damage' | 'range') => {
-        this.upgradeGuardian(guardian, upgradeType);
+        this.requestAction({ kind: 'UPGRADE_GUARDIAN', guardianId: guardian.id, upgradeType });
       },
       () => {
         this.portalGuardianManager.deselect();
@@ -1566,52 +1697,34 @@ class GameApp {
     );
   }
 
-  private upgradeGuardian(guardian: PortalGuardian, upgradeType: 'damage' | 'range') {
-    if (upgradeType === 'damage') {
-      const cost = guardian.getDamageUpgradeCost();
-      const nextDmg = guardian.getNextDamage();
-      if (nextDmg === null) return;
-      if (this.playerGold >= cost) {
-        this.playerGold -= cost;
-        guardian.upgradeDamage();
-        audio.playUpgrade();
-        this.vfx.spawnAscensionPillar(guardian.position, 0x38bdf8);
-        this.vfx.spawnBurstParticles(guardian.position.clone().add(new THREE.Vector3(0, 3.2, 0)), 0xfacc15, 14);
-        this.vfx.spawnFloatingText(
-          guardian.position.clone().add(new THREE.Vector3(0, 3.5, 0)),
-          `⚔️ GREATBOLT DAMAGE LV. ${guardian.damageLevel}! (${guardian.getDamage()} DMG)`,
-          '#38bdf8',
-          1.6
-        );
-        this.updateHUD();
-        this.openGuardianCard(guardian);
-      } else {
-        audio.playDefeat();
-        this.vfx.spawnFloatingText(guardian.position, `Need 🪙${cost}g!`, '#ef4444', 1.2);
-      }
-    } else if (upgradeType === 'range') {
-      const cost = guardian.getRangeUpgradeCost();
-      const nextRange = guardian.getNextRange();
-      if (nextRange === null) return;
-      if (this.playerGold >= cost) {
-        this.playerGold -= cost;
-        guardian.upgradeRange();
-        audio.playUpgrade();
-        this.vfx.spawnAscensionPillar(guardian.position, 0x06b6d4);
-        this.vfx.spawnBurstParticles(guardian.position.clone().add(new THREE.Vector3(0, 3.2, 0)), 0x38bdf8, 14);
-        this.vfx.spawnFloatingText(
-          guardian.position.clone().add(new THREE.Vector3(0, 3.5, 0)),
-          `🎯 BALLISTA REACH LV. ${guardian.rangeLevel}! (${guardian.getRange().toFixed(1)}M)`,
-          '#06b6d4',
-          1.6
-        );
-        this.updateHUD();
-        this.openGuardianCard(guardian);
-      } else {
-        audio.playDefeat();
-        this.vfx.spawnFloatingText(guardian.position, `Need 🪙${cost}g!`, '#ef4444', 1.2);
-      }
+  private upgradeGuardian(actor: Actor, guardian: PortalGuardian, upgradeType: 'damage' | 'range'): ActionResult {
+    const isDamage = upgradeType === 'damage';
+    const next = isDamage ? guardian.getNextDamage() : guardian.getNextRange();
+    if (next === null) return 'Already at maximum level!';
+
+    const cost = isDamage ? guardian.getDamageUpgradeCost() : guardian.getRangeUpgradeCost();
+    if (actor.wallet.gold < cost) return `Need 🪙${cost}g!`;
+
+    actor.wallet.gold -= cost;
+    const textPos = guardian.position.clone().add(new THREE.Vector3(0, 3.5, 0));
+    audio.playUpgrade();
+    if (isDamage) {
+      guardian.upgradeDamage();
+      this.vfx.spawnAscensionPillar(guardian.position, 0x38bdf8);
+      this.vfx.spawnBurstParticles(guardian.position.clone().add(new THREE.Vector3(0, 3.2, 0)), 0xfacc15, 14);
+      this.vfx.spawnFloatingText(textPos, `⚔️ GREATBOLT DAMAGE LV. ${guardian.damageLevel}! (${guardian.getDamage()} DMG)`, '#38bdf8', 1.6);
+    } else {
+      guardian.upgradeRange();
+      this.vfx.spawnAscensionPillar(guardian.position, 0x06b6d4);
+      this.vfx.spawnBurstParticles(guardian.position.clone().add(new THREE.Vector3(0, 3.2, 0)), 0x38bdf8, 14);
+      this.vfx.spawnFloatingText(textPos, `🎯 BALLISTA REACH LV. ${guardian.rangeLevel}! (${guardian.getRange().toFixed(1)}M)`, '#06b6d4', 1.6);
     }
+
+    this.updateHUD();
+    if (this.portalGuardianManager.getSelectedGuardian() === guardian && this.ui.isGuardianCardOpen()) {
+      this.openGuardianCard(guardian);
+    }
+    return null;
   }
 
   private updatePlacementGhost() {
@@ -1623,47 +1736,138 @@ class GameApp {
       return;
     }
 
-    this.raycaster.setFromCamera(this.mouse, this.cameraCtrl.camera);
-    const point = new THREE.Vector3();
-    if (this.raycaster.ray.intersectPlane(this.groundPlane, point)) {
-      const coord = this.grid.worldToGrid(point.x, point.z);
-      if (coord) {
-        const world = this.grid.gridToWorld(coord.x, coord.z);
-        this.placementGhost.position.set(world.x, 0.2, world.z);
-        this.placementGhost.visible = true;
+    const point = this.raycastGround();
+    if (!point) return;
 
-        const def = TOWER_DEFINITIONS[this.ui.selectedTowerTypeForPlacement];
-        const canBuild = this.towerManager.canBuild(coord, this.ui.selectedTowerTypeForPlacement, this.playerGold);
-
-        const ghostMat = this.placementGhost.material as THREE.MeshStandardMaterial;
-        ghostMat.color.setHex(canBuild.allowed ? 0x22c55e : 0xef4444);
-
-        const ringColor = canBuild.allowed ? 0x22c55e : 0xef4444;
-        const fillColor = canBuild.allowed ? 0x15803d : 0x991b1b;
-
-        this.ghostRangeRing.position.set(world.x, 0.14, world.z);
-        if (this.ghostFillMesh) {
-          (this.ghostFillMesh.material as THREE.MeshBasicMaterial).color.setHex(fillColor);
-          this.ghostFillMesh.scale.setScalar(def.range);
-        }
-        if (this.ghostBorderMesh) {
-          (this.ghostBorderMesh.material as THREE.MeshBasicMaterial).color.setHex(ringColor);
-          this.ghostBorderMesh.geometry.dispose();
-          const rGeom = new THREE.RingGeometry(Math.max(0.1, def.range - 0.15), def.range, 48);
-          rGeom.rotateX(-Math.PI / 2);
-          this.ghostBorderMesh.geometry = rGeom;
-        }
-        this.ghostRangeRing.visible = true;
-      } else {
-        this.placementGhost.visible = false;
-        this.ghostRangeRing.visible = false;
-      }
+    const coord = this.grid.worldToGrid(point.x, point.z);
+    if (!coord) {
+      this.placementGhost.visible = false;
+      this.ghostRangeRing.visible = false;
+      return;
     }
+
+    const world = this.grid.gridToWorld(coord.x, coord.z);
+    this.placementGhost.position.set(world.x, 0.2, world.z);
+    this.placementGhost.visible = true;
+
+    const def = TOWER_DEFINITIONS[this.ui.selectedTowerTypeForPlacement];
+    const canBuild = this.towerManager.canBuild(coord, this.ui.selectedTowerTypeForPlacement, this.playerGold);
+
+    const ghostMat = this.placementGhost.material as THREE.MeshStandardMaterial;
+    ghostMat.color.setHex(canBuild.allowed ? 0x22c55e : 0xef4444);
+
+    const ringColor = canBuild.allowed ? 0x22c55e : 0xef4444;
+    const fillColor = canBuild.allowed ? 0x15803d : 0x991b1b;
+
+    this.ghostRangeRing.position.set(world.x, 0.14, world.z);
+    if (this.ghostFillMesh) {
+      (this.ghostFillMesh.material as THREE.MeshBasicMaterial).color.setHex(fillColor);
+      this.ghostFillMesh.scale.setScalar(def.range);
+    }
+    if (this.ghostBorderMesh) {
+      (this.ghostBorderMesh.material as THREE.MeshBasicMaterial).color.setHex(ringColor);
+      this.ghostBorderMesh.geometry.dispose();
+      const rGeom = new THREE.RingGeometry(Math.max(0.1, def.range - 0.15), def.range, 48);
+      rGeom.rotateX(-Math.PI / 2);
+      this.ghostBorderMesh.geometry = rGeom;
+    }
+    this.ghostRangeRing.visible = true;
   }
 
   private onWindowResize() {
     this.renderer.handleResize();
     this.cameraCtrl.handleResize();
+  }
+
+  // --- Frame loop ---
+
+  /** Authoritative simulation step (solo play and multiplayer host). */
+  private simulate(dt: number, rawDt: number, now: number) {
+    if (this.waveInProgress && dt > 0) {
+      if (this.wavePhase === 'MAZE_RUN') {
+        if (this.friendlyUnitsToSpawn > 0) {
+          this.friendlySpawnTimer += dt;
+          if (this.friendlySpawnTimer >= 1.2) {
+            this.friendlySpawnTimer = 0;
+            this.friendlyUnitsToSpawn--;
+            this.spawnFriendlyRecruit();
+          }
+        }
+
+        const livingRecruits = this.unitManager.units.filter(u => u.isFriendly && !u.isMercenary && !u.isDead);
+        let assembledCount = 0;
+
+        for (const u of livingRecruits) {
+          if (u.hasCompletedMaze) {
+            assembledCount++;
+            if (!u.stagingPos) {
+              const row = Math.floor((assembledCount - 1) / 4);
+              const col = (assembledCount - 1) % 4;
+              u.stagingPos = new THREE.Vector3(4.5 + row * 1.4, 0.4, -3.5 + col * 2.2);
+            }
+          }
+        }
+
+        // The HUD only re-renders on events, so refresh it as recruits arrive
+        if (assembledCount !== this.lastAssembledCount) {
+          this.lastAssembledCount = assembledCount;
+          this.updateHUD();
+        }
+
+        if (
+          this.friendlyUnitsToSpawn === 0 &&
+          (livingRecruits.length === 0 || assembledCount === livingRecruits.length)
+        ) {
+          this.triggerArenaClash();
+        }
+      } else if (this.wavePhase === 'ARENA_CLASH') {
+        const remainingEnemies = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead);
+        if (remainingEnemies.length === 0 && !this.waveCleared) {
+          this.resolveWaveVictory();
+        }
+      }
+    }
+
+    if (dt > 0) {
+      this.towerManager.update(now, this.unitManager.units, (gold, tower) => {
+        this.creditTowerGold(tower, gold);
+        this.updateHUD();
+      });
+
+      this.unitManager.update(dt, now, (bounty, enemyClass, isBoss) => this.awardKillBounty(bounty, enemyClass, isBoss));
+
+      this.portalGuardianManager.update(
+        dt,
+        now,
+        (bounty, enemyClass, isBoss) => this.awardKillBounty(bounty, enemyClass, isBoss),
+        this.wavePhase === 'ARENA_CLASH'
+      );
+
+      this.arenaCastle.update(dt, this.cameraCtrl.camera);
+      if (this.moonCastle && this.moonCastle.group.visible) {
+        this.moonCastle.update(dt, this.cameraCtrl.camera);
+      }
+      this.checkCastleDamage();
+    } else {
+      for (const guardian of this.portalGuardianManager.guardians) {
+        guardian.updateAnimation(rawDt, now);
+      }
+      this.arenaCastle.update(0, this.cameraCtrl.camera);
+      if (this.moonCastle && this.moonCastle.group.visible) {
+        this.moonCastle.update(0, this.cameraCtrl.camera);
+      }
+    }
+  }
+
+  /** Multiplayer client frame: the host simulates; only animate the mirrored world. */
+  private updateClientFrame(rawDt: number, now: number) {
+    this.towerManager.updateVisuals(now);
+    this.unitManager.updateRemote(rawDt, now);
+    this.portalGuardianManager.update(rawDt, now, () => {}, this.wavePhase === 'ARENA_CLASH', false);
+    this.arenaCastle.update(rawDt, this.cameraCtrl.camera);
+    if (this.moonCastle && this.moonCastle.group.visible) {
+      this.moonCastle.update(rawDt, this.cameraCtrl.camera);
+    }
   }
 
   private animate() {
@@ -1672,13 +1876,6 @@ class GameApp {
     const now = performance.now();
     const rawDt = Math.min((now - this.lastFrameTime) / 1000, 0.1);
     this.lastFrameTime = now;
-
-    if (this.networkManager && this.networkManager.isHost && this.networkManager.isConnected) {
-      if (now - this.lastSnapshotTime >= 60) {
-        this.lastSnapshotTime = now;
-        this.broadcastStateSnapshot();
-      }
-    }
 
     const dyingBoss = this.unitManager.units.find(u => u.isBoss && u.isDying);
     if (dyingBoss && this.bossSlowMoTimer <= 0) {
@@ -1697,105 +1894,17 @@ class GameApp {
 
     this.cameraCtrl.update(rawDt);
 
-    if (this.waveInProgress && dt > 0) {
-      if (this.wavePhase === 'MAZE_RUN') {
-        if (this.friendlyUnitsToSpawn > 0) {
-          this.friendlySpawnTimer += dt;
-          if (this.friendlySpawnTimer >= 1.2) {
-            this.friendlySpawnTimer = 0;
-            this.friendlyUnitsToSpawn--;
-            this.spawnFriendlyRecruit();
-          }
-        }
-
-        const livingFriendlies = this.unitManager.units.filter(u => u.isFriendly && !u.isDead);
-        let assembledCount = 0;
-
-        for (let i = 0; i < livingFriendlies.length; i++) {
-          const u = livingFriendlies[i];
-          if (u.hasCompletedMaze) {
-            assembledCount++;
-            if (!u.stagingPos) {
-              const row = Math.floor((assembledCount - 1) / 4);
-              const col = (assembledCount - 1) % 4;
-              u.stagingPos = new THREE.Vector3(4.5 + row * 1.4, 0.4, -3.5 + col * 2.2);
-            }
-          }
-        }
-
-        if (
-          this.friendlyUnitsToSpawn === 0 &&
-          (livingFriendlies.length === 0 || assembledCount === livingFriendlies.length)
-        ) {
-          this.triggerArenaClash();
-        }
-      } else if (this.wavePhase === 'ARENA_CLASH') {
-        const remainingEnemies = this.unitManager.units.filter(u => !u.isFriendly && !u.isDead);
-        if (remainingEnemies.length === 0 && !this.waveCleared) {
-          this.resolveWaveVictory();
-        }
-      }
+    if (this.isClient) {
+      this.updateClientFrame(rawDt, now);
+    } else if (this.isHostInMatch) {
+      this.fx.record(() => this.simulate(dt, rawDt, now));
+    } else {
+      this.simulate(dt, rawDt, now);
     }
 
-    if (dt > 0) {
-      this.towerManager.update(now, this.unitManager.units, (gold) => {
-        this.playerGold += gold;
-        this.achievementManager.recordGold(gold);
-        this.updateHUD();
-      });
-
-      this.unitManager.update(dt, now, (bounty, enemyClass, isBoss) => {
-        if (this.networkManager.isConnected) {
-          if (this.networkManager.isHost) {
-            this.networkManager.awardTeamBounty('SUN', bounty);
-            const mySlot = this.networkManager.getLocalPlayer();
-            if (mySlot) this.playerGold = mySlot.gold;
-          }
-        } else {
-          this.playerGold += bounty;
-        }
-        this.achievementManager.recordGold(bounty);
-        if (enemyClass) {
-          this.achievementManager.recordKill(enemyClass, isBoss || false);
-        }
-        this.updateHUD();
-      });
-
-      this.portalGuardianManager.update(
-        dt,
-        now,
-        (bounty, enemyClass, isBoss) => {
-          if (this.networkManager.isConnected) {
-            if (this.networkManager.isHost) {
-              this.networkManager.awardTeamBounty('SUN', bounty);
-              const mySlot = this.networkManager.getLocalPlayer();
-              if (mySlot) this.playerGold = mySlot.gold;
-            }
-          } else {
-            this.playerGold += bounty;
-          }
-          this.achievementManager.recordGold(bounty);
-          if (enemyClass) {
-            this.achievementManager.recordKill(enemyClass, isBoss || false);
-          }
-          this.updateHUD();
-        },
-        this.wavePhase === 'ARENA_CLASH'
-      );
-
-      this.arenaCastle.update(dt, this.cameraCtrl.camera);
-      if (this.moonCastle && this.moonCastle.group.visible) {
-        this.moonCastle.update(dt, this.cameraCtrl.camera);
-      }
-      this.checkCastleDamage();
-    } else {
-      for (const guardian of this.portalGuardianManager.guardians) {
-        guardian.updateAnimation(rawDt, now);
-      }
-      this.arenaCastle.update(0, this.cameraCtrl.camera);
-      if (this.moonCastle && this.moonCastle.group.visible) {
-        this.moonCastle.update(0, this.cameraCtrl.camera);
-      }
+    if (this.isHostInMatch && now - this.lastSnapshotTime >= SNAPSHOT_INTERVAL_MS) {
+      this.lastSnapshotTime = now;
+      this.broadcastStateSnapshot();
     }
 
     this.vfx.update();
@@ -1823,7 +1932,12 @@ class GameApp {
 
     if (this.focusTarget) {
       if (this.focusTarget.isDead || this.focusTarget.isDying) {
-        this.setFocusTarget(null);
+        if (this.isClient) {
+          this.focusTarget = null;
+          this.updateFocusVisuals();
+        } else {
+          this.setFocusTarget(null);
+        }
       } else {
         this.updateFocusReticle(rawDt, now);
         this.ui.updateFocusFireState(this.isFocusFireMode, this.focusTarget);
@@ -1832,6 +1946,15 @@ class GameApp {
 
     this.renderer.renderer.render(this.renderer.scene, this.cameraCtrl.camera);
   }
+}
+
+function isGridCoord(coord: unknown): coord is GridCoord {
+  const c = coord as GridCoord | null;
+  return Boolean(c) && Number.isInteger(c!.x) && Number.isInteger(c!.z);
+}
+
+function isUpgradeBranch(branch: unknown): branch is UpgradeBranch {
+  return branch === UpgradeBranch.BRANCH_A || branch === UpgradeBranch.BRANCH_B || branch === UpgradeBranch.BRANCH_C;
 }
 
 window.addEventListener('DOMContentLoaded', () => {

@@ -71,6 +71,11 @@ export class P2PConnection {
           this.handleIncomingGuestConnection(conn);
         });
 
+        // Losing the signaling server only blocks new joins; reconnect so the room stays joinable.
+        this.peer.on('disconnected', () => {
+          if (this.peer && !this.peer.destroyed) this.peer.reconnect();
+        });
+
         this.peer.on('error', (err: any) => {
           const msg = err.type === 'unavailable-id'
             ? `Room code ${this.roomCode} is already active! Please try hosting again.`
@@ -134,12 +139,16 @@ export class P2PConnection {
           });
 
           conn.on('close', () => {
+            clearTimeout(connectionTimeout);
+            if (this.hostConnection !== conn) return; // Closed intentionally via disconnect()
+            this.hostConnection = null;
             this.setState('DISCONNECTED', 'Connection to Host closed.');
             this.onPeerLeft(hostFullId);
           });
 
           conn.on('error', (err) => {
             clearTimeout(connectionTimeout);
+            if (this.hostConnection !== conn) return;
             this.setState('ERROR', `Host connection error: ${err}`);
             this.onError(String(err));
             reject(err);
@@ -169,16 +178,31 @@ export class P2PConnection {
       this.handleData(data, conn.peer);
     });
 
-    conn.on('close', () => {
+    // 'close' and 'error' can both fire for one guest; only report the departure once.
+    const dropGuest = () => {
+      if (this.connections.get(conn.peer) !== conn) return;
       this.connections.delete(conn.peer);
       this.onPeerLeft(conn.peer);
-    });
+    };
+
+    conn.on('close', dropGuest);
 
     conn.on('error', (err) => {
       console.warn(`Connection error with guest ${conn.peer}:`, err);
-      this.connections.delete(conn.peer);
-      this.onPeerLeft(conn.peer);
+      dropGuest();
     });
+  }
+
+  /**
+   * Host only: send a final message to a guest, then drop their connection.
+   */
+  public kickPeer(peerId: string, farewell?: NetworkMessage) {
+    const conn = this.connections.get(peerId);
+    if (!conn) return;
+    this.connections.delete(peerId);
+    if (farewell && conn.open) conn.send(farewell);
+    // Give the farewell message a moment to flush before closing the channel.
+    setTimeout(() => conn.close(), 250);
   }
 
   private handleData(data: any, senderPeerId: string) {
@@ -252,6 +276,10 @@ export class P2PConnection {
     }
   }
 
+  public hasPeer(peerId: string): boolean {
+    return this.connections.has(peerId);
+  }
+
   public getConnectedPeerCount(): number {
     return this.isHost ? this.connections.size : (this.hostConnection && this.hostConnection.open ? 1 : 0);
   }
@@ -263,15 +291,14 @@ export class P2PConnection {
 
   public disconnect() {
     this.stopHeartbeat();
-    for (const conn of this.connections.values()) {
-      conn.close();
-    }
+    // Detach before closing so the connections' close handlers treat this as intentional.
+    const guests = Array.from(this.connections.values());
     this.connections.clear();
+    guests.forEach(conn => conn.close());
 
-    if (this.hostConnection) {
-      this.hostConnection.close();
-      this.hostConnection = null;
-    }
+    const hostConn = this.hostConnection;
+    this.hostConnection = null;
+    hostConn?.close();
 
     if (this.peer) {
       this.peer.destroy();

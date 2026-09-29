@@ -12,7 +12,7 @@ import { ACHIEVEMENTS, AchievementCategory, AchievementDef, AchievementTierDef }
 import { MultiplayerModal } from './MultiplayerModal';
 import { MercenaryMenu } from './MercenaryMenu';
 import { NetworkManager } from '../network/NetworkManager';
-import { GameMode } from '../network/NetworkTypes';
+import { escapeHtml } from './html';
 
 export class UIManager {
   public domContainer: HTMLElement;
@@ -167,9 +167,9 @@ export class UIManager {
   private lastRecruitCost: number = 25;
   private lastCanBuyRecruit: boolean = true;
 
-  initMultiplayer(network: NetworkManager, onMatchLaunch: (mode: GameMode) => void) {
+  initMultiplayer(network: NetworkManager) {
     this.networkManager = network;
-    this.multiplayerModal = new MultiplayerModal(this.domContainer, network, onMatchLaunch);
+    this.multiplayerModal = new MultiplayerModal(this.domContainer, network);
     this.mercenaryMenu = new MercenaryMenu(this.domContainer, network);
   }
 
@@ -198,7 +198,7 @@ export class UIManager {
 
     const totalStars = this.techTree.getTotalStarsEarned();
     const canAffordRecruit = canBuyRecruit && gold >= recruitCost;
-    const isPvp = Boolean(this.networkManager?.isMultiplayer && this.networkManager?.mode === 'PVP');
+    const isPvp = Boolean(this.networkManager?.inMatch && this.networkManager?.mode === 'PVP');
     const localPlayer = this.networkManager?.getLocalPlayer();
     const income = localPlayer?.income || 0;
 
@@ -518,7 +518,8 @@ export class UIManager {
     const def = TOWER_DEFINITIONS[tower.type];
     const isEvo = tower.type === TowerType.EVOLUTION;
     const isUnbranched = tower.currentBranch === UpgradeBranch.NONE;
-    const isMultiplayer = Boolean(this.networkManager?.isMultiplayer);
+    const isMultiplayer = Boolean(this.networkManager?.inMatch);
+    const ownerName = escapeHtml(tower.ownerName || 'the builder');
 
     let ownerBannerHTML = '';
     if (isMultiplayer) {
@@ -532,7 +533,7 @@ export class UIManager {
       } else {
         ownerBannerHTML = `
           <div class="tower-owner-badge ally">
-            <span>🛡️ Built by ally: <strong>${tower.ownerName || 'Teammate'}</strong></span>
+            <span>🛡️ Built by ally: <strong>${escapeHtml(tower.ownerName || 'Teammate')}</strong></span>
             <span class="tower-owner-pill">Protected</span>
           </div>
         `;
@@ -662,7 +663,7 @@ export class UIManager {
         abilitiesContent = `
           <div class="upgrade-header mt-2">Champion Abilities:</div>
           <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-center text-xs text-slate-400 my-2">
-            🔒 Abilities are upgraded exclusively by <strong class="text-sky-300">${tower.ownerName || 'the builder'}</strong>.
+            🔒 Abilities are upgraded exclusively by <strong class="text-sky-300">${ownerName}</strong>.
           </div>
         `;
       }
@@ -678,7 +679,7 @@ export class UIManager {
         branchHTML = `
           <div class="upgrade-header">Branching Path:</div>
           <div class="p-3 rounded-lg bg-slate-900/90 border border-slate-700/80 text-center text-xs text-slate-400 my-2">
-            🔒 Specialization path is chosen exclusively by <strong class="text-sky-300">${tower.ownerName || 'the builder'}</strong>.
+            🔒 Specialization path is chosen exclusively by <strong class="text-sky-300">${ownerName}</strong>.
           </div>
         `;
       } else {
@@ -721,7 +722,7 @@ export class UIManager {
       if (!isOwner) {
         nextUpgradeHTML = `
           <div class="p-2.5 mt-2 rounded-lg bg-slate-900/90 border border-slate-700/80 text-center text-xs text-slate-400">
-            🔒 Rank upgrades are managed exclusively by <strong class="text-sky-300">${tower.ownerName || 'the builder'}</strong>.
+            🔒 Rank upgrades are managed exclusively by <strong class="text-sky-300">${ownerName}</strong>.
           </div>
         `;
       } else if (next) {
@@ -785,8 +786,8 @@ export class UIManager {
         ${isOwner ? `
           <button id="btn-sell" class="sell-btn">Sell (Refund 🪙 ${refund}g)</button>
         ` : `
-          <button id="btn-sell" class="sell-btn disabled" disabled style="opacity: 0.45; cursor: not-allowed; background: #1e293b; border: 1px solid #334155; color: #94a3b8;" title="Only ${tower.ownerName || 'the builder'} can sell this tower">
-            🔒 Owned by ${tower.ownerName || 'Teammate'} (Cannot Sell)
+          <button id="btn-sell" class="sell-btn disabled" disabled style="opacity: 0.45; cursor: not-allowed; background: #1e293b; border: 1px solid #334155; color: #94a3b8;" title="Only ${ownerName} can sell this tower">
+            🔒 Owned by ${escapeHtml(tower.ownerName || 'Teammate')} (Cannot Sell)
           </button>
         `}
       </div>
@@ -1443,7 +1444,17 @@ export class UIManager {
     }, 4500);
   }
 
-  showVictory(starsEarned: number, onNext: () => void, onRetry: () => void) {
+  hideResultModals() {
+    this.victoryModalEl.style.display = 'none';
+    this.defeatModalEl.style.display = 'none';
+  }
+
+  showVictory(
+    starsEarned: number,
+    onNext: () => void,
+    onRetry: (() => void) | null,
+    labels: { next?: string; retry?: string; message?: string } = {}
+  ) {
     audio.playVictory();
     confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
 
@@ -1453,11 +1464,11 @@ export class UIManager {
     this.victoryModalEl.innerHTML = `
       <div class="modal-card victory-card">
         <h1 class="text-3xl font-bold text-yellow-400 mb-2">🏆 VICTORY!</h1>
-        <p class="text-slate-300 mb-4">You successfully defended the realm and defeated all enemy waves!</p>
+        <p class="text-slate-300 mb-4">${labels.message ?? 'You successfully defended the realm and defeated all enemy waves!'}</p>
         <div class="victory-stars-display mb-6">${starsHTML}</div>
         <div class="modal-actions">
-          <button id="btn-vic-retry" class="btn-secondary">Replay</button>
-          <button id="btn-vic-next" class="btn-primary">Next Mission</button>
+          ${onRetry ? `<button id="btn-vic-retry" class="btn-secondary">${labels.retry ?? 'Replay'}</button>` : ''}
+          <button id="btn-vic-next" class="btn-primary">${labels.next ?? 'Next Mission'}</button>
         </div>
       </div>
     `;
@@ -1469,20 +1480,20 @@ export class UIManager {
 
     this.victoryModalEl.querySelector('#btn-vic-retry')?.addEventListener('click', () => {
       this.victoryModalEl.style.display = 'none';
-      onRetry();
+      onRetry?.();
     });
   }
 
-  showDefeat(onRetry: () => void) {
+  showDefeat(onRetry: () => void, labels: { retry?: string; message?: string } = {}) {
     audio.playDefeat();
 
     this.defeatModalEl.style.display = 'flex';
     this.defeatModalEl.innerHTML = `
       <div class="modal-card defeat-card">
         <h1 class="text-3xl font-bold text-red-500 mb-2">💀 DEFEAT</h1>
-        <p class="text-slate-300 mb-6">Your castle was overrun! Adjust your maze layout and upgrade your towers.</p>
+        <p class="text-slate-300 mb-6">${labels.message ?? 'Your castle was overrun! Adjust your maze layout and upgrade your towers.'}</p>
         <div class="modal-actions">
-          <button id="btn-def-retry" class="btn-primary">Try Again</button>
+          <button id="btn-def-retry" class="btn-primary">${labels.retry ?? 'Try Again'}</button>
         </div>
       </div>
     `;

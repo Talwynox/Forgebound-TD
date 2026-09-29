@@ -4,9 +4,9 @@ import {
   EnemyClass,
   UnitStats,
   FRIENDLY_UNIT_STATS,
-  ENEMY_UNIT_STATS,
   UnitTier,
-  calculateDamage
+  calculateDamage,
+  getUnitStats
 } from './UnitData';
 import { buildUnitMesh, getUnitMeshHeight } from './UnitMeshFactory';
 import { VFXManager } from '../vfx/VFXManager';
@@ -53,6 +53,13 @@ export class Unit {
   public isWaitingInArena: boolean = false;
   public isDead: boolean = false;
   public lateralLaneOffset: number = 0;
+
+  // PvP mercenary: fights immediately and is not part of the maze army
+  public isMercenary: boolean = false;
+
+  // Multiplayer client mirroring: latest authoritative transform from the host
+  public netTargetPos: THREE.Vector3 | null = null;
+  public netTargetYaw: number = 0;
 
   // Evolution Champion Abilities (Soldier, Archer, Mage)
   public armorAuraBonus: number = 0;
@@ -131,9 +138,7 @@ export class Unit {
     this.id = id;
     this.isFriendly = isFriendly;
     this.unitClass = unitClass;
-    this.stats = isFriendly
-      ? FRIENDLY_UNIT_STATS[unitClass as FriendlyClass]
-      : ENEMY_UNIT_STATS[unitClass as EnemyClass];
+    this.stats = getUnitStats(unitClass);
 
     if (!isFriendly && unitClass === EnemyClass.BOSS_LORD_IGNIS) {
       this.isBoss = true;
@@ -508,18 +513,139 @@ export class UnitManager {
     return unit;
   }
 
+  /**
+   * PvP mercenary. Sun-sent mercenaries fight on the defenders' side and march on the Moon stronghold;
+   * Moon-sent mercenaries fight as enemies and assault the Sun stronghold.
+   */
+  spawnMercenary(enemyClass: EnemyClass, startPos: THREE.Vector3, fightsForSun: boolean, waveIndex: number): Unit {
+    if (!fightsForSun) {
+      const unit = this.spawnEnemy(enemyClass, startPos, false, waveIndex);
+      unit.isMercenary = true;
+      return unit;
+    }
+
+    const unit = new Unit(this.nextId++, true, enemyClass, startPos);
+    unit.currentHp = unit.maxHp;
+    unit.inCombat = true;
+    unit.hasCompletedMaze = true;
+    unit.isMercenary = true;
+    unit.mesh.rotation.y = -Math.PI / 2;
+    this.scene.add(unit.mesh);
+    this.units.push(unit);
+    return unit;
+  }
+
+  /** Multiplayer client: creates a mirror of a host-simulated unit. */
+  spawnNetworkUnit(id: number, isFriendly: boolean, unitClass: FriendlyClass | EnemyClass, startPos: THREE.Vector3): Unit {
+    const unit = new Unit(id, isFriendly, unitClass, startPos);
+    unit.mesh.position.copy(startPos);
+    this.scene.add(unit.mesh);
+    this.units.push(unit);
+    return unit;
+  }
+
+  /** Can this unit currently be engaged in the arena? Excludes units still in the maze or waiting behind the gates. */
+  private isEngageable(u: Unit): boolean {
+    if (u.isDead || u.isDying || u.isWaitingInArena) return false;
+    return !u.isFriendly || u.inCombat || u.hasCompletedMaze;
+  }
+
+  /** Death shrink animation. Returns true once the unit should be removed. */
+  private animateDeath(unit: Unit, dt: number): boolean {
+    unit.deathTimer -= dt;
+    const progress = Math.max(0, unit.deathTimer / 0.45);
+    const s = unit.stats.scale * Math.max(0.01, progress);
+    unit.mesh.scale.set(s, s, s);
+    unit.mesh.position.y -= dt * 0.5;
+    return unit.deathTimer <= 0;
+  }
+
+  /** Attack lunge & hit flinch animations. */
+  private animateCombatTimers(unit: Unit, dt: number) {
+    if (unit.lungeTimer > 0) {
+      unit.lungeTimer -= dt;
+      const lungeProgress = 1 - Math.max(0, unit.lungeTimer / 0.16);
+      unit.bodyMesh.position.z = Math.sin(lungeProgress * Math.PI) * 0.3 * unit.stats.scale;
+    } else if (unit.hitFlinchTimer <= 0) {
+      unit.bodyMesh.position.z = 0;
+    }
+
+    if (unit.hitFlinchTimer > 0) {
+      unit.hitFlinchTimer -= dt;
+      const flinchProgress = 1 - Math.max(0, unit.hitFlinchTimer / 0.14);
+      unit.bodyMesh.rotation.x = -Math.sin(flinchProgress * Math.PI) * 0.35;
+      unit.bodyMesh.position.z = -Math.sin(flinchProgress * Math.PI) * 0.18 * unit.stats.scale;
+    } else if (unit.lungeTimer <= 0) {
+      unit.bodyMesh.rotation.x = 0;
+    }
+  }
+
+  /** Ambient accessory animation (floating cores, rotating halos/gems). */
+  private animateAccessories(unit: Unit, dt: number, time: number) {
+    unit.bodyMesh.traverse(child => {
+      if (child.name === 'rotating') {
+        child.rotation.y += dt * 1.8;
+        child.rotation.z += dt * 0.9;
+      } else if (child.name === 'floating') {
+        if (child.userData.baseY === undefined) child.userData.baseY = child.position.y;
+        child.position.y = child.userData.baseY + Math.sin(time * 0.005 + unit.id) * 0.05 * unit.stats.scale;
+      }
+    });
+  }
+
+  /**
+   * Multiplayer client update: units are simulated by the host, so only interpolate towards the
+   * latest snapshot transform and play cosmetic animations.
+   */
+  updateRemote(dt: number, time: number) {
+    const lerp = 1 - Math.exp(-dt * 12);
+
+    for (let i = this.units.length - 1; i >= 0; i--) {
+      const unit = this.units[i];
+
+      if (unit.isDying) {
+        if (this.animateDeath(unit, dt)) {
+          unit.isDead = true;
+          this.removeUnit(unit, i);
+        }
+        continue;
+      }
+
+      this.animateCombatTimers(unit, dt);
+
+      let moving = false;
+      if (unit.netTargetPos) {
+        const dist = unit.worldPos.distanceTo(unit.netTargetPos);
+        if (dist > 6) {
+          unit.mesh.position.copy(unit.netTargetPos); // Teleports (maze exit warp)
+        } else {
+          unit.mesh.position.lerp(unit.netTargetPos, lerp);
+        }
+        moving = dist > 0.03;
+      }
+
+      let yawDiff = unit.netTargetYaw - unit.mesh.rotation.y;
+      yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff));
+      unit.mesh.rotation.set(0, unit.mesh.rotation.y + yawDiff * lerp, 0);
+
+      if (unit.isWaitingInArena) {
+        unit.bodyMesh.position.y = Math.sin(time * 0.003 + unit.id) * 0.04 * unit.stats.scale;
+      } else if (moving) {
+        unit.bodyMesh.position.y = Math.abs(Math.sin(time * 0.008 * unit.moveSpeed)) * 0.1 * unit.stats.scale;
+      }
+
+      this.animateAccessories(unit, dt, time);
+      unit.updateHpBar(this.camera);
+    }
+  }
+
   update(dt: number, time: number, onKillEnemyCallback: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
     // 1. Update Unit Buff Status & Navigation
     for (let i = this.units.length - 1; i >= 0; i--) {
       const unit = this.units[i];
 
       if (unit.isDying) {
-        unit.deathTimer -= dt;
-        const progress = Math.max(0, unit.deathTimer / 0.45);
-        const s = unit.stats.scale * Math.max(0.01, progress);
-        unit.mesh.scale.set(s, s, s);
-        unit.mesh.position.y -= dt * 0.5;
-        if (unit.deathTimer <= 0) {
+        if (this.animateDeath(unit, dt)) {
           unit.isDead = true;
           this.removeUnit(unit, i);
         }
@@ -531,24 +657,7 @@ export class UnitManager {
         continue;
       }
 
-      // Attack lunge animation
-      if (unit.lungeTimer > 0) {
-        unit.lungeTimer -= dt;
-        const lungeProgress = 1 - Math.max(0, unit.lungeTimer / 0.16);
-        unit.bodyMesh.position.z = Math.sin(lungeProgress * Math.PI) * 0.3 * unit.stats.scale;
-      } else if (unit.hitFlinchTimer <= 0) {
-        unit.bodyMesh.position.z = 0;
-      }
-
-      // Hit recoil flinch animation
-      if (unit.hitFlinchTimer > 0) {
-        unit.hitFlinchTimer -= dt;
-        const flinchProgress = 1 - Math.max(0, unit.hitFlinchTimer / 0.14);
-        unit.bodyMesh.rotation.x = -Math.sin(flinchProgress * Math.PI) * 0.35;
-        unit.bodyMesh.position.z = -Math.sin(flinchProgress * Math.PI) * 0.18 * unit.stats.scale;
-      } else if (unit.lungeTimer <= 0) {
-        unit.bodyMesh.rotation.x = 0;
-      }
+      this.animateCombatTimers(unit, dt);
 
       // Decrement slow timer
       if (unit.slowTimer > 0) {
@@ -596,7 +705,8 @@ export class UnitManager {
               }
             } else {
               dir.normalize();
-              unit.mesh.position.addScaledVector(dir, effectiveSpeed * dt);
+              // Never overshoot the waypoint: large steps (low FPS at 4x speed) would orbit it forever
+              unit.mesh.position.addScaledVector(dir, Math.min(dist, effectiveSpeed * dt));
               unit.mesh.lookAt(targetWp.x, unit.worldPos.y, targetWp.z);
               // Bobbing animation (applied to whole body group)
               unit.bodyMesh.position.y = Math.abs(Math.sin(time * 0.008 * effectiveSpeed)) * 0.1 * unit.stats.scale;
@@ -608,7 +718,7 @@ export class UnitManager {
           const dist = dir.length();
           if (dist > 0.15) {
             dir.normalize();
-            unit.mesh.position.addScaledVector(dir, effectiveSpeed * dt);
+            unit.mesh.position.addScaledVector(dir, Math.min(dist, effectiveSpeed * dt));
             unit.mesh.lookAt(unit.stagingPos.x, unit.worldPos.y, unit.stagingPos.z);
           } else {
             // Face forward into the arena towards enemies
@@ -625,16 +735,7 @@ export class UnitManager {
       // Constrain units located in the arena to arena perimeter walls
       this.clampUnitToArena(unit);
 
-      // Ambient accessory animation for unit accessories (floating cores, rotating halos/gems)
-      unit.bodyMesh.traverse(child => {
-        if (child.name === 'rotating') {
-          child.rotation.y += dt * 1.8;
-          child.rotation.z += dt * 0.9;
-        } else if (child.name === 'floating') {
-          if (child.userData.baseY === undefined) child.userData.baseY = child.position.y;
-          child.position.y = child.userData.baseY + Math.sin(time * 0.005 + unit.id) * 0.05 * unit.stats.scale;
-        }
-      });
+      this.animateAccessories(unit, dt, time);
 
       // Update Health bar
       unit.updateHpBar(this.camera);
@@ -795,8 +896,8 @@ export class UnitManager {
       }
     }
 
-    // Find nearest opposing target
-    const enemies = this.units.filter(u => u.isFriendly !== unit.isFriendly && !u.isDead && !u.isDying);
+    // Find nearest opposing target (ignoring units still in the maze or waiting behind the arena gates)
+    const enemies = this.units.filter(u => u.isFriendly !== unit.isFriendly && this.isEngageable(u));
 
     // Dynamic Attack speed rate
     const effectiveAttackRate = unit.attackSpeedBonus > 0
@@ -1212,7 +1313,8 @@ export class UnitManager {
     }
   }
 
-  private killUnit(unit: Unit, onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
+  /** Starts the death animation (visual state only). */
+  beginDeath(unit: Unit) {
     if (unit.isDying || unit.isDead) return;
     unit.isDying = true;
     unit.deathTimer = 0.45;
@@ -1222,6 +1324,11 @@ export class UnitManager {
     unit.hpBarBgMesh.visible = false;
     if (unit.manaBarMesh) unit.manaBarMesh.visible = false;
     if (unit.manaBarBgMesh) unit.manaBarBgMesh.visible = false;
+  }
+
+  private killUnit(unit: Unit, onKillEnemy: (bounty: number, enemyClass?: EnemyClass, isBoss?: boolean) => void) {
+    if (unit.isDying || unit.isDead) return;
+    this.beginDeath(unit);
 
     // Death particle burst
     const burstColor = unit.isBoss ? 0xff4500 : (unit.isFriendly ? 0x38bdf8 : 0xef4444);
@@ -1251,9 +1358,20 @@ export class UnitManager {
     });
 
     this.units.splice(index, 1);
-    if (this.selectedUnit?.id === unit.id) {
+    if (this.selectedUnit === unit) {
       this.selectedUnit = null;
     }
+    if (this.focusTarget === unit) {
+      this.focusTarget = null;
+    }
+  }
+
+  /** Immediately removes a unit (no death animation). */
+  despawnUnit(unit: Unit) {
+    const idx = this.units.indexOf(unit);
+    if (idx < 0) return;
+    unit.isDead = true;
+    this.removeUnit(unit, idx);
   }
 
   selectUnit(unit: Unit | null) {

@@ -90,7 +90,7 @@ export class MercenaryMenu {
         if (enemyClass) {
           const def = MERCENARY_DEFINITIONS[enemyClass];
           if (def && gold >= def.cost) {
-            this.network.sendMercenary(enemyClass);
+            this.network.sendAction({ kind: 'SEND_MERCENARY', enemyClass });
             audio.playBuild();
           } else {
             audio.playDefeat();

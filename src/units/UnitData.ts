@@ -294,3 +294,15 @@ export function calculateDamage(rawDmg: number, armor: number): number {
   }
 }
 
+
+/** Whether a class belongs to the defender roster (as opposed to the enemy bestiary). */
+export function isFriendlyClass(unitClass: FriendlyClass | EnemyClass): unitClass is FriendlyClass {
+  return unitClass in FRIENDLY_UNIT_STATS;
+}
+
+/** Looks up stats by class, independent of which side the unit fights for (e.g. PvP mercenaries). */
+export function getUnitStats(unitClass: FriendlyClass | EnemyClass): UnitStats {
+  return isFriendlyClass(unitClass)
+    ? FRIENDLY_UNIT_STATS[unitClass]
+    : ENEMY_UNIT_STATS[unitClass as EnemyClass];
+}

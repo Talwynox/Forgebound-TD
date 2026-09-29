@@ -1,18 +1,17 @@
 import { NetworkManager } from '../network/NetworkManager';
-import { GameMode, TeamId, PlayerSlot, TEAM_COLORS } from '../network/NetworkTypes';
-import { audio } from '../engine/AudioSystem';
+import { GameMode, TeamId, PlayerSlot, TEAM_COLORS, MAX_NAME_LENGTH } from '../network/NetworkTypes';
+import { escapeHtml } from './html';
 
 export class MultiplayerModal {
   private container: HTMLElement;
   private network: NetworkManager;
   private modalEl: HTMLElement;
   private currentTab: 'host' | 'join' = 'host';
-  private onMatchLaunch: (mode: GameMode) => void;
+  private statusMessage: string | null = null;
 
-  constructor(container: HTMLElement, network: NetworkManager, onMatchLaunch: (mode: GameMode) => void) {
+  constructor(container: HTMLElement, network: NetworkManager) {
     this.container = container;
     this.network = network;
-    this.onMatchLaunch = onMatchLaunch;
 
     this.modalEl = document.createElement('div');
     this.modalEl.className = 'modal-backdrop mp-modal-backdrop';
@@ -29,20 +28,18 @@ export class MultiplayerModal {
       }
     };
 
-    const prevOnMatchStarted = this.network.onMatchStarted;
-    this.network.onMatchStarted = (mode, missionId, startingGold) => {
-      this.close();
-      if (prevOnMatchStarted) {
-        prevOnMatchStarted(mode, missionId, startingGold);
-      }
-    };
-
     this.network.conn.onStateChange = (_state, detail) => {
       const statusEl = this.modalEl.querySelector('.mp-status-msg');
       if (statusEl && detail) {
         statusEl.textContent = detail;
       }
     };
+  }
+
+  /** Shows a one-off status line (e.g. why a session ended) the next time the modal renders. */
+  public setStatusMessage(message: string | null) {
+    this.statusMessage = message;
+    if (this.isOpen()) this.render();
   }
 
   public isOpen(): boolean {
@@ -60,7 +57,7 @@ export class MultiplayerModal {
   }
 
   public render(prefillRoomCode?: string) {
-    const isConnected = this.network.conn.state === 'CONNECTED' || this.network.conn.state === 'WAITING_FOR_PEERS';
+    const isConnected = this.network.isInRoom;
     const isHost = this.network.isHost;
     const roomCode = this.network.conn.roomCode || '';
     const mode = this.network.mode;
@@ -108,7 +105,7 @@ export class MultiplayerModal {
 
           <div class="mp-form-row">
             <label>Commander Name:</label>
-            <input type="text" id="host-player-name" class="mp-input" value="${this.network.localName || 'Host Commander'}" maxlength="16" />
+            <input type="text" id="host-player-name" class="mp-input" value="${escapeHtml(this.network.localName || 'Host Commander')}" maxlength="${MAX_NAME_LENGTH}" />
           </div>
 
           <div class="mp-form-row">
@@ -127,7 +124,7 @@ export class MultiplayerModal {
             </div>
           </div>
 
-          <div class="mp-status-msg">Ready to initialize WebRTC room.</div>
+          <div class="mp-status-msg">${this.consumeStatus('Ready to initialize WebRTC room.')}</div>
 
           <button class="mp-primary-btn" id="btn-start-hosting">👑 Open Room & Create Invite Code</button>
         </div>
@@ -140,15 +137,15 @@ export class MultiplayerModal {
 
           <div class="mp-form-row">
             <label>Commander Name:</label>
-            <input type="text" id="join-player-name" class="mp-input" value="${this.network.localName || 'Challenger'}" maxlength="16" />
+            <input type="text" id="join-player-name" class="mp-input" value="${escapeHtml(this.network.localName || 'Challenger')}" maxlength="${MAX_NAME_LENGTH}" />
           </div>
 
           <div class="mp-form-row">
             <label>Room Code (e.g. FORGE-7X):</label>
-            <input type="text" id="join-room-code" class="mp-input mp-code-input" value="${prefillRoomCode || ''}" placeholder="FORGE-XXXX" maxlength="11" />
+            <input type="text" id="join-room-code" class="mp-input mp-code-input" value="${escapeHtml(prefillRoomCode || '')}" placeholder="FORGE-XXXX" maxlength="11" />
           </div>
 
-          <div class="mp-status-msg">Enter room code and connect.</div>
+          <div class="mp-status-msg">${this.consumeStatus('Enter room code and connect.')}</div>
 
           <button class="mp-primary-btn" id="btn-join-room">⚔️ Connect to Room</button>
         </div>
@@ -164,8 +161,8 @@ export class MultiplayerModal {
     localPlayer: PlayerSlot | undefined,
     isHost: boolean
   ): string {
-    const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
     const isPvp = mode === 'PVP';
+    const unready = this.network.getUnreadyPlayers();
 
     return `
       <div class="mp-lobby">
@@ -221,8 +218,8 @@ export class MultiplayerModal {
 
           <div class="mp-footer-right">
             ${isHost ? `
-              <button class="mp-launch-btn" id="btn-launch-match">
-                ⚔️ LAUNCH BATTLE
+              <button class="mp-launch-btn" id="btn-launch-match" ${unready.length > 0 ? 'disabled title="Waiting for all players to ready up"' : ''}>
+                ${unready.length > 0 ? `⏳ WAITING FOR ${unready.length} PLAYER${unready.length > 1 ? 'S' : ''}` : '⚔️ LAUNCH BATTLE'}
               </button>
             ` : `
               <div class="mp-waiting-host">Waiting for Host to launch match...</div>
@@ -232,6 +229,12 @@ export class MultiplayerModal {
         </div>
       </div>
     `;
+  }
+
+  private consumeStatus(fallback: string): string {
+    const msg = this.statusMessage;
+    this.statusMessage = null;
+    return escapeHtml(msg ?? fallback);
   }
 
   private renderTeamSlots(team: TeamId, teamPlayers: PlayerSlot[], maxSlots: number): string {
@@ -248,7 +251,7 @@ export class MultiplayerModal {
                 ${p.isHost ? '👑' : `P${i + 1}`}
               </div>
               <div class="mp-player-info">
-                <div class="mp-player-name">${p.name} ${p.peerId === this.network.localPeerId ? '<span class="you-badge">(You)</span>' : ''}</div>
+                <div class="mp-player-name">${escapeHtml(p.name)} ${p.peerId === this.network.localPeerId ? '<span class="you-badge">(You)</span>' : ''}</div>
                 <div class="mp-player-status">${p.isHost ? 'Room Host' : 'Challenger'}</div>
               </div>
             </div>
@@ -308,8 +311,8 @@ export class MultiplayerModal {
         this.network.initHostPlayer(hostName, this.network.mode);
         this.render();
       } catch (err: any) {
-        if (btn) btn.disabled = false;
-        alert(`Failed to host: ${err.message || err}`);
+        this.network.leave();
+        this.setStatusMessage(`Failed to host: ${err.message || err}`);
       }
     });
 
@@ -333,8 +336,9 @@ export class MultiplayerModal {
         this.network.initClientPlayer(clientName);
         this.render();
       } catch (err: any) {
-        if (btn) btn.disabled = false;
-        alert(`Failed to join: ${err.message || err}`);
+        this.network.leave();
+        this.currentTab = 'join';
+        this.setStatusMessage(`Failed to join: ${err.message || err}`);
       }
     });
 
@@ -371,18 +375,15 @@ export class MultiplayerModal {
 
     // Leave room
     this.modalEl.querySelector('#btn-leave-room')?.addEventListener('click', () => {
-      this.network.cleanup();
+      this.network.leave();
       this.render();
     });
 
     // Host Launch Match
     this.modalEl.querySelector('#btn-launch-match')?.addEventListener('click', () => {
+      if (!this.network.isHost || this.network.getUnreadyPlayers().length > 0) return;
       this.close();
-      if (this.network.isHost) {
-        this.network.startMatch(1, 250);
-      } else {
-        this.onMatchLaunch(this.network.mode);
-      }
+      this.network.startMatch(1);
     });
   }
 }

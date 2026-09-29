@@ -634,6 +634,28 @@ export class ArenaCastle {
     return false;
   }
 
+  /**
+   * Multiplayer client: mirror the host's castle state. Hit/destruction VFX arrive separately
+   * through FX replay, so only the local visual state (flinch, HP bar, collapse) is updated here.
+   */
+  public applyNetworkState(currentHp: number, maxHp: number, destroyed: boolean) {
+    if (currentHp < this.currentHp && !destroyed) {
+      this.shakeTimer = 0.16;
+      this.flashTimer = 0.14;
+      for (const mat of this.flashMaterials) {
+        mat.emissive.setHex(0xdc2626);
+        mat.emissiveIntensity = 0.75;
+      }
+    }
+    this.currentHp = currentHp;
+    this.maxHp = maxHp;
+    if (destroyed && !this.isDestroyed) {
+      this.isDestroyed = true;
+      this.hpBarGroup.visible = false;
+    }
+    this.updateHpBar();
+  }
+
   public triggerDestruction() {
     if (this.isDestroyed) return;
     this.isDestroyed = true;

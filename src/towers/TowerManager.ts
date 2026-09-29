@@ -239,6 +239,12 @@ export class TowerManager {
       if (tower.currentBranch !== UpgradeBranch.NONE) {
         return { success: false, cost: 0, reason: 'Path already chosen! Upgrade abilities below.' };
       }
+      const pathCost = (branch === UpgradeBranch.BRANCH_A
+        ? def.branchA[0]
+        : (branch === UpgradeBranch.BRANCH_B ? def.branchB[0] : (def.branchC ? def.branchC[0] : def.branchA[0]))).cost;
+      if (playerGold < pathCost) {
+        return { success: false, cost: 0, reason: `Need ${pathCost}g to choose this path.` };
+      }
       tower.currentBranch = branch;
       tower.branchLevel = 1;
       tower.evoPath = branch === UpgradeBranch.BRANCH_A
@@ -309,7 +315,9 @@ export class TowerManager {
     }
 
     this.recalculateAuras();
-    this.showRange(tower);
+    if (this.selectedTower === tower) {
+      this.showRange(tower);
+    }
 
     audio.playUpgrade();
     this.vfx.spawnAscensionPillar(tower.worldPos, def.accentColor);
@@ -680,8 +688,8 @@ export class TowerManager {
   /**
    * Update tower animations (floating crystals, spinning rings) and fire buffs on units
    */
-  update(time: number, units: Unit[], addGoldCallback: (amount: number) => void) {
-    // 1. Visual animations
+  /** Idle tower animations only (used by multiplayer clients, which don't simulate tower effects). */
+  updateVisuals(time: number) {
     for (const tower of this.towers.values()) {
       if (tower.floatingElement) {
         tower.floatingElement.position.y = 1.6 + Math.sin(time * 0.003 + tower.id) * 0.12;
@@ -692,8 +700,12 @@ export class TowerManager {
         tower.rotatingRing.rotation.z += 0.01;
       }
     }
+  }
 
-    // 2. Tower Actions / Buff Casts
+  update(time: number, units: Unit[], addGoldCallback: (amount: number, tower: TowerInstance) => void) {
+    this.updateVisuals(time);
+
+    // Tower Actions / Buff Casts
     for (const tower of this.towers.values()) {
       if (tower.type === TowerType.AURA) {
         // Aura tower pulses passively; recalculateAuras handles stats
@@ -882,7 +894,7 @@ export class TowerManager {
             ? 0
             : (curUpg?.goldPerHit ?? def.goldPerHit ?? 2);
           if (goldGain > 0) {
-            addGoldCallback(goldGain);
+            addGoldCallback(goldGain, tower);
             tower.totalBuffApplied += goldGain;
             tower.totalHits++;
             audio.playGoldGain();

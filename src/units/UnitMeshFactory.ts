@@ -4,7 +4,7 @@
  * that form a recognizable medieval fantasy silhouette.
  */
 import * as THREE from 'three';
-import { FriendlyClass, EnemyClass } from './UnitData';
+import { FriendlyClass, EnemyClass, isFriendlyClass } from './UnitData';
 
 // ─── Helper: create a quick mesh ───────────────────────────
 function m(
@@ -1328,8 +1328,9 @@ export function buildUnitMesh(
   isFriendly: boolean,
   scale: number
 ): THREE.Group {
-  const builder = isFriendly
-    ? FRIENDLY_BUILDERS[unitClass as FriendlyClass]
+  // The mesh follows the unit's class, not its allegiance (PvP mercenaries can fight for either side).
+  const builder = isFriendlyClass(unitClass)
+    ? FRIENDLY_BUILDERS[unitClass]
     : ENEMY_BUILDERS[unitClass as EnemyClass];
 
   if (!builder) {
@@ -1353,7 +1354,7 @@ export function getUnitMeshHeight(
   scale: number
 ): number {
   // Approximate heights per class for HP bar positioning
-  if (isFriendly) {
+  if (isFriendlyClass(unitClass)) {
     switch (unitClass as FriendlyClass) {
       case FriendlyClass.RECRUIT: return 1.15 * scale;
       case FriendlyClass.FOOTMAN: return 1.2 * scale;

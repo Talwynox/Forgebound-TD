@@ -4,6 +4,10 @@ import { EnemyClass } from '../units/UnitData';
 
 export type GameMode = 'COOP' | 'PVP';
 export type TeamId = 'SUN' | 'MOON';
+export type WavePhase = 'IDLE' | 'MAZE_RUN' | 'ARENA_CLASH';
+
+export const MAX_PLAYERS_PER_TEAM = 4;
+export const MAX_NAME_LENGTH = 16;
 
 export interface PlayerSlot {
   peerId: string;
@@ -12,7 +16,8 @@ export interface PlayerSlot {
   slotIndex: number; // 0..3 within team
   isHost: boolean;
   isReady: boolean;
-  pingMs: number;
+  /** Set by the host when the player drops mid-match (their slot is kept until the match ends). */
+  disconnected?: boolean;
   gold: number;
   income: number;
 }
@@ -82,67 +87,100 @@ export const MERCENARY_DEFINITIONS: Record<string, MercenaryDef> = {
   }
 };
 
-export interface UnitSnapshot {
-  id: number;
-  isFriendly: boolean;
-  team: TeamId;
-  unitClass: string;
-  x: number;
-  y: number;
-  z: number;
-  rotY: number;
-  currentHp: number;
-  maxHp: number;
-  isDead: boolean;
-  inCombat: boolean;
-  tier: number;
+// --- Authoritative state snapshot (Host -> Clients) ---
+// Units/towers/guardians are packed as flat tuples to keep the ~10Hz snapshot small.
+
+/** Bit flags packed into UnitState[2]. */
+export const UNIT_FLAG = {
+  FRIENDLY: 1,
+  IN_COMBAT: 2,
+  DYING: 4,
+  LUNGING: 8,
+  FLINCHING: 16,
+  COMPLETED_MAZE: 32,
+  WAITING_IN_ARENA: 64,
+  MAGMA_SHIELD: 128,
+  MERCENARY: 256
+} as const;
+
+/** [id, unitClass, flags, x*100, y*100, z*100, yaw*100, hp, maxHp, armor, attack, mana] */
+export type UnitState = [number, string, number, number, number, number, number, number, number, number, number, number];
+
+/** [id, accumulatedStackBonus, roundsStacked, hasEvolvedThisWave (0|1), totalBuffApplied, totalHits] */
+export type TowerState = [number, number, number, number, number, number];
+
+/** [id, damageLevel, rangeLevel, totalDamageDealt, totalKills, shotsFired] */
+export type GuardianState = [string, number, number, number, number, number];
+
+/** [currentHp, maxHp, isDestroyed (0|1)] */
+export type CastleState = [number, number, number];
+
+/** A replicated VFX/audio call: [target ('v' = VFX, 'a' = audio), method name, encoded args] */
+export type FxEvent = ['v' | 'a', string, unknown[]];
+
+export interface StateSnapshot {
+  waveIndex: number;
+  wavePhase: WavePhase;
+  waveInProgress: boolean;
+  extraRecruits: number;
+  gameSpeed: number;
+  smartFocus: boolean;
+  focusUnitId: number | null;
+  sunCastle: CastleState;
+  moonCastle: CastleState | null;
+  /** peerId -> [gold, income] */
+  economy: Record<string, [number, number]>;
+  units: UnitState[];
+  towers: TowerState[];
+  guardians: GuardianState[];
+  fx: FxEvent[];
 }
 
-export interface StateSnapshotPayload {
-  waveNumber: number;
-  wavePhase: 'IDLE' | 'MAZE_RUN' | 'ARENA_CLASH';
-  sunCastleHp: number;
-  sunCastleMaxHp: number;
-  moonCastleHp?: number;
-  moonCastleMaxHp?: number;
-  playerGolds: Record<string, number>;
-  playerIncomes: Record<string, number>;
-  units: UnitSnapshot[];
-}
+// --- Gameplay actions (Client -> Host, or executed directly on the Host) ---
+
+export type GameAction =
+  | { kind: 'BUILD_TOWER'; coord: GridCoord; towerType: TowerType }
+  | { kind: 'UPGRADE_TOWER'; towerId: number; branch: UpgradeBranch }
+  | { kind: 'EVO_UPGRADE'; towerId: number; abilityIndex: 1 | 2 | 3 | 4 }
+  | { kind: 'SELL_TOWER'; towerId: number }
+  | { kind: 'BUY_RECRUIT' }
+  | { kind: 'SEND_MERCENARY'; enemyClass: EnemyClass }
+  | { kind: 'START_WAVE' }
+  | { kind: 'UPGRADE_GUARDIAN'; guardianId: string; upgradeType: 'damage' | 'range' }
+  | { kind: 'SET_FOCUS'; unitId: number | null }
+  | { kind: 'TOGGLE_SMART_FOCUS' }
+  | { kind: 'SET_GAME_SPEED'; speed: number };
+
+// --- Discrete world events (Host -> Clients) ---
+
+export type HostEvent =
+  | { kind: 'TOWER_BUILT'; id: number; team: TeamId; ownerPeerId: string; towerType: TowerType; coord: GridCoord }
+  | { kind: 'TOWER_UPGRADED'; id: number; branch: UpgradeBranch }
+  | { kind: 'EVO_UPGRADED'; id: number; abilityIndex: 1 | 2 | 3 | 4 }
+  | { kind: 'TOWER_SOLD'; id: number }
+  | { kind: 'ACTION_REJECTED'; reason: string; action: GameAction }
+  | { kind: 'MATCH_END'; winningTeam: TeamId; isCoopVictory: boolean };
 
 export type NetworkMessage =
   // Handshake & Lobby
   | { type: 'ACTION_JOIN_LOBBY'; name: string }
   | { type: 'ACTION_SELECT_TEAM'; team: TeamId }
   | { type: 'ACTION_SET_READY'; ready: boolean }
-  | { type: 'ACTION_SELECT_MODE'; mode: GameMode }
-  | { type: 'ACTION_SELECT_MISSION'; missionId: number }
-  | { type: 'ACTION_START_MATCH' }
-  | { type: 'LOBBY_STATE'; mode: GameMode; missionId: number; players: PlayerSlot[] }
-  | { type: 'MATCH_START'; mode: GameMode; missionId: number; players: PlayerSlot[]; startingGold: number }
+  | { type: 'LOBBY_STATE'; mode: GameMode; players: PlayerSlot[] }
+  | { type: 'LOBBY_REJECTED'; reason: string }
+  | { type: 'MATCH_START'; mode: GameMode; missionId: number; players: PlayerSlot[] }
 
-  // Gameplay Actions (Client -> Host)
-  | { type: 'ACTION_BUILD_TOWER'; team: TeamId; coord: GridCoord; towerType: TowerType }
-  | { type: 'ACTION_UPGRADE_TOWER'; towerId: number; branch: UpgradeBranch }
-  | { type: 'ACTION_SELL_TOWER'; towerId: number }
-  | { type: 'ACTION_EVO_UPGRADE'; towerId: number; abilityIndex: 1 | 2 | 3 | 4 }
-  | { type: 'ACTION_BUY_RECRUIT'; team: TeamId }
-  | { type: 'ACTION_SEND_MERCENARY'; enemyClass: EnemyClass }
-  | { type: 'ACTION_START_WAVE_READY'; ready: boolean }
-  | { type: 'ACTION_CURSOR_MOVE'; worldX: number; worldZ: number; selectedTower?: TowerType | null }
+  // Gameplay
+  | { type: 'GAME_ACTION'; action: GameAction }
+  | { type: 'HOST_EVENT'; event: HostEvent }
+  | { type: 'STATE_SNAPSHOT'; snapshot: StateSnapshot }
+
+  // Cosmetic presence
+  | { type: 'ACTION_CURSOR_MOVE'; worldX: number; worldZ: number }
   | { type: 'ACTION_PING_MAP'; worldX: number; worldZ: number }
+  | { type: 'EVENT_CURSOR_BROADCAST'; peerId: string; team: TeamId; worldX: number; worldZ: number }
+  | { type: 'EVENT_PING_BROADCAST'; peerId: string; team: TeamId; worldX: number; worldZ: number }
 
   // Latency Heartbeats
   | { type: 'PING'; timestamp: number }
-  | { type: 'PONG'; timestamp: number }
-
-  // Host Broadcast Events & Snapshots (Host -> Clients)
-  | { type: 'STATE_SNAPSHOT'; snapshot: StateSnapshotPayload }
-  | { type: 'EVENT_TOWER_BUILT'; id: number; team: TeamId; ownerPeerId: string; towerType: TowerType; coord: GridCoord }
-  | { type: 'EVENT_TOWER_UPGRADED'; id: number; ownerPeerId: string; branch: UpgradeBranch; level: number }
-  | { type: 'EVENT_TOWER_SOLD'; id: number; ownerPeerId: string; refundGold: number }
-  | { type: 'EVENT_MERCENARY_SUMMONED'; senderPeerId: string; senderTeam: TeamId; enemyClass: EnemyClass }
-  | { type: 'EVENT_CURSOR_BROADCAST'; peerId: string; team: TeamId; worldX: number; worldZ: number; selectedTower?: TowerType | null }
-  | { type: 'EVENT_PING_BROADCAST'; peerId: string; team: TeamId; worldX: number; worldZ: number }
-  | { type: 'EVENT_WAVE_COUNTDOWN'; secondsLeft: number }
-  | { type: 'EVENT_MATCH_END'; winningTeam: TeamId; isCoopVictory?: boolean };
+  | { type: 'PONG'; timestamp: number };
