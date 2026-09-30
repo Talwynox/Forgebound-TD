@@ -6,7 +6,7 @@ import { Grid, TileType, GridCoord } from './grid/Grid';
 import { Pathfinder } from './grid/Pathfinder';
 import { VFXManager } from './vfx/VFXManager';
 import { TowerInstance, TowerManager } from './towers/TowerManager';
-import { Unit, UnitManager } from './units/UnitManager';
+import { Unit, UnitManager, ARENA_BOUNDS } from './units/UnitManager';
 import { TechTreeManager } from './campaign/TechTree';
 import { UIManager } from './ui/UIManager';
 import { CAMPAIGN_MISSIONS, CampaignMission } from './campaign/CampaignData';
@@ -991,13 +991,23 @@ class GameApp {
     const currentWave = this.currentMission.waves[this.currentWaveIndex];
     if (!currentWave) return;
 
+    // Formation fills the enemy half only: a fixed front line, deeper columns back toward the
+    // enemy citadel, squeezed together for huge waves so it never spills past the arena centre
+    const ROWS = 8;
+    const ROW_SPACING = 2.0;
+    const FRONT_X = mirrorX(12);
+    const BACK_X = ARENA_BOUNDS.maxX - 1.4;
+    const total = currentWave.enemies.reduce((sum, g) => sum + g.count, 0);
+    const cols = Math.ceil(total / ROWS);
+    const colSpacing = cols > 1 ? Math.min(1.6, (BACK_X - FRONT_X) / (cols - 1)) : 0;
+
     let col = 0;
     let row = 0;
 
     for (const group of currentWave.enemies) {
       for (let count = 0; count < group.count; count++) {
-        const x = 20.5 - col * 1.6;
-        const z = -3.5 + row * 2.3;
+        const x = FRONT_X + col * colSpacing;
+        const z = (row - (ROWS - 1) / 2) * ROW_SPACING;
         const spawnPos = new THREE.Vector3(x, 0.4, z);
 
         const enemy = this.unitManager.spawnEnemy(group.enemyClass, spawnPos, false, this.currentWaveIndex);
@@ -1007,7 +1017,7 @@ class GameApp {
         }
 
         row++;
-        if (row >= 4) {
+        if (row >= ROWS) {
           row = 0;
           col++;
         }
