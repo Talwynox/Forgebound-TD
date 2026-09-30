@@ -38,6 +38,7 @@ export interface TowerUpgradeDef {
   goldPerHit?: number;
   roundInterestPercent?: number;
   roundFlatGold?: number;
+  roundInterestCap?: number; // Max interest paid per round, so banked gold can't compound without limit
   // Slow Stacking bonuses (applied at end of round)
   stackingHpPerRound?: number;
   stackingArmorPerRound?: number;
@@ -86,154 +87,154 @@ export interface EvoAbilityTier {
 
 export const SOLDIER_ABILITIES = {
   armorAura: [
-    { level: 1, cost: 40, name: 'Armor Aura I', description: 'Radiates +6 Armor to all surrounding allies in combat.', bonus: 6 },
-    { level: 2, cost: 70, name: 'Armor Aura II', description: 'Radiates +12 Armor to all surrounding allies in combat.', bonus: 12 },
-    { level: 3, cost: 110, name: 'Armor Aura III', description: 'Radiates +20 Armor to all surrounding allies in combat.', bonus: 20 },
-    { level: 4, cost: 160, name: 'Armor Aura IV', description: 'Radiates +30 Armor to all surrounding allies in combat.', bonus: 30 },
-    { level: 5, cost: 220, name: 'Armor Aura V', description: 'Radiates +42 Armor to all surrounding allies in combat.', bonus: 42 },
-    { level: 6, cost: 290, name: 'Armor Aura VI', description: 'Radiates +56 Armor to all surrounding allies in combat.', bonus: 56 },
-    { level: 7, cost: 370, name: 'Armor Aura VII', description: 'Radiates +72 Armor to all surrounding allies in combat.', bonus: 72 },
-    { level: 8, cost: 460, name: 'Armor Aura VIII', description: 'Radiates +90 Armor to all surrounding allies in combat.', bonus: 90 },
-    { level: 9, cost: 560, name: 'Armor Aura IX', description: 'Radiates +112 Armor to all surrounding allies in combat.', bonus: 112 },
-    { level: 10, cost: 680, name: 'Armor Aura X - Aegis of the Sun', description: 'Radiates +140 Armor to all surrounding allies in combat!', bonus: 140 }
+    { level: 1, cost: 50, name: 'Armor Aura I', description: 'Radiates +5 Armor to all surrounding allies in combat.', bonus: 5 },
+    { level: 2, cost: 70, name: 'Armor Aura II', description: 'Radiates +11 Armor to all surrounding allies in combat.', bonus: 11 },
+    { level: 3, cost: 95, name: 'Armor Aura III', description: 'Radiates +18 Armor to all surrounding allies in combat.', bonus: 18 },
+    { level: 4, cost: 125, name: 'Armor Aura IV', description: 'Radiates +27 Armor to all surrounding allies in combat.', bonus: 27 },
+    { level: 5, cost: 160, name: 'Armor Aura V', description: 'Radiates +37 Armor to all surrounding allies in combat.', bonus: 37 },
+    { level: 6, cost: 200, name: 'Armor Aura VI', description: 'Radiates +49 Armor to all surrounding allies in combat.', bonus: 49 },
+    { level: 7, cost: 250, name: 'Armor Aura VII', description: 'Radiates +63 Armor to all surrounding allies in combat.', bonus: 63 },
+    { level: 8, cost: 310, name: 'Armor Aura VIII', description: 'Radiates +80 Armor to all surrounding allies in combat.', bonus: 80 },
+    { level: 9, cost: 380, name: 'Armor Aura IX', description: 'Radiates +99 Armor to all surrounding allies in combat.', bonus: 99 },
+    { level: 10, cost: 460, name: 'Armor Aura X - Aegis of the Sun', description: 'Radiates +120 Armor to all surrounding allies in combat!', bonus: 120 }
   ] as EvoAbilityTier[],
   crit: [
-    { level: 1, cost: 40, name: 'Critical Strike I', description: '25% chance to deal 2.0x Critical Strike damage.', chance: 0.25, multiplier: 2.0 },
-    { level: 2, cost: 70, name: 'Critical Strike II', description: '30% chance to deal 2.3x Critical Strike damage.', chance: 0.30, multiplier: 2.3 },
-    { level: 3, cost: 110, name: 'Critical Strike III', description: '35% chance to deal 2.6x Critical Strike damage.', chance: 0.35, multiplier: 2.6 },
-    { level: 4, cost: 160, name: 'Critical Strike IV', description: '40% chance to deal 3.0x Critical Strike damage.', chance: 0.40, multiplier: 3.0 },
-    { level: 5, cost: 220, name: 'Critical Strike V', description: '45% chance to deal 3.4x Critical Strike damage.', chance: 0.45, multiplier: 3.4 },
-    { level: 6, cost: 290, name: 'Critical Strike VI', description: '50% chance to deal 3.8x Critical Strike damage.', chance: 0.50, multiplier: 3.8 },
-    { level: 7, cost: 370, name: 'Critical Strike VII', description: '55% chance to deal 4.3x Critical Strike damage.', chance: 0.55, multiplier: 4.3 },
-    { level: 8, cost: 460, name: 'Critical Strike VIII', description: '60% chance to deal 4.8x Critical Strike damage.', chance: 0.60, multiplier: 4.8 },
-    { level: 9, cost: 560, name: 'Critical Strike IX', description: '65% chance to deal 5.4x Critical Strike damage.', chance: 0.65, multiplier: 5.4 },
-    { level: 10, cost: 680, name: 'Critical Strike X - Guillotine', description: '70% chance to deal 6.0x Critical Strike damage!', chance: 0.70, multiplier: 6.0 }
+    { level: 1, cost: 50, name: 'Critical Strike I', description: '10% chance to deal 1.9x Critical Strike damage.', chance: 0.10, multiplier: 1.9 },
+    { level: 2, cost: 70, name: 'Critical Strike II', description: '15% chance to deal 2.4x Critical Strike damage.', chance: 0.15, multiplier: 2.4 },
+    { level: 3, cost: 95, name: 'Critical Strike III', description: '20% chance to deal 2.8x Critical Strike damage.', chance: 0.20, multiplier: 2.8 },
+    { level: 4, cost: 125, name: 'Critical Strike IV', description: '25% chance to deal 3.2x Critical Strike damage.', chance: 0.25, multiplier: 3.2 },
+    { level: 5, cost: 160, name: 'Critical Strike V', description: '30% chance to deal 3.6x Critical Strike damage.', chance: 0.30, multiplier: 3.6 },
+    { level: 6, cost: 200, name: 'Critical Strike VI', description: '35% chance to deal 4.0x Critical Strike damage.', chance: 0.35, multiplier: 4.0 },
+    { level: 7, cost: 250, name: 'Critical Strike VII', description: '40% chance to deal 4.4x Critical Strike damage.', chance: 0.40, multiplier: 4.4 },
+    { level: 8, cost: 310, name: 'Critical Strike VIII', description: '45% chance to deal 4.8x Critical Strike damage.', chance: 0.45, multiplier: 4.8 },
+    { level: 9, cost: 380, name: 'Critical Strike IX', description: '50% chance to deal 5.2x Critical Strike damage.', chance: 0.50, multiplier: 5.2 },
+    { level: 10, cost: 460, name: 'Critical Strike X - Guillotine', description: '55% chance to deal 5.6x Critical Strike damage!', chance: 0.55, multiplier: 5.6 }
   ] as EvoAbilityTier[],
   lifeRegen: [
-    { level: 1, cost: 40, name: 'Iron Vigor I', description: 'Passively regenerates +12 HP/sec in combat.', bonus: 12 },
-    { level: 2, cost: 70, name: 'Iron Vigor II', description: 'Passively regenerates +20 HP/sec in combat.', bonus: 20 },
-    { level: 3, cost: 110, name: 'Iron Vigor III', description: 'Passively regenerates +32 HP/sec in combat.', bonus: 32 },
-    { level: 4, cost: 160, name: 'Iron Vigor IV', description: 'Passively regenerates +48 HP/sec in combat.', bonus: 48 },
-    { level: 5, cost: 220, name: 'Iron Vigor V', description: 'Passively regenerates +70 HP/sec in combat.', bonus: 70 },
-    { level: 6, cost: 290, name: 'Iron Vigor VI', description: 'Passively regenerates +95 HP/sec in combat.', bonus: 95 },
-    { level: 7, cost: 370, name: 'Iron Vigor VII', description: 'Passively regenerates +125 HP/sec in combat.', bonus: 125 },
-    { level: 8, cost: 460, name: 'Iron Vigor VIII', description: 'Passively regenerates +160 HP/sec in combat.', bonus: 160 },
-    { level: 9, cost: 560, name: 'Iron Vigor IX', description: 'Passively regenerates +200 HP/sec in combat.', bonus: 200 },
-    { level: 10, cost: 680, name: 'Iron Vigor X - Undying Resolve', description: 'Passively regenerates +250 HP/sec in combat!', bonus: 250 }
+    { level: 1, cost: 50, name: 'Iron Vigor I', description: 'Passively regenerates +8 HP/sec in combat.', bonus: 8 },
+    { level: 2, cost: 70, name: 'Iron Vigor II', description: 'Passively regenerates +17 HP/sec in combat.', bonus: 17 },
+    { level: 3, cost: 95, name: 'Iron Vigor III', description: 'Passively regenerates +29 HP/sec in combat.', bonus: 29 },
+    { level: 4, cost: 125, name: 'Iron Vigor IV', description: 'Passively regenerates +44 HP/sec in combat.', bonus: 44 },
+    { level: 5, cost: 160, name: 'Iron Vigor V', description: 'Passively regenerates +62 HP/sec in combat.', bonus: 62 },
+    { level: 6, cost: 200, name: 'Iron Vigor VI', description: 'Passively regenerates +82 HP/sec in combat.', bonus: 82 },
+    { level: 7, cost: 250, name: 'Iron Vigor VII', description: 'Passively regenerates +106 HP/sec in combat.', bonus: 106 },
+    { level: 8, cost: 310, name: 'Iron Vigor VIII', description: 'Passively regenerates +133 HP/sec in combat.', bonus: 133 },
+    { level: 9, cost: 380, name: 'Iron Vigor IX', description: 'Passively regenerates +165 HP/sec in combat.', bonus: 165 },
+    { level: 10, cost: 460, name: 'Iron Vigor X - Undying Resolve', description: 'Passively regenerates +200 HP/sec in combat!', bonus: 200 }
   ] as EvoAbilityTier[],
   thorns: [
-    { level: 1, cost: 40, name: 'Spiked Bulwark I', description: 'Reduces incoming damage by 3 and reflects 25% melee damage back.', multiplier: 0.25, secondaryBonus: 3 },
-    { level: 2, cost: 70, name: 'Spiked Bulwark II', description: 'Reduces incoming damage by 5 and reflects 35% melee damage back.', multiplier: 0.35, secondaryBonus: 5 },
-    { level: 3, cost: 110, name: 'Spiked Bulwark III', description: 'Reduces incoming damage by 7 and reflects 45% melee damage back.', multiplier: 0.45, secondaryBonus: 7 },
-    { level: 4, cost: 160, name: 'Spiked Bulwark IV', description: 'Reduces incoming damage by 10 and reflects 55% melee damage back.', multiplier: 0.55, secondaryBonus: 10 },
-    { level: 5, cost: 220, name: 'Spiked Bulwark V', description: 'Reduces incoming damage by 13 and reflects 65% melee damage back.', multiplier: 0.65, secondaryBonus: 13 },
-    { level: 6, cost: 290, name: 'Spiked Bulwark VI', description: 'Reduces incoming damage by 16 and reflects 75% melee damage back.', multiplier: 0.75, secondaryBonus: 16 },
-    { level: 7, cost: 370, name: 'Spiked Bulwark VII', description: 'Reduces incoming damage by 19 and reflects 85% melee damage back.', multiplier: 0.85, secondaryBonus: 19 },
-    { level: 8, cost: 460, name: 'Spiked Bulwark VIII', description: 'Reduces incoming damage by 22 and reflects 95% melee damage back.', multiplier: 0.95, secondaryBonus: 22 },
-    { level: 9, cost: 560, name: 'Spiked Bulwark IX', description: 'Reduces incoming damage by 26 and reflects 110% melee damage back.', multiplier: 1.10, secondaryBonus: 26 },
-    { level: 10, cost: 680, name: 'Spiked Bulwark X - Dreadnought Carapace', description: 'Reduces incoming damage by 30 and reflects 130% melee damage back!', multiplier: 1.30, secondaryBonus: 30 }
+    { level: 1, cost: 50, name: 'Spiked Bulwark I', description: 'Reduces incoming damage by 2 and reflects 4% melee damage back.', multiplier: 0.04, secondaryBonus: 2 },
+    { level: 2, cost: 70, name: 'Spiked Bulwark II', description: 'Reduces incoming damage by 4 and reflects 9% melee damage back.', multiplier: 0.09, secondaryBonus: 4 },
+    { level: 3, cost: 95, name: 'Spiked Bulwark III', description: 'Reduces incoming damage by 6 and reflects 15% melee damage back.', multiplier: 0.15, secondaryBonus: 6 },
+    { level: 4, cost: 125, name: 'Spiked Bulwark IV', description: 'Reduces incoming damage by 8 and reflects 22% melee damage back.', multiplier: 0.22, secondaryBonus: 8 },
+    { level: 5, cost: 160, name: 'Spiked Bulwark V', description: 'Reduces incoming damage by 10 and reflects 30% melee damage back.', multiplier: 0.30, secondaryBonus: 10 },
+    { level: 6, cost: 200, name: 'Spiked Bulwark VI', description: 'Reduces incoming damage by 12 and reflects 39% melee damage back.', multiplier: 0.39, secondaryBonus: 12 },
+    { level: 7, cost: 250, name: 'Spiked Bulwark VII', description: 'Reduces incoming damage by 14 and reflects 50% melee damage back.', multiplier: 0.50, secondaryBonus: 14 },
+    { level: 8, cost: 310, name: 'Spiked Bulwark VIII', description: 'Reduces incoming damage by 16 and reflects 63% melee damage back.', multiplier: 0.63, secondaryBonus: 16 },
+    { level: 9, cost: 380, name: 'Spiked Bulwark IX', description: 'Reduces incoming damage by 18 and reflects 78% melee damage back.', multiplier: 0.78, secondaryBonus: 18 },
+    { level: 10, cost: 460, name: 'Spiked Bulwark X - Dreadnought Carapace', description: 'Reduces incoming damage by 20 and reflects 95% melee damage back!', multiplier: 0.95, secondaryBonus: 20 }
   ] as EvoAbilityTier[]
 };
 
 export const ARCHER_ABILITIES = {
   multishot: [
-    { level: 1, cost: 40, name: 'Multishot I', description: '30% chance to fire arrows at 2 targets simultaneously.', chance: 0.30, targets: 2 },
-    { level: 2, cost: 70, name: 'Multishot II', description: '50% chance to fire arrows at 2 targets simultaneously.', chance: 0.50, targets: 2 },
-    { level: 3, cost: 110, name: 'Multishot III', description: '70% chance to fire arrows at 2 targets simultaneously.', chance: 0.70, targets: 2 },
-    { level: 4, cost: 160, name: 'Multishot IV', description: '45% chance to fire arrows at 3 targets simultaneously.', chance: 0.45, targets: 3 },
-    { level: 5, cost: 220, name: 'Multishot V', description: '65% chance to fire arrows at 3 targets simultaneously.', chance: 0.65, targets: 3 },
-    { level: 6, cost: 290, name: 'Multishot VI', description: '85% chance to fire arrows at 3 targets simultaneously.', chance: 0.85, targets: 3 },
-    { level: 7, cost: 370, name: 'Multishot VII', description: '60% chance to fire arrows at 4 targets simultaneously.', chance: 0.60, targets: 4 },
-    { level: 8, cost: 460, name: 'Multishot VIII', description: '80% chance to fire arrows at 4 targets simultaneously.', chance: 0.80, targets: 4 },
-    { level: 9, cost: 560, name: 'Multishot IX', description: '70% chance to fire arrows at 5 targets simultaneously.', chance: 0.70, targets: 5 },
-    { level: 10, cost: 680, name: 'Multishot X - Arrow Tempest', description: '90% chance to fire arrows at 5 targets simultaneously!', chance: 0.90, targets: 5 }
+    { level: 1, cost: 50, name: 'Multishot I', description: '11% chance to fire arrows at 2 targets simultaneously.', chance: 0.11, targets: 2 },
+    { level: 2, cost: 70, name: 'Multishot II', description: '26% chance to fire arrows at 2 targets simultaneously.', chance: 0.26, targets: 2 },
+    { level: 3, cost: 95, name: 'Multishot III', description: '44% chance to fire arrows at 2 targets simultaneously.', chance: 0.44, targets: 2 },
+    { level: 4, cost: 125, name: 'Multishot IV', description: '66% chance to fire arrows at 2 targets simultaneously.', chance: 0.66, targets: 2 },
+    { level: 5, cost: 160, name: 'Multishot V', description: '46% chance to fire arrows at 3 targets simultaneously.', chance: 0.46, targets: 3 },
+    { level: 6, cost: 200, name: 'Multishot VI', description: '61% chance to fire arrows at 3 targets simultaneously.', chance: 0.61, targets: 3 },
+    { level: 7, cost: 250, name: 'Multishot VII', description: '79% chance to fire arrows at 3 targets simultaneously.', chance: 0.79, targets: 3 },
+    { level: 8, cost: 310, name: 'Multishot VIII', description: '67% chance to fire arrows at 4 targets simultaneously.', chance: 0.67, targets: 4 },
+    { level: 9, cost: 380, name: 'Multishot IX', description: '83% chance to fire arrows at 4 targets simultaneously.', chance: 0.83, targets: 4 },
+    { level: 10, cost: 460, name: 'Multishot X - Arrow Tempest', description: '75% chance to fire arrows at 5 targets simultaneously!', chance: 0.75, targets: 5 }
   ] as EvoAbilityTier[],
   damageAura: [
-    { level: 1, cost: 40, name: 'Damage Aura I', description: 'Radiates +6 Attack to all surrounding allies in combat.', bonus: 6 },
-    { level: 2, cost: 70, name: 'Damage Aura II', description: 'Radiates +14 Attack to all surrounding allies in combat.', bonus: 14 },
-    { level: 3, cost: 110, name: 'Damage Aura III', description: 'Radiates +24 Attack to all surrounding allies in combat.', bonus: 24 },
-    { level: 4, cost: 160, name: 'Damage Aura IV', description: 'Radiates +36 Attack to all surrounding allies in combat.', bonus: 36 },
-    { level: 5, cost: 220, name: 'Damage Aura V', description: 'Radiates +50 Attack to all surrounding allies in combat.', bonus: 50 },
-    { level: 6, cost: 290, name: 'Damage Aura VI', description: 'Radiates +66 Attack to all surrounding allies in combat.', bonus: 66 },
-    { level: 7, cost: 370, name: 'Damage Aura VII', description: 'Radiates +85 Attack to all surrounding allies in combat.', bonus: 85 },
-    { level: 8, cost: 460, name: 'Damage Aura VIII', description: 'Radiates +106 Attack to all surrounding allies in combat.', bonus: 106 },
-    { level: 9, cost: 560, name: 'Damage Aura IX', description: 'Radiates +130 Attack to all surrounding allies in combat.', bonus: 130 },
-    { level: 10, cost: 680, name: 'Damage Aura X - Sovereign Might', description: 'Radiates +160 Attack to all surrounding allies in combat!', bonus: 160 }
+    { level: 1, cost: 50, name: 'Damage Aura I', description: 'Radiates +6 Attack to all surrounding allies in combat.', bonus: 6 },
+    { level: 2, cost: 70, name: 'Damage Aura II', description: 'Radiates +13 Attack to all surrounding allies in combat.', bonus: 13 },
+    { level: 3, cost: 95, name: 'Damage Aura III', description: 'Radiates +21 Attack to all surrounding allies in combat.', bonus: 21 },
+    { level: 4, cost: 125, name: 'Damage Aura IV', description: 'Radiates +31 Attack to all surrounding allies in combat.', bonus: 31 },
+    { level: 5, cost: 160, name: 'Damage Aura V', description: 'Radiates +43 Attack to all surrounding allies in combat.', bonus: 43 },
+    { level: 6, cost: 200, name: 'Damage Aura VI', description: 'Radiates +57 Attack to all surrounding allies in combat.', bonus: 57 },
+    { level: 7, cost: 250, name: 'Damage Aura VII', description: 'Radiates +74 Attack to all surrounding allies in combat.', bonus: 74 },
+    { level: 8, cost: 310, name: 'Damage Aura VIII', description: 'Radiates +93 Attack to all surrounding allies in combat.', bonus: 93 },
+    { level: 9, cost: 380, name: 'Damage Aura IX', description: 'Radiates +115 Attack to all surrounding allies in combat.', bonus: 115 },
+    { level: 10, cost: 460, name: 'Damage Aura X - Sovereign Might', description: 'Radiates +140 Attack to all surrounding allies in combat!', bonus: 140 }
   ] as EvoAbilityTier[],
   armorShred: [
-    { level: 1, cost: 40, name: 'Sundering Shot I', description: 'Attacks shred 3 enemy Armor for 4.0s (benefits all allies!).', bonus: 3, duration: 4.0 },
-    { level: 2, cost: 70, name: 'Sundering Shot II', description: 'Attacks shred 5 enemy Armor for 4.0s.', bonus: 5, duration: 4.0 },
-    { level: 3, cost: 110, name: 'Sundering Shot III', description: 'Attacks shred 7 enemy Armor for 4.0s.', bonus: 7, duration: 4.0 },
-    { level: 4, cost: 160, name: 'Sundering Shot IV', description: 'Attacks shred 10 enemy Armor for 4.0s.', bonus: 10, duration: 4.0 },
-    { level: 5, cost: 220, name: 'Sundering Shot V', description: 'Attacks shred 13 enemy Armor for 4.0s.', bonus: 13, duration: 4.0 },
-    { level: 6, cost: 290, name: 'Sundering Shot VI', description: 'Attacks shred 16 enemy Armor for 4.0s.', bonus: 16, duration: 4.0 },
-    { level: 7, cost: 370, name: 'Sundering Shot VII', description: 'Attacks shred 19 enemy Armor for 4.0s.', bonus: 19, duration: 4.0 },
-    { level: 8, cost: 460, name: 'Sundering Shot VIII', description: 'Attacks shred 22 enemy Armor for 4.0s.', bonus: 22, duration: 4.0 },
-    { level: 9, cost: 560, name: 'Sundering Shot IX', description: 'Attacks shred 26 enemy Armor for 4.0s.', bonus: 26, duration: 4.0 },
-    { level: 10, cost: 680, name: 'Sundering Shot X - Armor Breaker', description: 'Attacks shred 30 enemy Armor for 4.0s!', bonus: 30, duration: 4.0 }
+    { level: 1, cost: 50, name: 'Sundering Shot I', description: 'Attacks shred 3 enemy Armor for 4.0s (benefits all allies!).', bonus: 3, duration: 4.0 },
+    { level: 2, cost: 70, name: 'Sundering Shot II', description: 'Attacks shred 6 enemy Armor for 4.0s.', bonus: 6, duration: 4.0 },
+    { level: 3, cost: 95, name: 'Sundering Shot III', description: 'Attacks shred 9 enemy Armor for 4.0s.', bonus: 9, duration: 4.0 },
+    { level: 4, cost: 125, name: 'Sundering Shot IV', description: 'Attacks shred 12 enemy Armor for 4.0s.', bonus: 12, duration: 4.0 },
+    { level: 5, cost: 160, name: 'Sundering Shot V', description: 'Attacks shred 15 enemy Armor for 4.0s.', bonus: 15, duration: 4.0 },
+    { level: 6, cost: 200, name: 'Sundering Shot VI', description: 'Attacks shred 18 enemy Armor for 4.0s.', bonus: 18, duration: 4.0 },
+    { level: 7, cost: 250, name: 'Sundering Shot VII', description: 'Attacks shred 21 enemy Armor for 4.0s.', bonus: 21, duration: 4.0 },
+    { level: 8, cost: 310, name: 'Sundering Shot VIII', description: 'Attacks shred 24 enemy Armor for 4.0s.', bonus: 24, duration: 4.0 },
+    { level: 9, cost: 380, name: 'Sundering Shot IX', description: 'Attacks shred 27 enemy Armor for 4.0s.', bonus: 27, duration: 4.0 },
+    { level: 10, cost: 460, name: 'Sundering Shot X - Armor Breaker', description: 'Attacks shred 30 enemy Armor for 4.0s!', bonus: 30, duration: 4.0 }
   ] as EvoAbilityTier[],
   rapidQuiver: [
-    { level: 1, cost: 40, name: 'Rapid Quiver I', description: 'Increases attack speed by +15% (0.74s attack rate).', bonus: 0.15 },
-    { level: 2, cost: 70, name: 'Rapid Quiver II', description: 'Increases attack speed by +22% (0.70s attack rate).', bonus: 0.22 },
-    { level: 3, cost: 110, name: 'Rapid Quiver III', description: 'Increases attack speed by +30% (0.65s attack rate).', bonus: 0.30 },
-    { level: 4, cost: 160, name: 'Rapid Quiver IV', description: 'Increases attack speed by +40% (0.61s attack rate).', bonus: 0.40 },
-    { level: 5, cost: 220, name: 'Rapid Quiver V', description: 'Increases attack speed by +50% (0.57s attack rate).', bonus: 0.50 },
-    { level: 6, cost: 290, name: 'Rapid Quiver VI', description: 'Increases attack speed by +60% (0.53s attack rate).', bonus: 0.60 },
-    { level: 7, cost: 370, name: 'Rapid Quiver VII', description: 'Increases attack speed by +70% (0.50s attack rate).', bonus: 0.70 },
-    { level: 8, cost: 460, name: 'Rapid Quiver VIII', description: 'Increases attack speed by +80% (0.47s attack rate).', bonus: 0.80 },
-    { level: 9, cost: 560, name: 'Rapid Quiver IX', description: 'Increases attack speed by +90% (0.45s attack rate).', bonus: 0.90 },
-    { level: 10, cost: 680, name: 'Rapid Quiver X - Windrunner Flurry', description: 'Increases attack speed by +105% (0.41s relentless flurry)!', bonus: 1.05 }
+    { level: 1, cost: 50, name: 'Rapid Quiver I', description: 'Increases attack speed by +4% (0.82s attack rate).', bonus: 0.04 },
+    { level: 2, cost: 70, name: 'Rapid Quiver II', description: 'Increases attack speed by +9% (0.78s attack rate).', bonus: 0.09 },
+    { level: 3, cost: 95, name: 'Rapid Quiver III', description: 'Increases attack speed by +15% (0.74s attack rate).', bonus: 0.15 },
+    { level: 4, cost: 125, name: 'Rapid Quiver IV', description: 'Increases attack speed by +22% (0.70s attack rate).', bonus: 0.22 },
+    { level: 5, cost: 160, name: 'Rapid Quiver V', description: 'Increases attack speed by +30% (0.65s attack rate).', bonus: 0.30 },
+    { level: 6, cost: 200, name: 'Rapid Quiver VI', description: 'Increases attack speed by +39% (0.61s attack rate).', bonus: 0.39 },
+    { level: 7, cost: 250, name: 'Rapid Quiver VII', description: 'Increases attack speed by +49% (0.57s attack rate).', bonus: 0.49 },
+    { level: 8, cost: 310, name: 'Rapid Quiver VIII', description: 'Increases attack speed by +61% (0.53s attack rate).', bonus: 0.61 },
+    { level: 9, cost: 380, name: 'Rapid Quiver IX', description: 'Increases attack speed by +74% (0.49s attack rate).', bonus: 0.74 },
+    { level: 10, cost: 460, name: 'Rapid Quiver X - Windrunner Flurry', description: 'Increases attack speed by +89% (0.45s attack rate)!', bonus: 0.89 }
   ] as EvoAbilityTier[]
 };
 
 export const MAGE_ABILITIES = {
   manaGain: [
-    { level: 1, cost: 40, name: 'Arcane Siphon I', description: 'Generates +25 Mana per attack (Fireball every 4 attacks).', bonus: 25 },
-    { level: 2, cost: 70, name: 'Arcane Siphon II', description: 'Generates +34 Mana per attack (Fireball every 3 attacks).', bonus: 34 },
-    { level: 3, cost: 110, name: 'Arcane Siphon III', description: 'Generates +50 Mana per attack (Fireball every 2 attacks!).', bonus: 50 },
-    { level: 4, cost: 160, name: 'Arcane Siphon IV', description: 'Generates +60 Mana per attack.', bonus: 60 },
-    { level: 5, cost: 220, name: 'Arcane Siphon V', description: 'Generates +75 Mana per attack.', bonus: 75 },
-    { level: 6, cost: 290, name: 'Arcane Siphon VI', description: 'Generates +90 Mana per attack.', bonus: 90 },
-    { level: 7, cost: 370, name: 'Arcane Siphon VII', description: 'Generates +100 Mana per attack (Fireball every single attack!).', bonus: 100 },
-    { level: 8, cost: 460, name: 'Arcane Siphon VIII', description: 'Generates +120 Mana per attack.', bonus: 120 },
-    { level: 9, cost: 560, name: 'Arcane Siphon IX', description: 'Generates +140 Mana per attack.', bonus: 140 },
-    { level: 10, cost: 680, name: 'Arcane Siphon X - Leyline Font', description: 'Generates +160 Mana per attack (Instant catastrophic recharge!).', bonus: 160 }
+    { level: 1, cost: 50, name: 'Arcane Siphon I', description: 'Generates +28 Mana per attack (Fireball every 3.6 attacks).', bonus: 28 },
+    { level: 2, cost: 70, name: 'Arcane Siphon II', description: 'Generates +32 Mana per attack (Fireball every 3.1 attacks).', bonus: 32 },
+    { level: 3, cost: 95, name: 'Arcane Siphon III', description: 'Generates +37 Mana per attack (Fireball every 2.7 attacks).', bonus: 37 },
+    { level: 4, cost: 125, name: 'Arcane Siphon IV', description: 'Generates +43 Mana per attack (Fireball every 2.3 attacks).', bonus: 43 },
+    { level: 5, cost: 160, name: 'Arcane Siphon V', description: 'Generates +50 Mana per attack (Fireball every 2.0 attacks).', bonus: 50 },
+    { level: 6, cost: 200, name: 'Arcane Siphon VI', description: 'Generates +58 Mana per attack (Fireball every 1.7 attacks).', bonus: 58 },
+    { level: 7, cost: 250, name: 'Arcane Siphon VII', description: 'Generates +67 Mana per attack (Fireball every 1.5 attacks).', bonus: 67 },
+    { level: 8, cost: 310, name: 'Arcane Siphon VIII', description: 'Generates +77 Mana per attack (Fireball every 1.3 attacks).', bonus: 77 },
+    { level: 9, cost: 380, name: 'Arcane Siphon IX', description: 'Generates +88 Mana per attack (Fireball every 1.1 attacks).', bonus: 88 },
+    { level: 10, cost: 460, name: 'Arcane Siphon X - Leyline Font', description: 'Generates +100 Mana per attack (Fireball every single attack!).', bonus: 100 }
   ] as EvoAbilityTier[],
   fireball: [
-    { level: 1, cost: 40, name: 'Mega Fireball I', description: 'Full mana casts AoE Fireball dealing 2.2x Attack damage across a 2.4m radius.', multiplier: 2.2, bonus: 2.4 },
-    { level: 2, cost: 70, name: 'Mega Fireball II', description: 'Full mana casts AoE Fireball dealing 3.0x Attack damage across a 2.8m radius.', multiplier: 3.0, bonus: 2.8 },
-    { level: 3, cost: 110, name: 'Mega Fireball III', description: 'Full mana casts AoE Fireball dealing 3.8x Attack damage across a 3.2m radius.', multiplier: 3.8, bonus: 3.2 },
-    { level: 4, cost: 160, name: 'Mega Fireball IV', description: 'Full mana casts AoE Fireball dealing 4.8x Attack damage across a 3.6m radius.', multiplier: 4.8, bonus: 3.6 },
-    { level: 5, cost: 220, name: 'Mega Fireball V', description: 'Full mana casts AoE Fireball dealing 6.0x Attack damage across a 4.0m radius.', multiplier: 6.0, bonus: 4.0 },
-    { level: 6, cost: 290, name: 'Mega Fireball VI', description: 'Full mana casts AoE Fireball dealing 7.4x Attack damage across a 4.4m radius.', multiplier: 7.4, bonus: 4.4 },
-    { level: 7, cost: 370, name: 'Mega Fireball VII', description: 'Full mana casts AoE Fireball dealing 9.0x Attack damage across a 4.8m radius.', multiplier: 9.0, bonus: 4.8 },
-    { level: 8, cost: 460, name: 'Mega Fireball VIII', description: 'Full mana casts AoE Fireball dealing 11.0x Attack damage across a 5.2m radius.', multiplier: 11.0, bonus: 5.2 },
-    { level: 9, cost: 560, name: 'Mega Fireball IX', description: 'Full mana casts AoE Fireball dealing 13.5x Attack damage across a 5.6m radius.', multiplier: 13.5, bonus: 5.6 },
-    { level: 10, cost: 680, name: 'Mega Fireball X - Hellfire Nova', description: 'Full mana casts AoE Fireball dealing 16.5x Attack damage across a 6.2m inferno radius!', multiplier: 16.5, bonus: 6.2 }
+    { level: 1, cost: 50, name: 'Mega Fireball I', description: 'Full mana casts AoE Fireball dealing 2.8x Attack damage across a 2.5m radius.', multiplier: 2.8, bonus: 2.5 },
+    { level: 2, cost: 70, name: 'Mega Fireball II', description: 'Full mana casts AoE Fireball dealing 3.3x Attack damage across a 2.75m radius.', multiplier: 3.3, bonus: 2.75 },
+    { level: 3, cost: 95, name: 'Mega Fireball III', description: 'Full mana casts AoE Fireball dealing 3.9x Attack damage across a 3.0m radius.', multiplier: 3.9, bonus: 3.0 },
+    { level: 4, cost: 125, name: 'Mega Fireball IV', description: 'Full mana casts AoE Fireball dealing 4.6x Attack damage across a 3.25m radius.', multiplier: 4.6, bonus: 3.25 },
+    { level: 5, cost: 160, name: 'Mega Fireball V', description: 'Full mana casts AoE Fireball dealing 5.4x Attack damage across a 3.5m radius.', multiplier: 5.4, bonus: 3.5 },
+    { level: 6, cost: 200, name: 'Mega Fireball VI', description: 'Full mana casts AoE Fireball dealing 6.3x Attack damage across a 3.75m radius.', multiplier: 6.3, bonus: 3.75 },
+    { level: 7, cost: 250, name: 'Mega Fireball VII', description: 'Full mana casts AoE Fireball dealing 7.3x Attack damage across a 4.0m radius.', multiplier: 7.3, bonus: 4.0 },
+    { level: 8, cost: 310, name: 'Mega Fireball VIII', description: 'Full mana casts AoE Fireball dealing 8.3x Attack damage across a 4.25m radius.', multiplier: 8.3, bonus: 4.25 },
+    { level: 9, cost: 380, name: 'Mega Fireball IX', description: 'Full mana casts AoE Fireball dealing 9.4x Attack damage across a 4.5m radius.', multiplier: 9.4, bonus: 4.5 },
+    { level: 10, cost: 460, name: 'Mega Fireball X - Hellfire Nova', description: 'Full mana casts AoE Fireball dealing 10.5x Attack damage across a 4.75m radius!', multiplier: 10.5, bonus: 4.75 }
   ] as EvoAbilityTier[],
   stun: [
-    { level: 1, cost: 40, name: 'Paralyzing Arc I', description: '25% chance to stun target for 1.2s with a crackling lightning jolt.', chance: 0.25, duration: 1.2 },
-    { level: 2, cost: 70, name: 'Paralyzing Arc II', description: '30% chance to stun target for 1.4s.', chance: 0.30, duration: 1.4 },
-    { level: 3, cost: 110, name: 'Paralyzing Arc III', description: '35% chance to stun target for 1.6s.', chance: 0.35, duration: 1.6 },
-    { level: 4, cost: 160, name: 'Paralyzing Arc IV', description: '40% chance to stun target for 1.8s.', chance: 0.40, duration: 1.8 },
-    { level: 5, cost: 220, name: 'Paralyzing Arc V', description: '45% chance to stun target for 2.0s.', chance: 0.45, duration: 2.0 },
-    { level: 6, cost: 290, name: 'Paralyzing Arc VI', description: '50% chance to stun target for 2.2s.', chance: 0.50, duration: 2.2 },
-    { level: 7, cost: 370, name: 'Paralyzing Arc VII', description: '55% chance to stun target for 2.4s.', chance: 0.55, duration: 2.4 },
-    { level: 8, cost: 460, name: 'Paralyzing Arc VIII', description: '60% chance to stun target for 2.6s.', chance: 0.60, duration: 2.6 },
-    { level: 9, cost: 560, name: 'Paralyzing Arc IX', description: '65% chance to stun target for 2.8s.', chance: 0.65, duration: 2.8 },
-    { level: 10, cost: 680, name: 'Paralyzing Arc X - Temporal Stasis', description: '75% chance to stun target for 3.2s (halts movement, attacks & boss abilities)!', chance: 0.75, duration: 3.2 }
+    { level: 1, cost: 50, name: 'Paralyzing Arc I', description: '5% chance to stun target for 0.7s with a crackling lightning jolt.', chance: 0.05, duration: 0.7 },
+    { level: 2, cost: 70, name: 'Paralyzing Arc II', description: '9% chance to stun target for 0.9s.', chance: 0.09, duration: 0.9 },
+    { level: 3, cost: 95, name: 'Paralyzing Arc III', description: '13% chance to stun target for 1.1s.', chance: 0.13, duration: 1.1 },
+    { level: 4, cost: 125, name: 'Paralyzing Arc IV', description: '17% chance to stun target for 1.3s.', chance: 0.17, duration: 1.3 },
+    { level: 5, cost: 160, name: 'Paralyzing Arc V', description: '21% chance to stun target for 1.5s.', chance: 0.21, duration: 1.5 },
+    { level: 6, cost: 200, name: 'Paralyzing Arc VI', description: '25% chance to stun target for 1.7s.', chance: 0.25, duration: 1.7 },
+    { level: 7, cost: 250, name: 'Paralyzing Arc VII', description: '29% chance to stun target for 1.9s.', chance: 0.29, duration: 1.9 },
+    { level: 8, cost: 310, name: 'Paralyzing Arc VIII', description: '33% chance to stun target for 2.1s.', chance: 0.33, duration: 2.1 },
+    { level: 9, cost: 380, name: 'Paralyzing Arc IX', description: '37% chance to stun target for 2.3s.', chance: 0.37, duration: 2.3 },
+    { level: 10, cost: 460, name: 'Paralyzing Arc X - Temporal Stasis', description: '41% chance to stun target for 2.5s (halts movement, attacks & boss abilities)!', chance: 0.41, duration: 2.5 }
   ] as EvoAbilityTier[],
   burn: [
-    { level: 1, cost: 40, name: 'Molten Pyre I', description: 'Attacks & fireballs ignite enemies for 30% Attack power/sec over 3.0s.', multiplier: 0.30, duration: 3.0 },
-    { level: 2, cost: 70, name: 'Molten Pyre II', description: 'Attacks ignite enemies for 45% Attack power/sec over 3.0s.', multiplier: 0.45, duration: 3.0 },
-    { level: 3, cost: 110, name: 'Molten Pyre III', description: 'Attacks ignite enemies for 60% Attack power/sec over 3.0s.', multiplier: 0.60, duration: 3.0 },
-    { level: 4, cost: 160, name: 'Molten Pyre IV', description: 'Attacks ignite enemies for 75% Attack power/sec over 3.0s.', multiplier: 0.75, duration: 3.0 },
-    { level: 5, cost: 220, name: 'Molten Pyre V', description: 'Attacks ignite enemies for 95% Attack power/sec over 3.0s.', multiplier: 0.95, duration: 3.0 },
-    { level: 6, cost: 290, name: 'Molten Pyre VI', description: 'Attacks ignite enemies for 115% Attack power/sec over 3.0s.', multiplier: 1.15, duration: 3.0 },
-    { level: 7, cost: 370, name: 'Molten Pyre VII', description: 'Attacks ignite enemies for 135% Attack power/sec over 3.0s.', multiplier: 1.35, duration: 3.0 },
-    { level: 8, cost: 460, name: 'Molten Pyre VIII', description: 'Attacks ignite enemies for 155% Attack power/sec over 3.0s.', multiplier: 1.55, duration: 3.0 },
-    { level: 9, cost: 560, name: 'Molten Pyre IX', description: 'Attacks ignite enemies for 180% Attack power/sec over 3.0s.', multiplier: 1.80, duration: 3.0 },
-    { level: 10, cost: 680, name: 'Molten Pyre X - Hellfire Inferno', description: 'Attacks ignite enemies for 210% Attack power/sec over 3.0s!', multiplier: 2.10, duration: 3.0 }
+    { level: 1, cost: 50, name: 'Molten Pyre I', description: 'Attacks & fireballs ignite enemies for 6% Attack power/sec over 3.0s.', multiplier: 0.06, duration: 3.0 },
+    { level: 2, cost: 70, name: 'Molten Pyre II', description: 'Attacks ignite enemies for 14% Attack power/sec over 3.0s.', multiplier: 0.14, duration: 3.0 },
+    { level: 3, cost: 95, name: 'Molten Pyre III', description: 'Attacks ignite enemies for 24% Attack power/sec over 3.0s.', multiplier: 0.24, duration: 3.0 },
+    { level: 4, cost: 125, name: 'Molten Pyre IV', description: 'Attacks ignite enemies for 36% Attack power/sec over 3.0s.', multiplier: 0.36, duration: 3.0 },
+    { level: 5, cost: 160, name: 'Molten Pyre V', description: 'Attacks ignite enemies for 49% Attack power/sec over 3.0s.', multiplier: 0.49, duration: 3.0 },
+    { level: 6, cost: 200, name: 'Molten Pyre VI', description: 'Attacks ignite enemies for 65% Attack power/sec over 3.0s.', multiplier: 0.65, duration: 3.0 },
+    { level: 7, cost: 250, name: 'Molten Pyre VII', description: 'Attacks ignite enemies for 84% Attack power/sec over 3.0s.', multiplier: 0.84, duration: 3.0 },
+    { level: 8, cost: 310, name: 'Molten Pyre VIII', description: 'Attacks ignite enemies for 107% Attack power/sec over 3.0s.', multiplier: 1.07, duration: 3.0 },
+    { level: 9, cost: 380, name: 'Molten Pyre IX', description: 'Attacks ignite enemies for 132% Attack power/sec over 3.0s.', multiplier: 1.32, duration: 3.0 },
+    { level: 10, cost: 460, name: 'Molten Pyre X - Hellfire Inferno', description: 'Attacks ignite enemies for 160% Attack power/sec over 3.0s!', multiplier: 1.60, duration: 3.0 }
   ] as EvoAbilityTier[]
 };
 
@@ -242,48 +243,48 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     type: TowerType.SHRINE,
     name: 'Vitality Shrine',
     cost: 10,
-    description: 'Heals friendly units (+1 HP) as they pass by.',
+    description: 'Heals friendly units (+3 HP) as they pass by.',
     color: 0x22c55e, // Emerald Green
     accentColor: 0x86efac,
     range: 3.5,
     rate: 1.0,
-    healAmount: 1,
+    healAmount: 3,
     branchA: [
       {
         name: 'Radiant Sanctuary I',
         cost: 25,
         badge: 'Burst Heal',
-        description: 'Increases instant healing to +4 HP per hit.',
+        description: 'Increases instant healing to +7 HP per hit.',
         range: 3.8,
         rate: 0.90,
-        healAmount: 4
+        healAmount: 7
       },
       {
         name: 'Radiant Sanctuary II',
         cost: 50,
         badge: 'Burst Heal',
-        description: 'Increases instant healing to +10 HP per hit.',
+        description: 'Increases instant healing to +13 HP per hit.',
         range: 4.0,
         rate: 0.85,
-        healAmount: 10
+        healAmount: 13
       },
       {
         name: 'Radiant Sanctuary III',
         cost: 85,
         badge: 'Burst Heal',
-        description: 'Master healing font: +18 HP burst healing per hit.',
+        description: 'Master healing font: +20 HP burst healing per hit.',
         range: 4.2,
         rate: 0.80,
-        healAmount: 18
+        healAmount: 20
       },
       {
         name: 'Radiant Sanctuary IV',
         cost: 130,
         badge: 'Burst Heal',
-        description: 'Divine warmth: +28 HP burst healing per hit.',
+        description: 'Divine warmth: +29 HP burst healing per hit.',
         range: 4.3,
         rate: 0.75,
-        healAmount: 28
+        healAmount: 29
       },
       {
         name: 'Radiant Sanctuary V',
@@ -298,46 +299,46 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Radiant Sanctuary VI',
         cost: 240,
         badge: 'Burst Heal',
-        description: 'Blissful aura: +55 HP burst healing per hit.',
+        description: 'Blissful aura: +52 HP burst healing per hit.',
         range: 4.5,
         rate: 0.65,
-        healAmount: 55
+        healAmount: 52
       },
       {
         name: 'Radiant Sanctuary VII',
         cost: 310,
         badge: 'Burst Heal',
-        description: 'Angelic fountain: +72 HP burst healing per hit.',
+        description: 'Angelic fountain: +65 HP burst healing per hit.',
         range: 4.6,
         rate: 0.60,
-        healAmount: 72
+        healAmount: 65
       },
       {
         name: 'Radiant Sanctuary VIII',
         cost: 390,
         badge: 'Burst Heal',
-        description: 'Seraphic beacon: +92 HP burst healing per hit.',
+        description: 'Seraphic beacon: +78 HP burst healing per hit.',
         range: 4.7,
         rate: 0.55,
-        healAmount: 92
+        healAmount: 78
       },
       {
         name: 'Radiant Sanctuary IX',
         cost: 480,
         badge: 'Burst Heal',
-        description: 'Immortal reservoir: +115 HP burst healing per hit.',
+        description: 'Immortal reservoir: +91 HP burst healing per hit.',
         range: 4.8,
         rate: 0.50,
-        healAmount: 115
+        healAmount: 91
       },
       {
         name: 'Radiant Sanctuary X - Divine Avatar',
         cost: 600,
         badge: 'Burst Heal',
-        description: 'Avatar of Life: massive +145 HP burst healing per hit at rapid 0.45s pulse!',
+        description: 'Avatar of Life: massive +103 HP burst healing per hit at rapid 0.45s pulse!',
         range: 5.0,
         rate: 0.45,
-        healAmount: 145
+        healAmount: 103
       }
     ],
     branchB: [
@@ -345,101 +346,101 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Lifebloom Grove I',
         cost: 20,
         badge: 'Slow Stacking',
-        description: 'Heals +1 HP on hit (base), grants Lifebloom: +5 Max HP round bonus per stack.',
+        description: 'Heals +3 HP on hit; Lifebloom grows the heal by +1 HP every round (permanent).',
         range: 3.5,
         rate: 1.0,
-        healAmount: 1,
-        stackingHpPerRound: 5
+        healAmount: 3,
+        stackingHpPerRound: 1
       },
       {
         name: 'Lifebloom Grove II',
-        cost: 45,
+        cost: 50,
         badge: 'Slow Stacking',
-        description: 'Heals +2 HP on hit, grants Lifebloom: +10 Max HP round bonus per stack.',
+        description: 'Heals +3 HP on hit; Lifebloom grows the heal by +3 HP every round (permanent).',
         range: 3.6,
         rate: 1.0,
-        healAmount: 2,
-        stackingHpPerRound: 10
+        healAmount: 3,
+        stackingHpPerRound: 3
       },
       {
         name: 'Lifebloom Grove III',
-        cost: 75,
+        cost: 80,
         badge: 'Slow Stacking',
-        description: 'Heals +3 HP on hit, grants Lifebloom: +16 Max HP round bonus per stack.',
+        description: 'Heals +3 HP on hit; Lifebloom grows the heal by +6 HP every round (permanent).',
         range: 3.6,
         rate: 0.98,
         healAmount: 3,
-        stackingHpPerRound: 16
+        stackingHpPerRound: 6
       },
       {
         name: 'Lifebloom Grove IV',
         cost: 115,
         badge: 'Slow Stacking',
-        description: 'Heals +4 HP on hit, grants Lifebloom: +24 Max HP round bonus per stack.',
+        description: 'Heals +4 HP on hit; Lifebloom grows the heal by +9 HP every round (permanent).',
         range: 3.7,
         rate: 0.96,
         healAmount: 4,
-        stackingHpPerRound: 24
+        stackingHpPerRound: 9
       },
       {
         name: 'Lifebloom Grove V',
         cost: 165,
         badge: 'Slow Stacking',
-        description: 'Heals +6 HP on hit, grants Lifebloom: +34 Max HP round bonus per stack.',
+        description: 'Heals +6 HP on hit; Lifebloom grows the heal by +12 HP every round (permanent).',
         range: 3.7,
         rate: 0.94,
         healAmount: 6,
-        stackingHpPerRound: 34
+        stackingHpPerRound: 12
       },
       {
         name: 'Lifebloom Grove VI',
         cost: 225,
         badge: 'Slow Stacking',
-        description: 'Heals +8 HP on hit, grants Lifebloom: +46 Max HP round bonus per stack.',
+        description: 'Heals +8 HP on hit; Lifebloom grows the heal by +16 HP every round (permanent).',
         range: 3.8,
         rate: 0.92,
         healAmount: 8,
-        stackingHpPerRound: 46
+        stackingHpPerRound: 16
       },
       {
         name: 'Lifebloom Grove VII',
         cost: 295,
         badge: 'Slow Stacking',
-        description: 'Heals +11 HP on hit, grants Lifebloom: +60 Max HP round bonus per stack.',
+        description: 'Heals +11 HP on hit; Lifebloom grows the heal by +20 HP every round (permanent).',
         range: 3.8,
         rate: 0.90,
         healAmount: 11,
-        stackingHpPerRound: 60
+        stackingHpPerRound: 20
       },
       {
         name: 'Lifebloom Grove VIII',
         cost: 375,
         badge: 'Slow Stacking',
-        description: 'Heals +15 HP on hit, grants Lifebloom: +78 Max HP round bonus per stack.',
+        description: 'Heals +15 HP on hit; Lifebloom grows the heal by +24 HP every round (permanent).',
         range: 3.9,
         rate: 0.88,
         healAmount: 15,
-        stackingHpPerRound: 78
+        stackingHpPerRound: 24
       },
       {
         name: 'Lifebloom Grove IX',
         cost: 465,
         badge: 'Slow Stacking',
-        description: 'Heals +20 HP on hit, grants Lifebloom: +100 Max HP round bonus per stack.',
+        description: 'Heals +20 HP on hit; Lifebloom grows the heal by +28 HP every round (permanent).',
         range: 3.9,
         rate: 0.85,
         healAmount: 20,
-        stackingHpPerRound: 100
+        stackingHpPerRound: 28
       },
       {
         name: 'Lifebloom Grove X - Yggdrasil Heart',
         cost: 580,
         badge: 'Slow Stacking',
-        description: 'Heart of Yggdrasil: heals +26 HP on hit, +130 Max HP round bonus per stack!',
+        description: 'Heart of Yggdrasil: heals +26 HP on hit; Lifebloom grows the heal by +31 HP every round (permanent).',
         range: 4.0,
         rate: 0.80,
         healAmount: 26,
-        stackingHpPerRound: 130
+        stackingHpPerRound: 31
       }
     ]
   },
@@ -448,204 +449,204 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     type: TowerType.FORGE,
     name: 'Iron Forge',
     cost: 20,
-    description: 'Forges armor plating on passing units (+1 Armor), mitigating physical damage.',
+    description: 'Forges armor plating on passing units (+4 Armor), mitigating physical damage.',
     color: 0x64748b, // Slate Steel
     accentColor: 0x38bdf8,
     range: 3.2,
     rate: 1.2,
-    armorAmount: 1,
+    armorAmount: 4,
     branchA: [
       {
         name: 'Reinforced Anvil I',
         cost: 30,
         badge: 'Heavy Plating',
-        description: 'Forges +3 Armor per hit.',
+        description: 'Forges +8 Armor per hit.',
         range: 3.4,
         rate: 1.15,
-        armorAmount: 3
+        armorAmount: 8
       },
       {
         name: 'Reinforced Anvil II',
         cost: 60,
         badge: 'Heavy Plating',
-        description: 'Heavy forging: +6 Armor per hit.',
+        description: 'Heavy forging: +13 Armor per hit.',
         range: 3.5,
         rate: 1.10,
-        armorAmount: 6
+        armorAmount: 13
       },
       {
         name: 'Reinforced Anvil III',
         cost: 95,
         badge: 'Heavy Plating',
-        description: 'Hardened steel: +11 Armor per hit.',
+        description: 'Hardened steel: +18 Armor per hit.',
         range: 3.6,
         rate: 1.05,
-        armorAmount: 11
+        armorAmount: 18
       },
       {
         name: 'Reinforced Anvil IV',
         cost: 140,
         badge: 'Heavy Plating',
-        description: 'Mithril weave: +18 Armor per hit.',
+        description: 'Mithril weave: +24 Armor per hit.',
         range: 3.7,
         rate: 1.00,
-        armorAmount: 18
+        armorAmount: 24
       },
       {
         name: 'Reinforced Anvil V',
         cost: 195,
         badge: 'Heavy Plating',
-        description: 'Dragonscale coat: +27 Armor per hit.',
+        description: 'Dragonscale coat: +30 Armor per hit.',
         range: 3.8,
         rate: 0.95,
-        armorAmount: 27
+        armorAmount: 30
       },
       {
         name: 'Reinforced Anvil VI',
         cost: 260,
         badge: 'Heavy Plating',
-        description: 'Obsidian shell: +38 Armor per hit.',
+        description: 'Obsidian shell: +37 Armor per hit.',
         range: 3.9,
         rate: 0.90,
-        armorAmount: 38
+        armorAmount: 37
       },
       {
         name: 'Reinforced Anvil VII',
         cost: 335,
         badge: 'Heavy Plating',
-        description: 'Titanium plating: +51 Armor per hit.',
+        description: 'Titanium plating: +45 Armor per hit.',
         range: 4.0,
         rate: 0.85,
-        armorAmount: 51
+        armorAmount: 45
       },
       {
         name: 'Reinforced Anvil VIII',
         cost: 420,
         badge: 'Heavy Plating',
-        description: 'Adamantine cuirass: +66 Armor per hit.',
+        description: 'Adamantine cuirass: +53 Armor per hit.',
         range: 4.1,
         rate: 0.80,
-        armorAmount: 66
+        armorAmount: 53
       },
       {
         name: 'Reinforced Anvil IX',
         cost: 520,
         badge: 'Heavy Plating',
-        description: 'Ethereal bulwark: +84 Armor per hit.',
+        description: 'Ethereal bulwark: +61 Armor per hit.',
         range: 4.2,
         rate: 0.75,
-        armorAmount: 84
+        armorAmount: 61
       },
       {
         name: 'Reinforced Anvil X - Adamant Bastion',
         cost: 650,
         badge: 'Heavy Plating',
-        description: 'Adamant Bastion: massive +105 Armor per hit at rapid 0.70s strike!',
+        description: 'Adamant Bastion: massive +69 Armor per hit at rapid 0.70s strike!',
         range: 4.4,
         rate: 0.70,
-        armorAmount: 105
+        armorAmount: 69
       }
     ],
     branchB: [
       {
         name: 'Tempered Bastion I',
-        cost: 25,
+        cost: 45,
         badge: 'Slow Stacking',
-        description: 'Grants +1 Armor on hit (base), +3 bonus Armor round end per stack.',
+        description: 'Grants +4 Armor on hit; tempering grows it by +2 Armor every round (permanent).',
         range: 3.2,
         rate: 1.20,
-        armorAmount: 1,
-        stackingArmorPerRound: 3
+        armorAmount: 4,
+        stackingArmorPerRound: 2
       },
       {
         name: 'Tempered Bastion II',
         cost: 50,
         badge: 'Slow Stacking',
-        description: 'Grants +2 Armor on hit, +6 bonus Armor round end per stack.',
+        description: 'Grants +4 Armor on hit; tempering grows it by +4 Armor every round (permanent).',
         range: 3.3,
         rate: 1.18,
-        armorAmount: 2,
-        stackingArmorPerRound: 6
+        armorAmount: 4,
+        stackingArmorPerRound: 4
       },
       {
         name: 'Tempered Bastion III',
         cost: 80,
         badge: 'Slow Stacking',
-        description: 'Grants +2 Armor on hit, +10 bonus Armor round end per stack.',
+        description: 'Grants +4 Armor on hit; tempering grows it by +7 Armor every round (permanent).',
         range: 3.4,
         rate: 1.15,
-        armorAmount: 2,
-        stackingArmorPerRound: 10
+        armorAmount: 4,
+        stackingArmorPerRound: 7
       },
       {
         name: 'Tempered Bastion IV',
         cost: 120,
         badge: 'Slow Stacking',
-        description: 'Grants +3 Armor on hit, +15 bonus Armor round end per stack.',
+        description: 'Grants +4 Armor on hit; tempering grows it by +11 Armor every round (permanent).',
         range: 3.4,
         rate: 1.12,
-        armorAmount: 3,
-        stackingArmorPerRound: 15
+        armorAmount: 4,
+        stackingArmorPerRound: 11
       },
       {
         name: 'Tempered Bastion V',
         cost: 170,
         badge: 'Slow Stacking',
-        description: 'Grants +4 Armor on hit, +21 bonus Armor round end per stack.',
+        description: 'Grants +4 Armor on hit; tempering grows it by +16 Armor every round (permanent).',
         range: 3.5,
         rate: 1.10,
         armorAmount: 4,
-        stackingArmorPerRound: 21
+        stackingArmorPerRound: 16
       },
       {
         name: 'Tempered Bastion VI',
         cost: 230,
         badge: 'Slow Stacking',
-        description: 'Grants +5 Armor on hit, +28 bonus Armor round end per stack.',
+        description: 'Grants +5 Armor on hit; tempering grows it by +21 Armor every round (permanent).',
         range: 3.5,
         rate: 1.05,
         armorAmount: 5,
-        stackingArmorPerRound: 28
+        stackingArmorPerRound: 21
       },
       {
         name: 'Tempered Bastion VII',
         cost: 300,
         badge: 'Slow Stacking',
-        description: 'Grants +7 Armor on hit, +37 bonus Armor round end per stack.',
+        description: 'Grants +7 Armor on hit; tempering grows it by +26 Armor every round (permanent).',
         range: 3.6,
         rate: 1.00,
         armorAmount: 7,
-        stackingArmorPerRound: 37
+        stackingArmorPerRound: 26
       },
       {
         name: 'Tempered Bastion VIII',
         cost: 380,
         badge: 'Slow Stacking',
-        description: 'Grants +9 Armor on hit, +48 bonus Armor round end per stack.',
+        description: 'Grants +9 Armor on hit; tempering grows it by +31 Armor every round (permanent).',
         range: 3.7,
         rate: 0.95,
         armorAmount: 9,
-        stackingArmorPerRound: 48
+        stackingArmorPerRound: 31
       },
       {
         name: 'Tempered Bastion IX',
         cost: 470,
         badge: 'Slow Stacking',
-        description: 'Grants +12 Armor on hit, +61 bonus Armor round end per stack.',
+        description: 'Grants +12 Armor on hit; tempering grows it by +35 Armor every round (permanent).',
         range: 3.7,
         rate: 0.90,
         armorAmount: 12,
-        stackingArmorPerRound: 61
+        stackingArmorPerRound: 35
       },
       {
         name: 'Tempered Bastion X - Eternal Fortress',
         cost: 580,
         badge: 'Slow Stacking',
-        description: 'Eternal Fortress: +16 Armor on hit, +78 bonus Armor round end per stack!',
+        description: 'Eternal Fortress: grants +16 Armor on hit; tempering grows it by +38 Armor every round (permanent).',
         range: 3.8,
         rate: 0.85,
         armorAmount: 16,
-        stackingArmorPerRound: 78
+        stackingArmorPerRound: 38
       }
     ]
   },
@@ -654,204 +655,204 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     type: TowerType.OBELISK,
     name: 'Flame Obelisk',
     cost: 20,
-    description: 'Infuses weapons with flame, increasing unit attack damage (+1 Attack).',
+    description: 'Infuses weapons with flame, increasing unit attack damage (+4 Attack).',
     color: 0xf97316, // Fire Orange
     accentColor: 0xfde047,
     range: 3.5,
     rate: 1.1,
-    attackAmount: 1,
+    attackAmount: 4,
     branchA: [
       {
         name: 'War Pillar I',
         cost: 30,
         badge: 'High Impact',
-        description: 'Infuses +4 Attack damage per hit.',
+        description: 'Infuses +8 Attack damage per hit.',
         range: 3.6,
         rate: 1.05,
-        attackAmount: 4
+        attackAmount: 8
       },
       {
         name: 'War Pillar II',
         cost: 60,
         badge: 'High Impact',
-        description: 'Blazing edge: +8 Attack damage per hit.',
+        description: 'Blazing edge: +13 Attack damage per hit.',
         range: 3.7,
         rate: 1.00,
-        attackAmount: 8
+        attackAmount: 13
       },
       {
         name: 'War Pillar III',
         cost: 95,
         badge: 'High Impact',
-        description: 'Scorching strike: +14 Attack damage per hit.',
+        description: 'Scorching strike: +19 Attack damage per hit.',
         range: 3.8,
         rate: 0.95,
-        attackAmount: 14
+        attackAmount: 19
       },
       {
         name: 'War Pillar IV',
         cost: 140,
         badge: 'High Impact',
-        description: 'Ignited edge: +22 Attack damage per hit.',
+        description: 'Ignited edge: +26 Attack damage per hit.',
         range: 3.9,
         rate: 0.90,
-        attackAmount: 22
+        attackAmount: 26
       },
       {
         name: 'War Pillar V',
         cost: 195,
         badge: 'High Impact',
-        description: 'Searing heat: +32 Attack damage per hit.',
+        description: 'Searing heat: +34 Attack damage per hit.',
         range: 4.0,
         rate: 0.85,
-        attackAmount: 32
+        attackAmount: 34
       },
       {
         name: 'War Pillar VI',
         cost: 260,
         badge: 'High Impact',
-        description: 'Volcanic thrust: +44 Attack damage per hit.',
+        description: 'Volcanic thrust: +43 Attack damage per hit.',
         range: 4.1,
         rate: 0.80,
-        attackAmount: 44
+        attackAmount: 43
       },
       {
         name: 'War Pillar VII',
         cost: 335,
         badge: 'High Impact',
-        description: 'Inferno blade: +58 Attack damage per hit.',
+        description: 'Inferno blade: +53 Attack damage per hit.',
         range: 4.2,
         rate: 0.75,
-        attackAmount: 58
+        attackAmount: 53
       },
       {
         name: 'War Pillar VIII',
         cost: 420,
         badge: 'High Impact',
-        description: 'Pyre wrath: +75 Attack damage per hit.',
+        description: 'Pyre wrath: +63 Attack damage per hit.',
         range: 4.3,
         rate: 0.70,
-        attackAmount: 75
+        attackAmount: 63
       },
       {
         name: 'War Pillar IX',
         cost: 520,
         badge: 'High Impact',
-        description: 'Solar conflagration: +95 Attack damage per hit.',
+        description: 'Solar conflagration: +73 Attack damage per hit.',
         range: 4.4,
         rate: 0.65,
-        attackAmount: 95
+        attackAmount: 73
       },
       {
         name: 'War Pillar X - Inferno Sovereign',
         cost: 650,
         badge: 'High Impact',
-        description: 'Inferno Sovereign: colossal +120 Attack damage per hit at rapid 0.60s strike!',
+        description: 'Inferno Sovereign: colossal +83 Attack damage per hit at rapid 0.60s strike!',
         range: 4.6,
         rate: 0.60,
-        attackAmount: 120
+        attackAmount: 83
       }
     ],
     branchB: [
       {
         name: 'Frenzy Monolith I',
-        cost: 25,
+        cost: 45,
         badge: 'Slow Stacking',
-        description: 'Grants +1 Attack on hit (base), +3 bonus Attack round end per stack.',
+        description: 'Grants +4 Attack on hit; frenzy grows it by +2 Attack every round (permanent).',
         range: 3.5,
         rate: 1.10,
-        attackAmount: 1,
-        stackingAttackPerRound: 3
+        attackAmount: 4,
+        stackingAttackPerRound: 2
       },
       {
         name: 'Frenzy Monolith II',
         cost: 50,
         badge: 'Slow Stacking',
-        description: 'Grants +2 Attack on hit, +6 bonus Attack round end per stack.',
+        description: 'Grants +4 Attack on hit; frenzy grows it by +4 Attack every round (permanent).',
         range: 3.5,
         rate: 1.08,
-        attackAmount: 2,
-        stackingAttackPerRound: 6
+        attackAmount: 4,
+        stackingAttackPerRound: 4
       },
       {
         name: 'Frenzy Monolith III',
         cost: 80,
         badge: 'Slow Stacking',
-        description: 'Grants +2 Attack on hit, +10 bonus Attack round end per stack.',
+        description: 'Grants +4 Attack on hit; frenzy grows it by +7 Attack every round (permanent).',
         range: 3.6,
         rate: 1.05,
-        attackAmount: 2,
-        stackingAttackPerRound: 10
+        attackAmount: 4,
+        stackingAttackPerRound: 7
       },
       {
         name: 'Frenzy Monolith IV',
         cost: 120,
         badge: 'Slow Stacking',
-        description: 'Grants +3 Attack on hit, +15 bonus Attack round end per stack.',
+        description: 'Grants +4 Attack on hit; frenzy grows it by +11 Attack every round (permanent).',
         range: 3.6,
         rate: 1.02,
-        attackAmount: 3,
-        stackingAttackPerRound: 15
+        attackAmount: 4,
+        stackingAttackPerRound: 11
       },
       {
         name: 'Frenzy Monolith V',
         cost: 170,
         badge: 'Slow Stacking',
-        description: 'Grants +4 Attack on hit, +21 bonus Attack round end per stack.',
+        description: 'Grants +4 Attack on hit; frenzy grows it by +16 Attack every round (permanent).',
         range: 3.7,
         rate: 1.00,
         attackAmount: 4,
-        stackingAttackPerRound: 21
+        stackingAttackPerRound: 16
       },
       {
         name: 'Frenzy Monolith VI',
         cost: 230,
         badge: 'Slow Stacking',
-        description: 'Grants +5 Attack on hit, +28 bonus Attack round end per stack.',
+        description: 'Grants +5 Attack on hit; frenzy grows it by +21 Attack every round (permanent).',
         range: 3.7,
         rate: 0.96,
         attackAmount: 5,
-        stackingAttackPerRound: 28
+        stackingAttackPerRound: 21
       },
       {
         name: 'Frenzy Monolith VII',
         cost: 300,
         badge: 'Slow Stacking',
-        description: 'Grants +7 Attack on hit, +37 bonus Attack round end per stack.',
+        description: 'Grants +7 Attack on hit; frenzy grows it by +26 Attack every round (permanent).',
         range: 3.8,
         rate: 0.92,
         attackAmount: 7,
-        stackingAttackPerRound: 37
+        stackingAttackPerRound: 26
       },
       {
         name: 'Frenzy Monolith VIII',
         cost: 380,
         badge: 'Slow Stacking',
-        description: 'Grants +9 Attack on hit, +48 bonus Attack round end per stack.',
+        description: 'Grants +9 Attack on hit; frenzy grows it by +31 Attack every round (permanent).',
         range: 3.8,
         rate: 0.88,
         attackAmount: 9,
-        stackingAttackPerRound: 48
+        stackingAttackPerRound: 31
       },
       {
         name: 'Frenzy Monolith IX',
         cost: 470,
         badge: 'Slow Stacking',
-        description: 'Grants +12 Attack on hit, +61 bonus Attack round end per stack.',
+        description: 'Grants +12 Attack on hit; frenzy grows it by +35 Attack every round (permanent).',
         range: 3.9,
         rate: 0.84,
         attackAmount: 12,
-        stackingAttackPerRound: 61
+        stackingAttackPerRound: 35
       },
       {
         name: 'Frenzy Monolith X - Cataclysm Core',
         cost: 580,
         badge: 'Slow Stacking',
-        description: 'Cataclysm Core: +16 Attack on hit, +78 bonus Attack round end per stack!',
+        description: 'Cataclysm Core: grants +16 Attack on hit; frenzy grows it by +38 Attack every round (permanent).',
         range: 4.0,
         rate: 0.80,
         attackAmount: 16,
-        stackingAttackPerRound: 78
+        stackingAttackPerRound: 38
       }
     ]
   },
@@ -860,7 +861,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     type: TowerType.AURA,
     name: 'Aura Spire',
     cost: 50,
-    description: 'Emits a haste field that increases the attack/cast speed of all towers in range (+35% haste).',
+    description: 'Emits a haste field that increases the attack/cast speed of all towers in range (+35% haste). Haste fields do not stack (each tower takes the strongest) and do not affect Gold Spires.',
     color: 0xa855f7, // Arcane Purple
     accentColor: 0xf472b6,
     range: 4.2,
@@ -874,7 +875,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         description: 'Concentrated aura providing +50% attack speed to nearby towers.',
         range: 3.4,
         rate: 2.0,
-        auraSpeedBonus: 0.50
+        auraSpeedBonus: 0.5
       },
       {
         name: 'Clockwork Overdrive II',
@@ -883,7 +884,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         description: 'Overcharged field: +70% attack speed to nearby towers.',
         range: 3.5,
         rate: 2.0,
-        auraSpeedBonus: 0.70
+        auraSpeedBonus: 0.7
       },
       {
         name: 'Clockwork Overdrive III',
@@ -910,7 +911,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         description: 'Chrono matrix: +160% attack speed to nearby towers.',
         range: 3.8,
         rate: 2.0,
-        auraSpeedBonus: 1.60
+        auraSpeedBonus: 1.6
       },
       {
         name: 'Clockwork Overdrive VI',
@@ -919,7 +920,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         description: 'Aetheric tachyon: +200% attack speed to nearby towers.',
         range: 3.9,
         rate: 2.0,
-        auraSpeedBonus: 2.00
+        auraSpeedBonus: 2
       },
       {
         name: 'Clockwork Overdrive VII',
@@ -946,16 +947,16 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         description: 'Warp singularity: +350% attack speed to nearby towers.',
         range: 4.2,
         rate: 2.0,
-        auraSpeedBonus: 3.50
+        auraSpeedBonus: 3.5
       },
       {
         name: 'Clockwork Overdrive X - Chrono Horizon',
         cost: 760,
         badge: 'Hyper-Haste',
-        description: 'Chrono Horizon: titanic +420% attack speed acceleration to surrounding towers!',
+        description: 'Chrono Horizon: titanic +415% attack speed acceleration to surrounding towers!',
         range: 4.4,
         rate: 2.0,
-        auraSpeedBonus: 4.20
+        auraSpeedBonus: 4.15
       }
     ],
     branchB: [
@@ -963,37 +964,37 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Expansive Resonance I',
         cost: 55,
         badge: 'Wide Field',
-        description: 'Broadened aura zone (range 5.2) boosting all towers by +40% attack speed.',
+        description: 'Broadened aura zone (range 5.2) boosting all towers by +41% attack speed.',
         range: 5.2,
         rate: 2.0,
-        auraSpeedBonus: 0.40
+        auraSpeedBonus: 0.41
       },
       {
         name: 'Expansive Resonance II',
         cost: 90,
         badge: 'Wide Field',
-        description: 'Expansive pulse (range 6.0) boosting all towers by +48% attack speed.',
+        description: 'Expansive pulse (range 6.0) boosting all towers by +51% attack speed.',
         range: 6.0,
         rate: 2.0,
-        auraSpeedBonus: 0.48
+        auraSpeedBonus: 0.51
       },
       {
         name: 'Expansive Resonance III',
         cost: 130,
         badge: 'Wide Field',
-        description: 'Harmonic beacon (range 6.8) boosting all towers by +58% attack speed.',
+        description: 'Harmonic beacon (range 6.8) boosting all towers by +61% attack speed.',
         range: 6.8,
         rate: 2.0,
-        auraSpeedBonus: 0.58
+        auraSpeedBonus: 0.61
       },
       {
         name: 'Expansive Resonance IV',
         cost: 180,
         badge: 'Wide Field',
-        description: 'Grand resonance (range 7.5) boosting all towers by +70% attack speed.',
+        description: 'Grand resonance (range 7.5) boosting all towers by +73% attack speed.',
         range: 7.5,
         rate: 2.0,
-        auraSpeedBonus: 0.70
+        auraSpeedBonus: 0.73
       },
       {
         name: 'Expansive Resonance V',
@@ -1008,46 +1009,46 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Expansive Resonance VI',
         cost: 310,
         badge: 'Wide Field',
-        description: 'Leyline conduit (range 8.8) boosting all towers by +100% attack speed.',
+        description: 'Leyline conduit (range 8.8) boosting all towers by +97% attack speed.',
         range: 8.8,
         rate: 2.0,
-        auraSpeedBonus: 1.00
+        auraSpeedBonus: 0.97
       },
       {
         name: 'Expansive Resonance VII',
         cost: 390,
         badge: 'Wide Field',
-        description: 'Island harmonizer (range 9.4) boosting all towers by +118% attack speed.',
+        description: 'Island harmonizer (range 9.4) boosting all towers by +110% attack speed.',
         range: 9.4,
         rate: 2.0,
-        auraSpeedBonus: 1.18
+        auraSpeedBonus: 1.1
       },
       {
         name: 'Expansive Resonance VIII',
         cost: 480,
         badge: 'Wide Field',
-        description: 'Aetheric nexus (range 10.0) boosting all towers by +138% attack speed.',
+        description: 'Aetheric nexus (range 10.0) boosting all towers by +123% attack speed.',
         range: 10.0,
         rate: 2.0,
-        auraSpeedBonus: 1.38
+        auraSpeedBonus: 1.23
       },
       {
         name: 'Expansive Resonance IX',
         cost: 580,
         badge: 'Wide Field',
-        description: 'Celestial grid (range 10.6) boosting all towers by +160% attack speed.',
+        description: 'Celestial grid (range 10.6) boosting all towers by +134% attack speed.',
         range: 10.6,
         rate: 2.0,
-        auraSpeedBonus: 1.60
+        auraSpeedBonus: 1.34
       },
       {
         name: 'Expansive Resonance X - Realm Beacon',
         cost: 700,
         badge: 'Wide Field',
-        description: 'Realm Beacon: massive island-wide range (11.4 tiles) boosting all towers by +185% attack speed!',
+        description: 'Realm Beacon: massive island-wide range (11.4 tiles) boosting all towers by +141% attack speed!',
         range: 11.4,
         rate: 2.0,
-        auraSpeedBonus: 1.85
+        auraSpeedBonus: 1.41
       }
     ]
   },
@@ -1068,20 +1069,20 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Deep Freeze I',
         cost: 45,
         badge: 'Maximum Dwell',
-        description: 'Chills units with a 40% slow for 3.2s for increased buff exposure.',
+        description: 'Chills units with a 36% slow for 3.2s for increased buff exposure.',
         range: 3.9,
         rate: 1.35,
-        slowPercent: 0.40,
+        slowPercent: 0.36,
         slowDuration: 3.2
       },
       {
         name: 'Deep Freeze II',
         cost: 75,
         badge: 'Maximum Dwell',
-        description: 'Super-chills units with a 45% slow for 3.6s for increased buff exposure.',
+        description: 'Super-chills units with a 43% slow for 3.6s for increased buff exposure.',
         range: 4.0,
         rate: 1.30,
-        slowPercent: 0.45,
+        slowPercent: 0.43,
         slowDuration: 3.6
       },
       {
@@ -1091,27 +1092,27 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         description: 'Permafrost coating: 50% movement slow for 4.0s.',
         range: 4.1,
         rate: 1.25,
-        slowPercent: 0.50,
+        slowPercent: 0.5,
         slowDuration: 4.0
       },
       {
         name: 'Deep Freeze IV',
         cost: 165,
         badge: 'Maximum Dwell',
-        description: 'Glacial stasis: 55% movement slow for 4.4s.',
+        description: 'Glacial stasis: 56% movement slow for 4.4s.',
         range: 4.2,
         rate: 1.20,
-        slowPercent: 0.55,
+        slowPercent: 0.56,
         slowDuration: 4.4
       },
       {
         name: 'Deep Freeze V',
         cost: 225,
         badge: 'Maximum Dwell',
-        description: 'Cryo-lock: 60% movement slow for 4.8s.',
+        description: 'Cryo-lock: 61% movement slow for 4.8s.',
         range: 4.3,
         rate: 1.15,
-        slowPercent: 0.60,
+        slowPercent: 0.61,
         slowDuration: 4.8
       },
       {
@@ -1128,40 +1129,40 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Deep Freeze VII',
         cost: 375,
         badge: 'Maximum Dwell',
-        description: 'Frost lock: 70% movement slow for 5.6s.',
+        description: 'Frost lock: 68% movement slow for 5.6s.',
         range: 4.5,
         rate: 1.05,
-        slowPercent: 0.70,
+        slowPercent: 0.68,
         slowDuration: 5.6
       },
       {
         name: 'Deep Freeze VIII',
         cost: 465,
         badge: 'Maximum Dwell',
-        description: 'Zero drift: 74% movement slow for 6.0s.',
+        description: 'Zero drift: 70% movement slow for 6.0s.',
         range: 4.6,
         rate: 1.00,
-        slowPercent: 0.74,
+        slowPercent: 0.7,
         slowDuration: 6.0
       },
       {
         name: 'Deep Freeze IX',
         cost: 565,
         badge: 'Maximum Dwell',
-        description: 'Sub-zero capture: 77% movement slow for 6.5s.',
+        description: 'Sub-zero capture: 71% movement slow for 6.5s.',
         range: 4.7,
         rate: 0.95,
-        slowPercent: 0.77,
+        slowPercent: 0.71,
         slowDuration: 6.5
       },
       {
         name: 'Deep Freeze X - Absolute Zero',
         cost: 680,
         badge: 'Maximum Dwell',
-        description: 'Absolute Zero: maximum 80% movement freeze lasting 7.0s!',
+        description: 'Absolute Zero: maximum 72% movement freeze lasting 7.0s!',
         range: 4.8,
         rate: 0.90,
-        slowPercent: 0.80,
+        slowPercent: 0.72,
         slowDuration: 7.0
       }
     ],
@@ -1170,40 +1171,40 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Blizzard Zone I',
         cost: 40,
         badge: 'AoE Chill',
-        description: 'Pulsing blizzard zone (range 4.6) chilling all units in range by 24%.',
+        description: 'Pulsing blizzard zone (range 4.6) chilling all units in range by 29%.',
         range: 4.6,
         rate: 1.25,
-        slowPercent: 0.24,
+        slowPercent: 0.29,
         slowDuration: 3.0
       },
       {
         name: 'Blizzard Zone II',
         cost: 70,
         badge: 'AoE Chill',
-        description: 'Expanded blizzard (range 5.2) chilling all units in range by 28%.',
+        description: 'Expanded blizzard (range 5.2) chilling all units in range by 31%.',
         range: 5.2,
         rate: 1.20,
-        slowPercent: 0.28,
+        slowPercent: 0.31,
         slowDuration: 3.2
       },
       {
         name: 'Blizzard Zone III',
         cost: 110,
         badge: 'AoE Chill',
-        description: 'Howling gale (range 5.8) chilling all units in range by 32%.',
+        description: 'Howling gale (range 5.8) chilling all units in range by 34%.',
         range: 5.8,
         rate: 1.15,
-        slowPercent: 0.32,
+        slowPercent: 0.34,
         slowDuration: 3.5
       },
       {
         name: 'Blizzard Zone IV',
         cost: 155,
         badge: 'AoE Chill',
-        description: 'Frost vortex (range 6.4) chilling all units in range by 36%.',
+        description: 'Frost vortex (range 6.4) chilling all units in range by 37%.',
         range: 6.4,
         rate: 1.10,
-        slowPercent: 0.36,
+        slowPercent: 0.37,
         slowDuration: 3.8
       },
       {
@@ -1213,57 +1214,57 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         description: 'Freezing squall (range 7.0) chilling all units in range by 40%.',
         range: 7.0,
         rate: 1.05,
-        slowPercent: 0.40,
+        slowPercent: 0.4,
         slowDuration: 4.1
       },
       {
         name: 'Blizzard Zone VI',
         cost: 275,
         badge: 'AoE Chill',
-        description: 'Whiteout field (range 7.6) chilling all units in range by 44%.',
+        description: 'Whiteout field (range 7.6) chilling all units in range by 43%.',
         range: 7.6,
         rate: 1.00,
-        slowPercent: 0.44,
+        slowPercent: 0.43,
         slowDuration: 4.4
       },
       {
         name: 'Blizzard Zone VII',
         cost: 350,
         badge: 'AoE Chill',
-        description: 'Glacial typhoon (range 8.2) chilling all units in range by 48%.',
+        description: 'Glacial typhoon (range 8.2) chilling all units in range by 45%.',
         range: 8.2,
         rate: 0.95,
-        slowPercent: 0.48,
+        slowPercent: 0.45,
         slowDuration: 4.7
       },
       {
         name: 'Blizzard Zone VIII',
         cost: 435,
         badge: 'AoE Chill',
-        description: 'Cryo storm (range 8.8) chilling all units in range by 52%.',
+        description: 'Cryo storm (range 8.8) chilling all units in range by 47%.',
         range: 8.8,
         rate: 0.90,
-        slowPercent: 0.52,
+        slowPercent: 0.47,
         slowDuration: 5.0
       },
       {
         name: 'Blizzard Zone IX',
         cost: 530,
         badge: 'AoE Chill',
-        description: 'Permafrost dome (range 9.4) chilling all units in range by 56%.',
+        description: 'Permafrost dome (range 9.4) chilling all units in range by 49%.',
         range: 9.4,
         rate: 0.85,
-        slowPercent: 0.56,
+        slowPercent: 0.49,
         slowDuration: 5.3
       },
       {
         name: 'Blizzard Zone X - Glacial Vortex',
         cost: 640,
         badge: 'AoE Chill',
-        description: 'Glacial Vortex: immense 10.2 tile tempest chilling all units by 60% (0.80s pulse)!',
+        description: 'Glacial Vortex: immense 10.2 tile tempest chilling all units by 50% (0.80s pulse)!',
         range: 10.2,
         rate: 0.80,
-        slowPercent: 0.60,
+        slowPercent: 0.5,
         slowDuration: 5.8
       }
     ]
@@ -1273,12 +1274,12 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     type: TowerType.RULEBREAKER,
     name: 'The Rulebreaker',
     cost: 35,
-    description: 'Rewrites unit reality, directly setting passing unit HP to a fixed 15 HP.',
+    description: 'Rewrites unit reality, directly setting passing unit HP to a fixed 35 HP.',
     color: 0xe11d48, // Crimson Arcane
     accentColor: 0xf43f5e,
     range: 3.0,
     rate: 1.5,
-    fixedHp: 15,
+    fixedHp: 35,
     branchA: [
       {
         name: 'Titan Core I',
@@ -1293,16 +1294,16 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Titan Core II',
         cost: 100,
         badge: 'Aggressive HP',
-        description: 'Titanic leap: directly sets passing unit HP to 160 HP (slow 1.5s cast rate).',
+        description: 'Titanic leap: directly sets passing unit HP to 150 HP (slow 1.5s cast rate).',
         range: 3.1,
         rate: 1.5,
-        fixedHp: 160
+        fixedHp: 150
       },
       {
         name: 'Titan Core III - Colossus Forge',
         cost: 175,
         badge: 'Aggressive HP',
-        description: 'Colossus Forge: sets unit HP to 250 HP cap (slow 1.5s cast rate)! Primes units for Tier 3 ascensions.',
+        description: 'Colossus Forge: sets unit HP to 250 HP cap (slow 1.5s cast rate)! Primes units for the Evolution Spire.',
         range: 3.2,
         rate: 1.5,
         fixedHp: 250
@@ -1313,37 +1314,37 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Chrono Transmuter I',
         cost: 45,
         badge: 'Rapid Cast',
-        description: 'Accelerated shift: sets unit HP to 40 HP at hyper-speed 0.45s cast rate.',
+        description: 'Accelerated shift: sets unit HP to 60 HP at hyper-speed 0.45s cast rate.',
         range: 3.0,
         rate: 0.45,
-        fixedHp: 40
+        fixedHp: 60
       },
       {
         name: 'Chrono Transmuter II',
         cost: 75,
         badge: 'Rapid Cast',
-        description: 'Rapid transmuter: sets unit HP to 80 HP at hyper-speed 0.45s cast rate.',
+        description: 'Rapid transmuter: sets unit HP to 105 HP at hyper-speed 0.45s cast rate.',
         range: 3.1,
         rate: 0.45,
-        fixedHp: 80
+        fixedHp: 105
       },
       {
         name: 'Chrono Transmuter III',
         cost: 115,
         badge: 'Rapid Cast',
-        description: 'High-speed reality warping: sets unit HP to 130 HP at hyper-speed 0.45s cast rate.',
+        description: 'High-speed reality warping: sets unit HP to 150 HP at hyper-speed 0.45s cast rate.',
         range: 3.2,
         rate: 0.45,
-        fixedHp: 130
+        fixedHp: 150
       },
       {
         name: 'Chrono Transmuter IV',
         cost: 165,
         badge: 'Rapid Cast',
-        description: 'Blistering shift: sets unit HP to 190 HP at hyper-speed 0.45s cast rate.',
+        description: 'Blistering shift: sets unit HP to 200 HP at hyper-speed 0.45s cast rate.',
         range: 3.3,
         rate: 0.45,
-        fixedHp: 190
+        fixedHp: 200
       },
       {
         name: 'Chrono Transmuter V - Singularity',
@@ -1435,28 +1436,28 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Midas Siphon VIII',
         cost: 425,
         badge: 'Gold on Hit',
-        description: 'Generates +46 Gold every time it hits a passing unit.',
+        description: 'Generates +44 Gold every time it hits a passing unit.',
         range: 4.3,
         rate: 0.80,
-        goldPerHit: 46
+        goldPerHit: 44
       },
       {
         name: 'Midas Siphon IX',
         cost: 520,
         badge: 'Gold on Hit',
-        description: 'Generates +56 Gold every time it hits a passing unit.',
+        description: 'Generates +51 Gold every time it hits a passing unit.',
         range: 4.4,
         rate: 0.75,
-        goldPerHit: 56
+        goldPerHit: 51
       },
       {
         name: 'Midas Siphon X - Philosopher Touch',
         cost: 630,
         badge: 'Gold on Hit',
-        description: 'Philosopher Touch: generates +68 Gold on rapid strike (+68g every 0.70s)!',
+        description: 'Philosopher Touch: generates +58 Gold on rapid strike (+58g every 0.70s)!',
         range: 4.5,
         rate: 0.70,
-        goldPerHit: 68
+        goldPerHit: 58
       }
     ],
     branchB: [
@@ -1464,101 +1465,111 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Vault Reserve I',
         cost: 40,
         badge: 'Round Interest',
-        description: 'Safeguards capital: yields 10% round interest (min 20g) at round end. No on-hit gold.',
+        description: 'Safeguards capital: yields 5% interest on your reserve at round end (min 10g, max 40g). No on-hit gold.',
         range: 3.3,
         rate: 1.25,
-        roundInterestPercent: 0.10,
-        roundFlatGold: 20
+        roundInterestPercent: 0.05,
+        roundFlatGold: 10,
+        roundInterestCap: 40
       },
       {
         name: 'Vault Reserve II',
         cost: 70,
         badge: 'Round Interest',
-        description: 'Secure vaults: yields 14% round interest (min 35g) at round end. No on-hit gold.',
+        description: 'Secure vaults: yields 6% interest on your reserve at round end (min 15g, max 70g). No on-hit gold.',
         range: 3.4,
         rate: 1.20,
-        roundInterestPercent: 0.14,
-        roundFlatGold: 35
+        roundInterestPercent: 0.06,
+        roundFlatGold: 15,
+        roundInterestCap: 70
       },
       {
         name: 'Vault Reserve III',
         cost: 110,
         badge: 'Round Interest',
-        description: 'Fortified repository: yields 18% round interest (min 55g) at round end. No on-hit gold.',
+        description: 'Fortified repository: yields 7% interest on your reserve at round end (min 20g, max 115g). No on-hit gold.',
         range: 3.5,
         rate: 1.18,
-        roundInterestPercent: 0.18,
-        roundFlatGold: 55
+        roundInterestPercent: 0.07,
+        roundFlatGold: 20,
+        roundInterestCap: 115
       },
       {
         name: 'Vault Reserve IV',
         cost: 160,
         badge: 'Round Interest',
-        description: 'Treasury reserve: yields 22% round interest (min 80g) at round end. No on-hit gold.',
+        description: 'Treasury reserve: yields 8% interest on your reserve at round end (min 30g, max 175g). No on-hit gold.',
         range: 3.5,
         rate: 1.15,
-        roundInterestPercent: 0.22,
-        roundFlatGold: 80
+        roundInterestPercent: 0.08,
+        roundFlatGold: 30,
+        roundInterestCap: 175
       },
       {
         name: 'Vault Reserve V',
         cost: 220,
         badge: 'Round Interest',
-        description: 'High-capital bank: yields 26% round interest (min 115g) at round end. No on-hit gold.',
+        description: 'High-capital bank: yields 9% interest on your reserve at round end (min 40g, max 250g). No on-hit gold.',
         range: 3.6,
         rate: 1.12,
-        roundInterestPercent: 0.26,
-        roundFlatGold: 115
+        roundInterestPercent: 0.09,
+        roundFlatGold: 40,
+        roundInterestCap: 250
       },
       {
         name: 'Vault Reserve VI',
         cost: 290,
         badge: 'Round Interest',
-        description: 'Guild bullion vault: yields 30% round interest (min 160g) at round end. No on-hit gold.',
+        description: 'Guild bullion vault: yields 10% interest on your reserve at round end (min 50g, max 345g). No on-hit gold.',
         range: 3.6,
         rate: 1.10,
-        roundInterestPercent: 0.30,
-        roundFlatGold: 160
+        roundInterestPercent: 0.10,
+        roundFlatGold: 50,
+        roundInterestCap: 345
       },
       {
         name: 'Vault Reserve VII',
         cost: 370,
         badge: 'Round Interest',
-        description: 'Royal exchange: yields 35% round interest (min 215g) at round end. No on-hit gold.',
+        description: 'Royal exchange: yields 11% interest on your reserve at round end (min 60g, max 455g). No on-hit gold.',
         range: 3.7,
         rate: 1.05,
-        roundInterestPercent: 0.35,
-        roundFlatGold: 215
+        roundInterestPercent: 0.11,
+        roundFlatGold: 60,
+        roundInterestCap: 455
       },
       {
         name: 'Vault Reserve VIII',
         cost: 460,
         badge: 'Round Interest',
-        description: 'Crown sovereign fund: yields 40% round interest (min 280g) at round end. No on-hit gold.',
+        description: 'Crown sovereign fund: yields 12% interest on your reserve at round end (min 75g, max 580g). No on-hit gold.',
         range: 3.7,
         rate: 1.00,
-        roundInterestPercent: 0.40,
-        roundFlatGold: 280
+        roundInterestPercent: 0.12,
+        roundFlatGold: 75,
+        roundInterestCap: 580
       },
       {
         name: 'Vault Reserve IX',
         cost: 560,
         badge: 'Round Interest',
-        description: 'Monarch exchequer: yields 45% round interest (min 360g) at round end. No on-hit gold.',
+        description: 'Monarch exchequer: yields 13% interest on your reserve at round end (min 90g, max 725g). No on-hit gold.',
         range: 3.8,
         rate: 0.95,
-        roundInterestPercent: 0.45,
-        roundFlatGold: 360
+        roundInterestPercent: 0.13,
+        roundFlatGold: 90,
+        roundInterestCap: 725
       },
       {
         name: 'Vault Reserve X - Imperial Treasury',
         cost: 680,
         badge: 'Round Interest',
-        description: 'Imperial Treasury: yields 50% compound round interest (min 460g) at round end! No on-hit gold.',
+        description: 'Imperial Treasury: yields 15% interest on your reserve at round end (min 110g, max 890g). No on-hit gold.',
         range: 3.8,
         rate: 0.90,
-        roundInterestPercent: 0.50,
-        roundFlatGold: 460
+        roundInterestPercent: 0.15,
+        roundFlatGold: 110,
+        roundInterestCap: 890
       }
     ]
   },

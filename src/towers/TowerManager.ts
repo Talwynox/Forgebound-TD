@@ -506,14 +506,17 @@ export class TowerManager {
 
       for (const targetTower of this.towers.values()) {
         if (targetTower.id === auraTower.id || targetTower.team !== auraTower.team) continue;
+        // Hasting Gold Spires would multiply income on top of their own upgrades
+        if (targetTower.type === TowerType.GOLD) continue;
         const dist = auraTower.worldPos.distanceTo(targetTower.worldPos);
         if (dist <= range) {
-          targetTower.auraBonusMultiplier += bonus;
+          // Haste fields don't stack: each tower takes the strongest one covering it
+          targetTower.auraBonusMultiplier = Math.max(targetTower.auraBonusMultiplier, bonus);
         }
       }
     }
 
-    // Apply final effectiveRate = baseRate / (1 + totalAuraBonus)
+    // Apply final effectiveRate = baseRate / (1 + strongestAuraBonus)
     for (const tower of this.towers.values()) {
       const def = TOWER_DEFINITIONS[tower.type];
       const curUpg = this.getCurrentUpgrade(tower);
@@ -640,9 +643,11 @@ export class TowerManager {
       }
       case TowerType.GOLD: {
         if (tower.currentBranch === UpgradeBranch.BRANCH_B) {
-          const interestPct = Math.round((curUpg?.roundInterestPercent ?? 0.10) * 100);
-          const minGold = curUpg?.roundFlatGold ?? 20;
-          effectStr = `Vault Reserve: ${interestPct}% Round Interest (Min ${minGold}g) | No on-hit gold`;
+          const interestPct = Math.round((curUpg?.roundInterestPercent ?? 0.05) * 100);
+          const minGold = curUpg?.roundFlatGold ?? 10;
+          const maxGold = curUpg?.roundInterestCap;
+          const capText = maxGold !== undefined ? `, Max ${maxGold}g` : '';
+          effectStr = `Vault Reserve: ${interestPct}% Round Interest (Min ${minGold}g${capText}) | No on-hit gold`;
           lifetimeStr = `Total Vault Interest: ${tower.totalBuffApplied}g`;
         } else {
           const g = curUpg?.goldPerHit ?? def.goldPerHit ?? 2;

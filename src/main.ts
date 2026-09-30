@@ -1076,8 +1076,11 @@ class GameApp {
       if (tower.type === TowerType.GOLD && tower.currentBranch === UpgradeBranch.BRANCH_B) {
         const curUpg = this.towerManager.getCurrentUpgrade(tower) || TOWER_DEFINITIONS[TowerType.GOLD].branchB[0];
         const ownerGold = this.networkManager.inMatch ? (this.towerOwnerSlot(tower)?.gold ?? 0) : this.soloWallet.gold;
-        const interest = Math.round(ownerGold * (curUpg.roundInterestPercent ?? 0.10));
-        const payout = Math.max(curUpg.roundFlatGold ?? 20, interest);
+        const interest = Math.min(
+          curUpg.roundInterestCap ?? Infinity,
+          Math.round(ownerGold * (curUpg.roundInterestPercent ?? 0.05))
+        );
+        const payout = Math.max(curUpg.roundFlatGold ?? 10, interest);
         this.creditTowerGold(tower, payout);
         tower.totalBuffApplied += payout;
         audio.playGoldGain();

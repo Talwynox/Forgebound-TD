@@ -30,36 +30,12 @@ export class TechTreeManager {
       costPerLevel: 1,
       currentLevel: 0
     },
-    arcane: {
-      id: 'arcane',
-      name: 'Arcane Potency',
-      description: '+15% Tower buff potency (healing, armor, attack).',
-      maxLevel: 3,
-      costPerLevel: 2,
-      currentLevel: 0
-    },
-    engineering: {
-      id: 'engineering',
-      name: 'Engineering Guild',
-      description: '-15% Tower upgrade gold costs.',
-      maxLevel: 2,
-      costPerLevel: 2,
-      currentLevel: 0
-    },
     warrior: {
       id: 'warrior',
       name: 'Warrior Heritage',
       description: '+30 starting HP and +4 base Armor for recruits.',
       maxLevel: 3,
       costPerLevel: 1,
-      currentLevel: 0
-    },
-    auraAmp: {
-      id: 'auraAmp',
-      name: 'Aura Amplification',
-      description: '+25% Aura Tower radius and effect strength.',
-      maxLevel: 2,
-      costPerLevel: 2,
       currentLevel: 0
     }
   };
@@ -113,14 +89,6 @@ export class TechTreeManager {
 
   getBonusStartingGold(): number {
     return this.upgrades.masonry.currentLevel * 30;
-  }
-
-  getBuffPotencyMultiplier(): number {
-    return 1 + this.upgrades.arcane.currentLevel * 0.15;
-  }
-
-  getUpgradeDiscountMultiplier(): number {
-    return 1 - this.upgrades.engineering.currentLevel * 0.15;
   }
 
   getBonusRecruitHp(): number {

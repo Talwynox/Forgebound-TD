@@ -1234,12 +1234,13 @@ export class UnitManager {
       this.vfx.spawnBeam(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), hitPos, 0xa855f7, 0.15);
 
       const gain = attacker.manaGainPerAttack || 25;
-      attacker.mana = Math.min(attacker.maxMana, attacker.mana + gain);
+      attacker.mana += gain;
       this.vfx.spawnFloatingText(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.9, 0)), `+${gain} MP`, '#c084fc', 0.6);
 
       // Check if full mana -> CAST BIG FIREBALL!
       if (attacker.mana >= attacker.maxMana) {
-        attacker.mana = 0;
+        // Carry the overflow so every point of Arcane Siphon shortens the cast cycle
+        attacker.mana = Math.min(attacker.mana - attacker.maxMana, attacker.maxMana - 1);
         audio.playFireball();
 
         const fireballPos = defender.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));

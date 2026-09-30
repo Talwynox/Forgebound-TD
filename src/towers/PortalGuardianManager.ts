@@ -21,7 +21,7 @@ export const GUARDIAN_DAMAGE_LEVELS: { level: number; damage: number; nextCost: 
   { level: 7, damage: 505, nextCost: 205 },
   { level: 8, damage: 660, nextCost: 265 },
   { level: 9, damage: 850, nextCost: 340 },
-  { level: 10, damage: 1100, nextCost: 0 } // Max level
+  { level: 10, damage: 1080, nextCost: 0 } // Max level
 ];
 
 export const GUARDIAN_RANGE_LEVELS: { level: number; range: number; nextCost: number }[] = [
