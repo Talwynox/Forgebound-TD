@@ -2,7 +2,7 @@ import confetti from 'canvas-confetti';
 import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, SOLDIER_ABILITIES, ARCHER_ABILITIES, MAGE_ABILITIES } from '../towers/TowerData';
 import { TowerInstance, TowerManager, TargetPriority, TARGET_PRIORITIES, AUTO_TARGET_ORDER, hasTargetPriority } from '../towers/TowerManager';
 import { Unit, UnitManager } from '../units/UnitManager';
-import { FriendlyClass, EnemyClass, ENEMY_UNIT_STATS } from '../units/UnitData';
+import { FriendlyClass, EnemyClass, ENEMY_UNIT_STATS, getEnemyWaveScaling, armorReduction, getKillBounty } from '../units/UnitData';
 import { CAMPAIGN_MISSIONS, CampaignMission } from '../campaign/CampaignData';
 import { TechTreeManager } from '../campaign/TechTree';
 import { audio } from '../engine/AudioSystem';
@@ -1579,85 +1579,98 @@ export class UIManager {
     const wave = mission.waves[waveIdx];
     if (!wave) return;
 
-    let totalEnemies = 0;
-    let totalHpPool = 0;
-    let hasBoss = false;
-    let hasHeavyArmor = false;
-    let hasFast = false;
-    let hasRanged = false;
+    // Show the stats enemies will actually spawn with (wave scaling kicks in from wave 8)
+    const scaling = getEnemyWaveScaling(waveIdx);
+    const isScaled = scaling.hpMult > 1;
+    const groups = wave.enemies.map(group => {
+      const base = ENEMY_UNIT_STATS[group.enemyClass];
+      return {
+        group,
+        base,
+        hp: Math.round(base.hp * scaling.hpMult),
+        armor: base.armor + scaling.armorBonus,
+        attack: Math.round(base.attack * scaling.atkMult)
+      };
+    });
+    type Group = typeof groups[number];
 
-    const battalionsHTML = wave.enemies.map(group => {
-      const stats = ENEMY_UNIT_STATS[group.enemyClass];
-      totalEnemies += group.count;
-      totalHpPool += stats.hp * group.count;
+    const totalEnemies = groups.reduce((sum, g) => sum + g.group.count, 0);
+    const totalHpPool = groups.reduce((sum, g) => sum + g.hp * g.group.count, 0);
+    const totalBounty = groups.reduce(
+      (sum, g) => sum + getKillBounty(g.base, g.group.enemyClass === EnemyClass.BOSS_LORD_IGNIS) * g.group.count, 0);
 
-      if (group.enemyClass === EnemyClass.BOSS_LORD_IGNIS) hasBoss = true;
-      if (stats.armor >= 20) hasHeavyArmor = true;
-      if (stats.moveSpeed >= 2.5) hasFast = true;
-      if (stats.range > 2.0) hasRanged = true;
-
-      const armorRed = Math.round(((stats.armor * 0.06) / (1 + stats.armor * 0.06)) * 100);
-
-      return `
+    const battalionsHTML = groups.map(g => `
         <div class="intel-battalion-card">
           <div class="intel-battalion-header">
-            <span class="font-bold text-amber-300 text-sm">${stats.name}</span>
-            <span class="intel-count-badge">x${group.count}</span>
+            <span class="font-bold text-amber-300 text-sm">${g.base.name}</span>
+            <span class="intel-count-badge">x${g.group.count}</span>
           </div>
           <div class="intel-battalion-stats">
-            <div>HP: <strong class="text-emerald-400">${stats.hp}</strong></div>
-            <div>Armor: <strong class="text-sky-300">${stats.armor}</strong> (${armorRed}%)</div>
-            <div>Attack: <strong class="text-rose-400">${stats.attack}</strong></div>
-            <div>Speed: <strong>${stats.moveSpeed.toFixed(1)}</strong></div>
-            <div>Range: <strong>${stats.range <= 1.2 ? 'Melee' : stats.range + 'm'}</strong></div>
+            <div>HP: <strong class="text-emerald-400">${g.hp.toLocaleString()}</strong></div>
+            <div>Armor: <strong class="text-sky-300">${g.armor}</strong> (blocks ${Math.round(armorReduction(g.armor) * 100)}%)</div>
+            <div>Attack: <strong class="text-rose-400">${g.attack}</strong> / ${g.base.attackRate}s</div>
+            <div>Range: <strong>${g.base.range <= 1.2 ? 'Melee' : g.base.range + 'm'}</strong></div>
           </div>
-          <div class="intel-desc">${stats.description}</div>
+          <div class="intel-desc">${g.base.description}</div>
         </div>
-      `;
-    }).join('');
+      `).join('');
 
-    // Tactical Scout Advice
-    let tacticalAdvice = '';
-    if (hasBoss) {
-      tacticalAdvice = `
-        <div class="tactical-box boss-threat">
-          <div class="font-bold text-red-400 mb-1">⚠️ SUPREME THREAT DETECTED: LORD IGNIS</div>
-          <div class="text-xs text-slate-300 space-y-1">
-            <div>• <strong>Infernal Ground Stomp:</strong> Periodically slams the arena floor, dealing massive AoE shockwave damage and pushing units back.</div>
-            <div>• <strong>Phase 2 Magma Shield:</strong> At 50% HP, fortifies with +15 Armor and hellfire warding!</div>
-            <div>• <strong>Tactical Counter:</strong> Position Holy Clerics for sustain healing, build Mage Pyromancers for Mega Fireball burst, and deploy Soldiers with Armor Auras.</div>
-          </div>
-        </div>
-      `;
-    } else if (hasHeavyArmor) {
-      tacticalAdvice = `
-        <div class="tactical-box">
-          <div class="font-bold text-sky-400 mb-1">🛡️ HEAVY ARMOR SQUADRONS DETECTED</div>
-          <div class="text-xs text-slate-300">Ironclad Crushers have 30+ Armor and massive HP pools. Prioritize Mage Pyromancers for arcane burst and Flame Obelisk frenzy to shred them.</div>
-        </div>
-      `;
-    } else if (hasFast) {
-      tacticalAdvice = `
-        <div class="tactical-box">
-          <div class="font-bold text-amber-400 mb-1">⚡ FAST INFILTRATORS DETECTED</div>
-          <div class="text-xs text-slate-300">Shadow Stalkers sprint with high speed. Place Frost Towers along maze chokepoints to chill and stagger their arrival.</div>
-        </div>
-      `;
-    } else if (hasRanged) {
-      tacticalAdvice = `
-        <div class="tactical-box">
-          <div class="font-bold text-emerald-400 mb-1">🏹 RANGED MARKSMEN DETECTED</div>
-          <div class="text-xs text-slate-300">Skeleton Archers fire piercing bone shafts from afar. Train Archer champions with multishot and Soldier frontliners with armor aura.</div>
-        </div>
-      `;
-    } else {
-      tacticalAdvice = `
-        <div class="tactical-box">
-          <div class="font-bold text-emerald-400 mb-1">⚔️ BALANCED VANGUARD</div>
-          <div class="text-xs text-slate-300">Standard raider battalion. Maintain balanced Vitality Shrines and Iron Forges to sustain your units' health and armor.</div>
-        </div>
-      `;
+    // Scout advice: one box per threat present in this wave
+    const namesWhere = (pred: (g: Group) => boolean) => groups.filter(pred).map(g => g.base.name).join(', ');
+    const threats: { title: string; body: string; boss?: boolean }[] = [];
+
+    if (groups.some(g => g.group.enemyClass === EnemyClass.BOSS_LORD_IGNIS)) {
+      threats.push({
+        boss: true,
+        title: '⚠️ SUPREME THREAT: LORD IGNIS',
+        body: 'Every 6s he stomps everything within 4m for 1.5x his Attack and knocks it back. At 50% HP his Magma Shield adds +15 Armor. ' +
+          'Counter: Soldiers with Relentless Assault ramp up damage on him, Archer Sundering Shot cancels the extra armor, and Paralyzing Arc stuns stop his stomp. Keep Archers and Mages out of stomp range.'
+      });
     }
+    const heavy = groups.filter(g => g.armor >= 25);
+    if (heavy.length > 0) {
+      const maxArmor = Math.max(...heavy.map(g => g.armor));
+      threats.push({
+        title: '🛡️ HEAVY ARMOR',
+        body: `${heavy.map(g => g.base.name).join(', ')}: up to ${maxArmor} Armor blocks ${Math.round(armorReduction(maxArmor) * 100)}% of every hit. ` +
+          'Counter: Archer Sundering Shot strips armor for your whole army, and Relentless Assault ramps against a single tank.'
+      });
+    }
+    const rushers = namesWhere(g => g.base.moveSpeed >= 2.7);
+    if (rushers) {
+      threats.push({
+        title: '⚡ FAST, HARD HITTERS',
+        body: `${rushers} close the gap quickly and attack rapidly. ` +
+          "Counter: Iron Forge armor and Soldier Armor Aura cut every hit; Spiked Bulwark's flat reduction and Thorns punish many small hits."
+      });
+    }
+    const ranged = namesWhere(g => g.base.range > 2.0);
+    if (ranged) {
+      threats.push({
+        title: '🏹 RANGED BACKLINE',
+        body: `${ranged} shoot from behind their front line but have little HP. ` +
+          'Counter: Archers (5.5m range) outrange them; Mega Fireball splash and Multishot clean up the back rows.'
+      });
+    }
+    if (totalEnemies >= 20) {
+      threats.push({
+        title: '👥 LARGE HORDE',
+        body: `${totalEnemies} enemies: splash damage (Mega Fireball, Multishot) pays off, and extra Recruits help hold the line.`
+      });
+    }
+    if (threats.length === 0) {
+      threats.push({
+        title: '⚔️ STANDARD VANGUARD',
+        body: 'No special threats. Keep your Shrines, Forges and Obelisks feeding every recruit that walks the maze.'
+      });
+    }
+
+    const tacticalAdvice = threats.map(t => `
+        <div class="tactical-box ${t.boss ? 'boss-threat' : ''}">
+          <div class="tactical-title">${t.title}</div>
+          <div class="tactical-body">${t.body}</div>
+        </div>
+      `).join('');
 
     this.waveIntelModalEl.style.display = 'flex';
     this.waveIntelModalEl.innerHTML = `
@@ -1667,14 +1680,21 @@ export class UIManager {
           <button id="btn-close-intel" class="close-btn">&times;</button>
         </div>
         <div class="wave-summary-bar">
-          <div>Total Raiders: <strong class="text-amber-400">${totalEnemies}</strong></div>
-          <div>Total Enemy HP Pool: <strong class="text-emerald-400">${totalHpPool}</strong></div>
-          <div>Bounty Reward: <strong class="text-yellow-300">🪙${wave.rewardGold}g</strong></div>
+          <div>Enemies: <strong class="text-amber-400">${totalEnemies}</strong></div>
+          <div>Total HP: <strong class="text-emerald-400">${totalHpPool.toLocaleString()}</strong></div>
+          <div>Kill Bounties: <strong class="text-yellow-300">🪙${totalBounty}g</strong></div>
+          <div>Clear Reward: <strong class="text-yellow-300">🪙${wave.rewardGold}g</strong></div>
         </div>
+        ${isScaled ? `
+          <div class="intel-scaling-note">
+            📈 Wave scaling: +${Math.round((scaling.hpMult - 1) * 100)}% HP, +${scaling.armorBonus} Armor, +${Math.round((scaling.atkMult - 1) * 100)}% Attack (included above)
+          </div>
+        ` : ''}
         <div class="intel-battalions-grid">
           ${battalionsHTML}
         </div>
-        ${tacticalAdvice}
+        <div class="tactical-list">${tacticalAdvice}</div>
+        <div class="intel-scaling-note">⏱️ Clashes lasting over 45s escalate: all unit damage x2, doubling every 15s.</div>
         <div class="modal-footer">
           <button id="btn-dismiss-intel" class="btn-primary">Acknowledge Intel</button>
         </div>

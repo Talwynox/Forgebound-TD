@@ -6,7 +6,9 @@ import {
   FRIENDLY_UNIT_STATS,
   UnitTier,
   calculateDamage,
-  getUnitStats
+  getUnitStats,
+  getEnemyWaveScaling,
+  getKillBounty
 } from './UnitData';
 import { buildUnitMesh, getUnitMeshHeight } from './UnitMeshFactory';
 import { VFXManager } from '../vfx/VFXManager';
@@ -520,18 +522,12 @@ export class UnitManager {
     unit.inCombat = !isWaiting; // If waiting, inCombat is false until gates open
     unit.mesh.rotation.y = Math.PI / 2; // Face towards the friendly arrival side
 
-    // Escalating wave power: starting after wave ~8 (waveIndex >= 7), enemies scale up HP, Armor, and Attack
-    if (waveIndex >= 7) {
-      const extraWaves = (waveIndex + 1) - 7;
-      const hpMult = 1.0 + extraWaves * 0.18;
-      const armorBonus = Math.round(extraWaves * 2.2);
-      const atkMult = 1.0 + extraWaves * 0.12;
-
-      unit.maxHp = Math.round(unit.maxHp * hpMult);
-      unit.currentHp = unit.maxHp;
-      unit.armor += armorBonus;
-      unit.attack = Math.round(unit.attack * atkMult);
-    }
+    // Escalating wave power: from wave 8 on, enemies scale up HP, Armor, and Attack
+    const { hpMult, armorBonus, atkMult } = getEnemyWaveScaling(waveIndex);
+    unit.maxHp = Math.round(unit.maxHp * hpMult);
+    unit.currentHp = unit.maxHp;
+    unit.armor += armorBonus;
+    unit.attack = Math.round(unit.attack * atkMult);
 
     this.scene.add(unit.mesh);
     this.units.push(unit);
@@ -1349,7 +1345,7 @@ export class UnitManager {
 
     if (!unit.isFriendly || this.pvpMode) {
       // Bounty for enemies (and, in PvP, for every unit of the opposing army)
-      const bounty = unit.isBoss ? 250 : (unit.stats.tier === UnitTier.TIER_3 ? 60 : unit.stats.tier === UnitTier.TIER_2 ? 25 : 12);
+      const bounty = getKillBounty(unit.stats, unit.isBoss);
       onKillEnemy(bounty, unit);
       audio.playGoldGain();
       this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 1.2, 0)), `+${bounty}g`, '#facc15', unit.isBoss ? 1.8 : 1.2);

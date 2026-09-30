@@ -990,6 +990,8 @@ body, html {
 
 .wave-summary-bar {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   justify-content: space-around;
   background: #1e293b;
   border: 1px solid #334155;
@@ -1065,6 +1067,39 @@ body, html {
 .tactical-box.boss-threat {
   border-color: #ef4444;
   background: rgba(69, 10, 10, 0.5);
+}
+
+.tactical-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tactical-list .tactical-box {
+  margin-bottom: 0;
+}
+
+.tactical-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #7dd3fc;
+}
+
+.tactical-box.boss-threat .tactical-title {
+  color: #f87171;
+}
+
+.tactical-body {
+  color: #cbd5e1;
+  line-height: 1.45;
+}
+
+.intel-scaling-note {
+  font-size: 12px;
+  color: #fbbf24;
+  margin: -8px 0 12px;
+  text-align: center;
 }
 
 /* --- TUTORIAL / HOW TO PLAY MODAL --- */

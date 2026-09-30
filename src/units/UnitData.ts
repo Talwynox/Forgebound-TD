@@ -278,6 +278,26 @@ export const ENEMY_UNIT_STATS: Record<EnemyClass, UnitStats> = {
   }
 };
 
+/** Enemy stat scaling from wave 8 on (waveIndex is 0-based): shared by spawning and the wave intel. */
+export function getEnemyWaveScaling(waveIndex: number): { hpMult: number; armorBonus: number; atkMult: number } {
+  const extraWaves = Math.max(0, waveIndex + 1 - 7);
+  return {
+    hpMult: 1 + extraWaves * 0.18,
+    armorBonus: Math.round(extraWaves * 2.2),
+    atkMult: 1 + extraWaves * 0.12
+  };
+}
+
+/** Gold paid for killing a unit (enemies in PvE; any unit of the opposing army in PvP). */
+export function getKillBounty(stats: UnitStats, isBoss: boolean): number {
+  return isBoss ? 250 : stats.tier === UnitTier.TIER_3 ? 60 : stats.tier === UnitTier.TIER_2 ? 25 : 12;
+}
+
+/** Fraction of each hit absorbed by armor (Warcraft III formula, see calculateDamage). */
+export function armorReduction(armor: number): number {
+  return armor >= 0 ? (armor * 0.06) / (1 + armor * 0.06) : 0;
+}
+
 /**
  * Warcraft III Armor Damage Reduction Formula:
  * Reduction = (Armor * 0.06) / (1 + Armor * 0.06)
