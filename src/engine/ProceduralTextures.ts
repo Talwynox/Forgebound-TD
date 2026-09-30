@@ -147,6 +147,41 @@ export function createMasonryTexture(repeatX: number, repeatY: number): THREE.Ca
   return toTexture(canvas, repeatX, repeatY);
 }
 
+/** Seamless soft cloud-noise for the mist sea drifting beneath the islands. */
+export function createMistTexture(): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const rand = seededRandom(57);
+  ctx.clearRect(0, 0, size, size);
+
+  // Soft blobs drawn with wrap-around copies so the texture tiles seamlessly
+  // Clumped cloud banks with clear gaps between them
+  const clumps = Array.from({ length: 9 }, () => [rand() * size, rand() * size]);
+  for (let i = 0; i < 150; i++) {
+    const [cx, cy] = clumps[i % clumps.length];
+    const x = cx + (rand() - 0.5) * 170;
+    const y = cy + (rand() - 0.5) * 120;
+    const r = 18 + rand() * 60;
+    const a = 0.12 + rand() * 0.2;
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        const g = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        g.addColorStop(0, `rgba(255,255,255,${a})`);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
 /** Soft round glow sprite for ember / wisp particles. */
 export function createGlowSprite(): THREE.CanvasTexture {
   const size = 64;

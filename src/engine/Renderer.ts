@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Grid, TileType } from '../grid/Grid';
 import { ARENA_MIRROR_X, ARENA_WIDTH, ARENA_CENTER_X, mirrorX } from '../game/Teams';
 import { PostFX } from './PostFX';
-import { createFlagstoneTexture, createGlowSprite, createMossTexture } from './ProceduralTextures';
+import { createFlagstoneTexture, createGlowSprite, createMasonryTexture, createMistTexture, createMossTexture } from './ProceduralTextures';
 
 interface ParticleField {
   points: THREE.Points;
@@ -42,6 +42,8 @@ export class SceneRenderer {
   private animatedClouds: THREE.Group[] = [];
   private lavaMaterials: THREE.MeshBasicMaterial[] = [];
   private particleFields: ParticleField[] = [];
+  private spinners: THREE.Object3D[] = [];
+  private mistLayers: { mat: THREE.MeshBasicMaterial; drift: THREE.Vector2 }[] = [];
   private glowSprite: THREE.Texture = createGlowSprite();
 
   constructor(container: HTMLElement) {
@@ -110,7 +112,7 @@ export class SceneRenderer {
     this.buildWestKingdomTerrain();
     this.buildEastInfernalTerrain();
     this.buildCentralChasmAndLeyLines();
-    this.buildLowPolyCloudCover();
+    this.buildMistSea();
     this.buildArenaEmbers();
 
     this.buildMazeIsland(this.scene, this.roadGroup);
@@ -1198,274 +1200,136 @@ export class SceneRenderer {
   }
 
   /**
-   * Builds the Infernal Dreadfort (Citadel of Lord Ignis)
-   * A multi-tiered dark basalt fortress with gothic towers, demon skull gate,
-   * glowing lava cavern, curved siege horns, battlements, and rooftop hellfire pyre.
+   * The Infernal Citadel: the enemy fortress forming the arena's east wall (solo & co-op).
+   * Built facing west (-X) towards the arena; its bulk hangs out over the abyss on a molten rock spur.
    */
   private buildEnemyCitadel(pos: THREE.Vector3, parent: THREE.Object3D = this.scene): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(pos);
 
-    // Palette Materials
-    const basaltMat = new THREE.MeshStandardMaterial({
-      color: 0x141216, // Dark blackened basalt stone
-      roughness: 0.75,
-      metalness: 0.35
+    const obsidian = new THREE.MeshStandardMaterial({ color: 0x1b151d, roughness: 0.45, metalness: 0.35, flatShading: true });
+    const volcanicBrick = new THREE.MeshStandardMaterial({
+      color: 0x8a6e6a,
+      map: createMasonryTexture(2, 2),
+      roughness: 0.9,
+      metalness: 0.05
     });
-    const bloodIronMat = new THREE.MeshStandardMaterial({
-      color: 0x58141f, // Deep blood-forged iron
-      roughness: 0.4,
-      metalness: 0.75
-    });
-    const crimsonRoofMat = new THREE.MeshStandardMaterial({
-      color: 0x450a0a, // Dark red gothic spire tile
-      emissive: 0x24030a,
-      roughness: 0.45,
-      metalness: 0.4
-    });
-    const ironPortcullisMat = new THREE.MeshStandardMaterial({
-      color: 0x27272a,
-      metalness: 0.9,
-      roughness: 0.2
-    });
-    const lavaMat = new THREE.MeshStandardMaterial({
-      color: 0xff4500,
-      emissive: 0xff2200,
-      emissiveIntensity: 1.8
-    });
-    const boneMat = new THREE.MeshStandardMaterial({
-      color: 0xe2e8f0,
-      roughness: 0.75
-    });
+    const bloodIron = new THREE.MeshStandardMaterial({ color: 0x4a1418, roughness: 0.4, metalness: 0.7, flatShading: true });
+    const bone = new THREE.MeshStandardMaterial({ color: 0x8f8270, roughness: 0.8, flatShading: true });
+    const magma = new THREE.MeshStandardMaterial({ color: 0xff5a1a, emissive: 0xff3c0a, emissiveIntensity: 2.4 });
+    const hellfire = new THREE.MeshStandardMaterial({ color: 0xff7a2a, emissive: 0xff2a0a, emissiveIntensity: 3.2, roughness: 0.3 });
+    const banner = new THREE.MeshStandardMaterial({ color: 0x5c0f18, roughness: 0.9, side: THREE.DoubleSide });
 
-    // 1. Lower Rampart Keep Base (Wide fortified bastion)
-    const baseKeep = new THREE.Mesh(new THREE.BoxGeometry(6.0, 4.0, 11.5), basaltMat);
-    baseKeep.position.set(1.5, 2.0, 0);
-    baseKeep.castShadow = true;
-    baseKeep.receiveShadow = true;
-    group.add(baseKeep);
+    const add = (geom: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) => {
+      const mesh = new THREE.Mesh(geom, material);
+      mesh.position.set(x, y, z);
+      mesh.rotation.set(rx, ry, rz);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+      return mesh;
+    };
 
-    // Blood-iron machicolations / trim along base rampart top
-    const baseTrim = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.4, 11.9), bloodIronMat);
-    baseTrim.position.set(1.5, 4.1, 0);
-    group.add(baseTrim);
-
-    // Merlons / Battlements on Lower Ramparts
-    for (let i = 0; i < 5; i++) {
-      const zMerlon = -5.0 + i * 2.5;
-      // Front face battlements
-      const merlon = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.2), bloodIronMat);
-      merlon.position.set(-1.6, 4.5, zMerlon);
-      group.add(merlon);
-    }
-
-    // 2. Upper Fortress Keep (Central Citadel Tower)
-    const upperKeep = new THREE.Mesh(new THREE.BoxGeometry(4.6, 4.0, 7.5), basaltMat);
-    upperKeep.position.set(2.0, 5.8, 0);
-    upperKeep.castShadow = true;
-    group.add(upperKeep);
-
-    const upperTrim = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.4, 7.9), bloodIronMat);
-    upperTrim.position.set(2.0, 7.9, 0);
-    group.add(upperTrim);
-
-    // Upper keep roof battlements
-    for (let i = 0; i < 4; i++) {
-      const merlon = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 1.2), bloodIronMat);
-      merlon.position.set(-0.4, 8.3, -3.0 + i * 2.0);
-      group.add(merlon);
-    }
-
-    // 3. Rooftop Hellfire Cauldron of Lord Ignis (Roof Pyre)
-    const cauldron = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.2, 0.8, 1.0, 8),
-      bloodIronMat
-    );
-    cauldron.position.set(2.0, 8.4, 0);
-    group.add(cauldron);
-
-    const hellfireCore = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(0.85),
-      lavaMat
-    );
-    hellfireCore.position.set(2.0, 9.1, 0);
-    group.add(hellfireCore);
-
-    // Ominous dynamic hellfire light illuminating the entire arena
-    const hellfireLight = new THREE.PointLight(0xff3700, 1.8, 26);
-    hellfireLight.position.set(1.0, 9.5, 0);
-    group.add(hellfireLight);
-
-    // 4. Twin Gothic Bastion Spire Towers (North & South flanks)
-    [-5.8, 5.8].forEach((zPos, tIdx) => {
-      const towerGroup = new THREE.Group();
-      towerGroup.position.set(0.5, 0, zPos);
-
-      // Octagonal Tower Shaft
-      const towerShaft = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.6, 2.0, 10.0, 8),
-        basaltMat
-      );
-      towerShaft.position.y = 5.0;
-      towerShaft.castShadow = true;
-      towerGroup.add(towerShaft);
-
-      // Flared Machicolations at tower crown
-      const machicolation = new THREE.Mesh(
-        new THREE.CylinderGeometry(2.0, 1.6, 0.9, 8),
-        bloodIronMat
-      );
-      machicolation.position.y = 10.3;
-      towerGroup.add(machicolation);
-
-      // Tower Crenellations
-      for (let m = 0; m < 6; m++) {
-        const angle = (m / 6) * Math.PI * 2;
-        const merlon = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.4), bloodIronMat);
-        merlon.position.set(Math.cos(angle) * 1.8, 10.9, Math.sin(angle) * 1.8);
-        towerGroup.add(merlon);
+    /** Ring of jagged spikes crowning a tower top. */
+    const spikeCrown = (x: number, y: number, z: number, r: number, count: number, h: number) => {
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2;
+        add(new THREE.ConeGeometry(0.18, h * (0.7 + (i % 2) * 0.4), 4), obsidian,
+          x + Math.cos(a) * r, y + h * 0.4, z + Math.sin(a) * r, Math.sin(a) * 0.25, 0, -Math.cos(a) * 0.25);
       }
+    };
 
-      // Tall Gothic Spire Roof
-      const spireRoof = new THREE.Mesh(
-        new THREE.ConeGeometry(2.0, 4.5, 8),
-        crimsonRoofMat
-      );
-      spireRoof.position.y = 13.0;
-      spireRoof.castShadow = true;
-      towerGroup.add(spireRoof);
+    /** Tall arrow-slit windows lit by the forges inside. */
+    const slit = (x: number, y: number, z: number, h = 0.7) => add(new THREE.BoxGeometry(0.08, h, 0.16), magma, x, y, z);
 
-      // Iron Needle Finial at peak
-      const finial = new THREE.Mesh(
-        new THREE.ConeGeometry(0.12, 1.8, 4),
-        bloodIronMat
-      );
-      finial.position.y = 15.8;
-      towerGroup.add(finial);
-
-      // Fiery Arrow Slit Windows on tower front face
-      [4.0, 7.5].forEach(ySlot => {
-        const slit = new THREE.Mesh(
-          new THREE.BoxGeometry(0.1, 0.9, 0.3),
-          lavaMat
-        );
-        slit.position.set(-1.6, ySlot, 0);
-        towerGroup.add(slit);
-      });
-
-      // Hanging Tattered Blood War Banner
-      const banner = new THREE.Mesh(
-        new THREE.BoxGeometry(0.04, 3.5, 1.2),
-        new THREE.MeshStandardMaterial({
-          color: 0x881337,
-          roughness: 0.7,
-          side: THREE.DoubleSide
-        })
-      );
-      banner.position.set(-1.75, 5.0, (tIdx === 0 ? 0.6 : -0.6));
-      banner.rotation.z = 0.05;
-      towerGroup.add(banner);
-
-      group.add(towerGroup);
+    // 1. Molten rock spur the fortress stands on, hanging into the abyss
+    const rock = new THREE.MeshStandardMaterial({ color: 0x151013, roughness: 0.95, flatShading: true });
+    add(new THREE.BoxGeometry(7.5, 1.4, 19.6), rock, 3.2, -0.55, 0);
+    add(new THREE.ConeGeometry(6.5, 11, 6), rock, 3.6, -6.8, 0, Math.PI);
+    add(new THREE.ConeGeometry(3.2, 7, 5), rock, 3.0, -4.5, 6.5, Math.PI);
+    add(new THREE.ConeGeometry(3.2, 7, 5), rock, 3.0, -4.5, -6.5, Math.PI);
+    [[0.2, -2.2, 5.5, 0.3], [0.2, -3.2, -3.0, -0.2], [0.2, -2.6, 1.6, 0.15]].forEach(([x, y, z, rz]) => {
+      add(new THREE.BoxGeometry(0.12, 3.6, 0.25), magma, x, y, z, 0, 0, rz);
     });
 
-    // 5. The Infernal Maw Gatehouse (Front, facing arena at -X)
-    const gateArchFrame = new THREE.Mesh(
-      new THREE.BoxGeometry(2.2, 4.4, 4.6),
-      basaltMat
-    );
-    gateArchFrame.position.set(-1.4, 2.2, 0);
-    gateArchFrame.castShadow = true;
-    group.add(gateArchFrame);
-
-    // Inner Glowing Lava Cavern floor
-    const lavaFloor = new THREE.Mesh(
-      new THREE.BoxGeometry(3.0, 0.15, 3.4),
-      lavaMat
-    );
-    lavaFloor.position.set(-1.4, 0.1, 0);
-    group.add(lavaFloor);
-
-    // Heavy Forged Iron Portcullis Grill
-    for (let bar = -1.2; bar <= 1.2; bar += 0.4) {
-      // Vertical bars
-      const vBar = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, 3.4, 4),
-        ironPortcullisMat
-      );
-      vBar.position.set(-2.4, 1.7, bar);
-      group.add(vBar);
+    // 2. Curtain wall: the arena's east wall, with spiked battlements
+    add(new THREE.BoxGeometry(1.4, 4.2, 19.2), volcanicBrick, 0.2, 2.1, 0);
+    add(new THREE.BoxGeometry(1.8, 0.35, 19.6), obsidian, 0.2, 4.35, 0);
+    for (let z = -9; z <= 9; z += 1.5) {
+      if (Math.abs(z) < 2.2) continue; // gatehouse
+      add(new THREE.ConeGeometry(0.22, 0.9, 4), obsidian, -0.35, 4.9, z);
     }
-    for (let hBar = 0.6; hBar <= 3.2; hBar += 0.8) {
-      // Horizontal crossbars
-      const hBeam = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.08, 2.6),
-        ironPortcullisMat
-      );
-      hBeam.position.set(-2.4, hBar, 0);
-      group.add(hBeam);
+    [-6.5, -4.2, 4.2, 6.5].forEach(z => slit(-0.52, 2.6, z));
+
+    // 3. Gatehouse with a glowing hellfire portcullis and a horned skull above
+    add(new THREE.BoxGeometry(2.4, 6.4, 4.4), volcanicBrick, -0.1, 3.2, 0);
+    add(new THREE.BoxGeometry(2.8, 0.4, 4.8), obsidian, -0.1, 6.5, 0);
+    add(new THREE.BoxGeometry(0.3, 3.2, 2.2), new THREE.MeshStandardMaterial({ color: 0x0a0608, roughness: 1 }), -1.25, 1.6, 0);
+    for (let i = -2; i <= 2; i++) add(new THREE.BoxGeometry(0.08, 3.0, 0.08), bloodIron, -1.42, 1.55, i * 0.42);
+    for (let j = 0; j < 4; j++) add(new THREE.BoxGeometry(0.08, 0.08, 2.1), bloodIron, -1.42, 0.5 + j * 0.8, 0);
+    add(new THREE.BoxGeometry(0.05, 3.0, 2.0), new THREE.MeshStandardMaterial({ color: 0xff4a14, emissive: 0xff3008, emissiveIntensity: 1.3, transparent: true, opacity: 0.55 }), -1.3, 1.55, 0);
+    const skullY = 4.6;
+    add(new THREE.SphereGeometry(0.62, 8, 7), bone, -1.45, skullY, 0);
+    add(new THREE.BoxGeometry(0.55, 0.35, 0.7), bone, -1.5, skullY - 0.5, 0);
+    [-0.22, 0.22].forEach(z => add(new THREE.SphereGeometry(0.13, 6, 5), hellfire, -1.98, skullY + 0.05, z));
+    [-1, 1].forEach(side => add(new THREE.ConeGeometry(0.16, 1.1, 5), bone, -1.3, skullY + 0.55, side * 0.55, 0, 0, side * 0.9));
+    for (let i = 0; i < 5; i++) add(new THREE.ConeGeometry(0.2, 0.8, 4), obsidian, -0.9, 7.0, -1.8 + i * 0.9);
+
+    // 4. Gate towers flanking the portcullis
+    [-1, 1].forEach(side => {
+      const z = side * 3.1;
+      add(new THREE.CylinderGeometry(1.25, 1.5, 9.5, 8), volcanicBrick, 0.3, 4.75, z);
+      add(new THREE.CylinderGeometry(1.55, 1.35, 0.45, 8), obsidian, 0.3, 9.7, z);
+      spikeCrown(0.3, 9.9, z, 1.35, 8, 1.1);
+      add(new THREE.ConeGeometry(1.1, 4.2, 8), bloodIron, 0.3, 12.1, z);
+      add(new THREE.ConeGeometry(0.12, 1.4, 4), obsidian, 0.3, 14.8, z);
+      [3.6, 6.4].forEach(y => slit(-0.95, y, z, 0.9));
+      // Hellfire braziers on the tower fronts
+      add(new THREE.CylinderGeometry(0.45, 0.25, 0.4, 7), bloodIron, -1.45, 7.6, z);
+      const flame = add(new THREE.OctahedronGeometry(0.34, 0), hellfire, -1.45, 8.05, z);
+      flame.scale.y = 1.5;
+      const fireLight = new THREE.PointLight(0xff4a1a, 2.6, 13, 1.6);
+      fireLight.position.set(-1.9, 8.2, z);
+      group.add(fireLight);
+      // Tattered war banners
+      const b = add(new THREE.BoxGeometry(0.04, 2.6, 1.0), banner, -1.3, 5.2, z);
+      b.rotation.z = 0.04 * side;
+      add(new THREE.OctahedronGeometry(0.2, 0), magma, -1.33, 5.6, z).scale.set(0.3, 1.5, 1);
+    });
+
+    // 5. Corner watchtowers at the ends of the curtain wall
+    [-1, 1].forEach(side => {
+      const z = side * 8.2;
+      add(new THREE.CylinderGeometry(1.0, 1.25, 7.0, 7), volcanicBrick, 0.4, 3.5, z);
+      spikeCrown(0.4, 7.0, z, 1.05, 7, 0.9);
+      add(new THREE.ConeGeometry(0.85, 3.0, 7), bloodIron, 0.4, 8.9, z);
+      slit(-0.62, 4.6, z, 0.8);
+    });
+
+    // 6. The Dread Keep behind the gate, crowned by a chained hellfire crystal
+    add(new THREE.BoxGeometry(4.2, 11, 5.4), volcanicBrick, 4.0, 5.5, 0);
+    add(new THREE.BoxGeometry(4.6, 0.5, 5.8), obsidian, 4.0, 11.2, 0);
+    add(new THREE.BoxGeometry(3.0, 3.2, 3.8), volcanicBrick, 4.0, 13.0, 0);
+    [[-2.25, 0], [2.25, 0], [0, -2.85], [0, 2.85]].forEach(([dx, dz]) => {
+      add(new THREE.ConeGeometry(0.35, 3.2, 4), obsidian, 4.0 + dx, 13.2, dz, dz * 0.08, 0, -dx * 0.08);
+    });
+    for (let y = 3; y <= 9; y += 2.6) {
+      [-1.6, 0, 1.6].forEach(z => slit(1.85, y, z, 1.0));
     }
-
-    // Sculpted Demonic Skull Crest above the gate
-    const crestSkull = new THREE.Mesh(
-      new THREE.SphereGeometry(0.65, 8, 8),
-      boneMat
-    );
-    crestSkull.position.set(-2.6, 3.6, 0);
-    group.add(crestSkull);
-
-    // Glowing Demonic Eye Sockets
-    [-0.2, 0.2].forEach(eyeZ => {
-      const eye = new THREE.Mesh(
-        new THREE.SphereGeometry(0.12, 6, 6),
-        new THREE.MeshBasicMaterial({ color: 0xff2200 })
-      );
-      eye.position.set(-3.1, 3.7, eyeZ);
-      group.add(eye);
+    const crystal = add(new THREE.OctahedronGeometry(0.95, 0), hellfire, 4.0, 17.4, 0);
+    crystal.scale.y = 1.6;
+    this.spinners.push(crystal);
+    [[-2.25, 0], [2.25, 0], [0, -2.85], [0, 2.85]].forEach(([dx, dz]) => {
+      const from = new THREE.Vector3(4.0 + dx, 14.6, dz);
+      const to = new THREE.Vector3(4.0, 17.2, 0);
+      const len = from.distanceTo(to);
+      const chain = add(new THREE.CylinderGeometry(0.05, 0.05, len, 4), bloodIron, (from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
+      chain.lookAt(to);
+      chain.rotateX(Math.PI / 2);
     });
-
-    // Demonic Horns sweeping outward from the gate skull
-    [-1, 1].forEach(side => {
-      const horn = new THREE.Mesh(
-        new THREE.ConeGeometry(0.18, 1.4, 5),
-        bloodIronMat
-      );
-      horn.position.set(-2.5, 4.4, side * 0.7);
-      horn.rotation.z = -0.6;
-      horn.rotation.x = side * 0.6;
-      group.add(horn);
-    });
-
-    // 6. Curving Obsidian Siege Spikes / Ribs along Ramparts
-    [-1, 1].forEach(side => {
-      const spike = new THREE.Mesh(
-        new THREE.ConeGeometry(0.3, 3.0, 5),
-        bloodIronMat
-      );
-      spike.position.set(-1.2, 4.6, side * 3.5);
-      spike.rotation.z = 0.5; // Leaning outward towards the arena
-      spike.rotation.x = side * 0.3;
-      group.add(spike);
-    });
-
-    // 7. Flanking Demon Trophy Bone Totems on Fortress Perimeter
-    [-3.8, 3.8].forEach(zOffset => {
-      const totem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.2, 0.3, 4.0, 6),
-        new THREE.MeshStandardMaterial({ color: 0x27272a, metalness: 0.7 })
-      );
-      totem.position.set(-2.8, 2.0, zOffset);
-      group.add(totem);
-
-      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.3, 6, 6), boneMat);
-      skull.position.set(-2.8, 4.2, zOffset);
-      group.add(skull);
-
-      // Torch on totem
-      const torch = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), lavaMat);
-      torch.position.set(-2.8, 4.6, zOffset);
-      group.add(torch);
-    });
+    const crystalLight = new THREE.PointLight(0xff3a14, 3.5, 32, 1.4);
+    crystalLight.position.set(4.0, 17.4, 0);
+    group.add(crystalLight);
 
     parent.add(group);
     return group;
@@ -1656,9 +1520,9 @@ export class SceneRenderer {
   private buildDistantMountainRanges() {
     const mountainGroup = new THREE.Group();
 
-    const alpineRockMat = new THREE.MeshStandardMaterial({ color: 0x1f2736, roughness: 0.95 });
-    const alpineSnowMat = new THREE.MeshStandardMaterial({ color: 0xdbeafe, roughness: 0.6 });
-    const volcanicRockMat = new THREE.MeshStandardMaterial({ color: 0x181418, roughness: 0.95 });
+    const alpineRockMat = new THREE.MeshStandardMaterial({ color: 0x161a24, roughness: 0.95, flatShading: true });
+    const alpineSnowMat = new THREE.MeshStandardMaterial({ color: 0x3a4152, roughness: 0.9, flatShading: true });
+    const volcanicRockMat = new THREE.MeshStandardMaterial({ color: 0x140f12, roughness: 0.95, flatShading: true });
     const calderaGlowMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
     this.lavaMaterials.push(calderaGlowMat);
 
@@ -1741,6 +1605,7 @@ export class SceneRenderer {
       mountainGroup.add(hill);
     });
 
+    mountainGroup.position.y = -8;
     this.scene.add(mountainGroup);
   }
 
@@ -1882,6 +1747,8 @@ export class SceneRenderer {
       westGroup.add(b);
     }
 
+    // Far below the floating islands, mostly swallowed by the mist sea & fog
+    westGroup.position.y = -22;
     this.scene.add(westGroup);
   }
 
@@ -1996,6 +1863,7 @@ export class SceneRenderer {
       eastGroup.add(spike);
     });
 
+    eastGroup.position.y = -22;
     this.scene.add(eastGroup);
   }
 
@@ -2010,7 +1878,7 @@ export class SceneRenderer {
     abyssGeom.rotateX(-Math.PI / 2);
     const abyssMat = new THREE.MeshStandardMaterial({ color: 0x080b12, roughness: 0.99 });
     const abyss = new THREE.Mesh(abyssGeom, abyssMat);
-    abyss.position.set(-5, -11.0, 0);
+    abyss.position.set(-5, -40.0, 0);
     chasmGroup.add(abyss);
 
     // Floating Arcane Ley-Line Conduit Bridge
@@ -2067,8 +1935,68 @@ export class SceneRenderer {
   }
 
   /**
-   * 7. Low-Altitude Drifting Cloud Banks
+   * 7. A drifting sea of mist beneath the floating islands: cold violet in the west,
+   * lit from below by the lava rivers in the east.
    */
+  private buildMistSea() {
+    const mistTex = createMistTexture();
+    const layers = [
+      { y: -4.5, opacity: 0.5, color: 0x544a78, repeat: 3.0, drift: new THREE.Vector2(0.004, 0.0015) },
+      { y: -8.5, opacity: 0.7, color: 0x3a3360, repeat: 2.1, drift: new THREE.Vector2(-0.0025, 0.001) },
+      { y: -14.0, opacity: 0.85, color: 0x241f3c, repeat: 1.5, drift: new THREE.Vector2(0.0015, -0.002) }
+    ];
+    for (const l of layers) {
+      const tex = mistTex.clone();
+      tex.needsUpdate = true;
+      tex.repeat.set(l.repeat, l.repeat);
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex,
+        color: l.color,
+        transparent: true,
+        opacity: l.opacity,
+        depthWrite: false
+      });
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(320, 240), mat);
+      plane.rotation.x = -Math.PI / 2;
+      plane.position.set(0, l.y, 0);
+      plane.renderOrder = -1;
+      this.scene.add(plane);
+      this.mistLayers.push({ mat, drift: l.drift });
+    }
+
+    // Infernal underglow bleeding up through the mist on the east side
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(130, 100),
+      new THREE.MeshBasicMaterial({
+        map: this.glowSprite,
+        color: new THREE.Color().setRGB(0.9, 0.22, 0.05),
+        transparent: true,
+        opacity: 0.22,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(ARENA_CENTER_X + 16, -16, 0);
+    this.scene.add(glow);
+
+    // Cold moonlit haze under the western kingdom
+    const cold = new THREE.Mesh(
+      new THREE.PlaneGeometry(90, 80),
+      new THREE.MeshBasicMaterial({
+        map: this.glowSprite,
+        color: new THREE.Color().setRGB(0.18, 0.22, 0.45),
+        transparent: true,
+        opacity: 0.25,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    cold.rotation.x = -Math.PI / 2;
+    cold.position.set(-30, -16, 0);
+    this.scene.add(cold);
+  }
+
   private buildLowPolyCloudCover() {
     const cloudMat = new THREE.MeshStandardMaterial({
       color: 0x241f33,
@@ -2237,6 +2165,15 @@ export class SceneRenderer {
     }
 
     this.updateParticles(dt, timeSec);
+
+    for (const layer of this.mistLayers) {
+      layer.mat.map!.offset.x += layer.drift.x * dt;
+      layer.mat.map!.offset.y += layer.drift.y * dt;
+    }
+    for (const s of this.spinners) {
+      s.rotation.y += dt * 0.6;
+      s.position.y += Math.sin(timeSec * 1.3) * 0.004;
+    }
 
     // 4. Pulsating magma breathing glow
     const lavaPulse = 0.85 + Math.sin(timeSec * 2.5) * 0.15;

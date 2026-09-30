@@ -216,7 +216,6 @@ export class UIManager {
     this.currentWave = currentWave;
 
     const totalStars = this.techTree.getTotalStarsEarned();
-    const canAffordRecruit = canBuyRecruit && gold >= recruitCost;
     const isPvp = Boolean(this.networkManager?.inMatch && this.networkManager?.mode === 'PVP');
 
     this.topBarEl.innerHTML = `
@@ -240,9 +239,6 @@ export class UIManager {
       </div>
 
       <div class="hud-group controls">
-        <button id="btn-recruit" class="hud-btn recruit-btn ${canAffordRecruit ? '' : 'disabled'}" title="Hire an additional Recruit for this wave (Hotkey: R)">
-          🛡️<span class="btn-label">Recruit</span><span class="${gold >= recruitCost ? 'text-amber-400 font-bold' : 'cost-locked'}">🪙${recruitCost}</span><span class="recruit-count-badge" title="Army size this wave">⚔ ${totalRecruits}</span><span class="key-badge minor-key">R</span>
-        </button>
         <button id="btn-focus-fire" class="hud-btn btn-focus-fire" title="Focus Fire: Direct all towers in range and champions to focus on an enemy (Hotkey: F)">
           🎯<span class="btn-label">Focus</span><span class="key-badge minor-key">F</span>
         </button>
@@ -278,11 +274,6 @@ export class UIManager {
     // Wave intel button handler
     this.topBarEl.querySelector('#btn-wave-intel')?.addEventListener('click', () => {
       this.toggleWaveIntel(mission, currentWave - 1);
-    });
-
-    // Recruit button handler
-    this.topBarEl.querySelector('#btn-recruit')?.addEventListener('click', () => {
-      this.onBuyRecruit();
     });
 
     // Focus Fire button handler
