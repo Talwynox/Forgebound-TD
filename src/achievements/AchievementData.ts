@@ -122,18 +122,18 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     ]
   },
 
-  // 7. Combat - Demon Lord Ignis
+  // 7. Combat - Mission bosses
   {
     id: 'kills_boss',
-    icon: '🔥',
+    icon: '👑',
     category: AchievementCategory.COMBAT,
-    name: 'Bane of Ignis',
+    name: 'Kingslayer',
     metric: 'bossKills',
-    unit: 'Demon Lords',
+    unit: 'Bosses',
     tiers: [
-      { tier: 1, threshold: 1, title: 'Infernal Extinguisher I', description: 'Defeat Lord Ignis at the climax of Wave 25.', badge: '🥉', badgeName: 'Bronze' },
-      { tier: 2, threshold: 3, title: 'Infernal Extinguisher II', description: 'Defeat Lord Ignis 3 times.', badge: '🥈', badgeName: 'Silver' },
-      { tier: 3, threshold: 5, title: 'Hellfire Conqueror', description: 'Defeat Lord Ignis 5 times!', badge: '🥇', badgeName: 'Gold' }
+      { tier: 1, threshold: 1, title: 'Giant Slayer I', description: 'Defeat a mission boss at the climax of Wave 25.', badge: '🥉', badgeName: 'Bronze' },
+      { tier: 2, threshold: 3, title: 'Giant Slayer II', description: 'Defeat 3 mission bosses.', badge: '🥈', badgeName: 'Silver' },
+      { tier: 3, threshold: 5, title: 'Kingslayer', description: 'Defeat 5 mission bosses!', badge: '🥇', badgeName: 'Gold' }
     ]
   },
 

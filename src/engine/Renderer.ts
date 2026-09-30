@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Grid, TileType } from '../grid/Grid';
 import { ARENA_MIRROR_X, ARENA_WIDTH, ARENA_CENTER_X, mirrorX } from '../game/Teams';
 import { PostFX } from './PostFX';
+import { MAP_THEMES, MapTheme, MapThemeId } from './MapThemes';
 import { createFlagstoneTexture, createGlowSprite, createMasonryTexture, createMistTexture, createMossTexture } from './ProceduralTextures';
 
 interface ParticleField {
@@ -34,6 +35,9 @@ export class SceneRenderer {
   private portalVortices: THREE.Mesh[] = [];
   private arrivalVortices: THREE.Mesh[] = [];
   private roadGroup: THREE.Group = new THREE.Group();
+  /** Sun maze island ground (tinted per mission theme). */
+  private mazeGroundMat: THREE.MeshStandardMaterial | null = null;
+  private mapTheme: MapTheme = MAP_THEMES.FRONTIER;
 
   // PvP layout: mirrored Moon maze island & arena side; the decorative enemy citadel is hidden
   private enemyCitadel: THREE.Group | null = null;
@@ -371,6 +375,7 @@ export class SceneRenderer {
       roughness: 0.95,
       metalness: 0.0
     });
+    if (theme === 'SUN') this.mazeGroundMat = mazeIslandMat;
     const mazeIsland = new THREE.Mesh(mazeIslandGeom, mazeIslandMat);
     mazeIsland.position.set(-22, -0.15, 0);
     mazeIsland.receiveShadow = true;
@@ -431,6 +436,20 @@ export class SceneRenderer {
   /**
    * Builds distinct, high-contrast cobblestone road paving across all road tiles
    */
+  /** Recolours sky, fog, light, maze ground and (on the next buildRoadVisuals) the road for a mission. */
+  applyMapTheme(themeId: MapThemeId) {
+    const theme = MAP_THEMES[themeId];
+    this.mapTheme = theme;
+    (this.scene.background as THREE.Color).setHex(theme.background);
+    const fog = this.scene.fog as THREE.FogExp2;
+    fog.color.setHex(theme.fog);
+    fog.density = theme.fogDensity;
+    this.ambientLight.color.setHex(theme.ambient);
+    this.hemiLight.color.setHex(theme.hemiSky);
+    this.hemiLight.groundColor.setHex(theme.hemiGround);
+    this.mazeGroundMat?.color.setHex(theme.ground);
+  }
+
   buildRoadVisuals(grid: Grid, roadGroup: THREE.Group = this.roadGroup) {
     // Clear old road meshes
     while (roadGroup.children.length > 0) {
@@ -443,45 +462,25 @@ export class SceneRenderer {
       }
     }
 
-    // Medieval Road Palette
+    // Road palette from the mission's map theme
+    const palette = this.mapTheme;
     const gravelBedMat = new THREE.MeshStandardMaterial({
-      color: 0x3e2e22, // Dark packed soil and roadbed gravel
+      color: palette.roadBed, // Packed roadbed gravel
       roughness: 0.95
     });
 
-    const paverMat1 = new THREE.MeshStandardMaterial({
-      color: 0x6e5c4a, // Warm aged granite flagstone
-      roughness: 0.82,
-      metalness: 0.08
-    });
-
-    const paverMat2 = new THREE.MeshStandardMaterial({
-      color: 0x7c6955, // Sandstone paving slab
-      roughness: 0.80,
-      metalness: 0.08
-    });
-
-    const paverMat3 = new THREE.MeshStandardMaterial({
-      color: 0x564739, // Weathered dark slate
-      roughness: 0.88,
-      metalness: 0.1
-    });
-
-    const paverMat4 = new THREE.MeshStandardMaterial({
-      color: 0x8a7662, // Sun-warmed limestone paver
-      roughness: 0.78,
-      metalness: 0.05
-    });
+    const [paverMat1, paverMat2, paverMat3, paverMat4] = palette.pavers.map((color, i) =>
+      new THREE.MeshStandardMaterial({ color, roughness: [0.82, 0.8, 0.88, 0.78][i], metalness: [0.08, 0.08, 0.1, 0.05][i] }));
 
     const curbStoneMat = new THREE.MeshStandardMaterial({
-      color: 0x483a2d, // Chiseled road edge curb granite
+      color: palette.curb, // Chiseled road edge curb stone
       roughness: 0.85,
       metalness: 0.15
     });
 
     const goldenRuneMat = new THREE.MeshStandardMaterial({
-      color: 0xd97706,
-      emissive: 0xb45309,
+      color: palette.rune,
+      emissive: palette.runeGlow,
       emissiveIntensity: 0.65,
       roughness: 0.4
     });

@@ -1179,6 +1179,7 @@ export class UIManager {
         <div>Attack: <strong>${unit.attack}</strong></div>
         <div>Speed: <strong>${unit.moveSpeed.toFixed(1)}</strong></div>
       </div>
+      ${!unit.isFriendly && unit.stats.abilityText ? `<div class="intel-ability mb-2">✦ ${unit.stats.abilityText}</div>` : ''}
       ${slowInfo}
       ${stackingInfo}
       ${championInfo}
@@ -1217,6 +1218,7 @@ export class UIManager {
           </div>
           <div class="mission-subtitle">${mission.subtitle}</div>
           <div class="mission-desc">${mission.description}</div>
+          ${isUnlocked ? `<details class="mission-briefing"><summary>📜 Briefing</summary>${mission.briefing}</details>` : ''}
           <div class="mission-objectives">
             <div>1★ ${mission.starObjectives[0]}</div>
             <div>2★ ${mission.starObjectives[1]}</div>
@@ -1541,6 +1543,26 @@ export class UIManager {
     });
   }
 
+  /** The boss bar's status badge: each boss shows its signature mechanic. */
+  private bossBadge(boss: Unit): string {
+    switch (boss.stats.passive) {
+      case 'HELLFIRE_AURA':
+        return boss.magmaShieldActive
+          ? '<span class="boss-phase-badge p2">🔥 PHASE 2: MAGMA SHIELD (+15 ARMOR)</span>'
+          : '<span class="boss-phase-badge p1">⚔️ PHASE 1: INFERNAL OVERLORD</span>';
+      case 'COLOSSUS_PLATING':
+        return `<span class="boss-phase-badge ${boss.armor <= 30 ? 'p2' : 'p1'}">🛡️ PLATING: ${Math.round(boss.armor)} ARMOR</span>`;
+      case 'SUMMON_GOBLINS':
+        return '<span class="boss-phase-badge p1">📯 WAR HORN: SUMMONS GOBLINS</span>';
+      case 'BURROW':
+        return '<span class="boss-phase-badge p1">🐍 BURROWS UNDER YOUR BACKLINE</span>';
+      case 'REWRITE':
+        return '<span class="boss-phase-badge p1">🌀 REALITY REWRITE</span>';
+      default:
+        return '';
+    }
+  }
+
   updateBossBar(bossUnit: Unit | null) {
     if (!bossUnit || bossUnit.isDead || bossUnit.isDying) {
       this.grandBossBarEl.style.display = 'none';
@@ -1549,9 +1571,7 @@ export class UIManager {
     this.grandBossBarEl.style.display = 'flex';
     const hpRatio = Math.max(0, Math.min(1, bossUnit.currentHp / bossUnit.maxHp));
     const pct = Math.round(hpRatio * 100);
-    const phase2Badge = bossUnit.magmaShieldActive
-      ? '<span class="boss-phase-badge p2">🔥 PHASE 2: MAGMA SHIELD (+15 ARMOR)</span>'
-      : '<span class="boss-phase-badge p1">⚔️ PHASE 1: INFERNAL OVERLORD</span>';
+    const phase2Badge = this.bossBadge(bossUnit);
 
     this.grandBossBarEl.innerHTML = `
       <div class="boss-bar-header">
@@ -1579,9 +1599,9 @@ export class UIManager {
     const wave = mission.waves[waveIdx];
     if (!wave) return;
 
-    // Show the stats enemies will actually spawn with (wave scaling kicks in from wave 8)
-    const scaling = getEnemyWaveScaling(waveIdx);
-    const isScaled = scaling.hpMult > 1;
+    // Show the stats enemies will actually spawn with (wave scaling from wave 8, plus the mission's difficulty)
+    const scaling = getEnemyWaveScaling(waveIdx, mission.enemyStatMult);
+    const isScaled = scaling.hpMult > 1 || scaling.armorBonus > 0;
     const groups = wave.enemies.map(group => {
       const base = ENEMY_UNIT_STATS[group.enemyClass];
       return {
@@ -1597,7 +1617,7 @@ export class UIManager {
     const totalEnemies = groups.reduce((sum, g) => sum + g.group.count, 0);
     const totalHpPool = groups.reduce((sum, g) => sum + g.hp * g.group.count, 0);
     const totalBounty = groups.reduce(
-      (sum, g) => sum + getKillBounty(g.base, g.group.enemyClass === EnemyClass.BOSS_LORD_IGNIS) * g.group.count, 0);
+      (sum, g) => sum + getKillBounty(g.base, g.base.isBoss === true) * g.group.count, 0);
 
     const battalionsHTML = groups.map(g => `
         <div class="intel-battalion-card">
@@ -1612,6 +1632,7 @@ export class UIManager {
             <div>Range: <strong>${g.base.range <= 1.2 ? 'Melee' : g.base.range + 'm'}</strong></div>
           </div>
           <div class="intel-desc">${g.base.description}</div>
+          ${g.base.abilityText && !g.base.isBoss ? `<div class="intel-ability">✦ ${g.base.abilityText}</div>` : ''}
         </div>
       `).join('');
 
@@ -1619,12 +1640,11 @@ export class UIManager {
     const namesWhere = (pred: (g: Group) => boolean) => groups.filter(pred).map(g => g.base.name).join(', ');
     const threats: { title: string; body: string; boss?: boolean }[] = [];
 
-    if (groups.some(g => g.group.enemyClass === EnemyClass.BOSS_LORD_IGNIS)) {
+    for (const boss of groups.filter(g => g.base.isBoss)) {
       threats.push({
         boss: true,
-        title: '⚠️ SUPREME THREAT: LORD IGNIS',
-        body: 'Every 6s he stomps everything within 4m for 1.5x his Attack and knocks it back. At 50% HP his Magma Shield adds +15 Armor. ' +
-          'Counter: Soldiers with Relentless Assault ramp up damage on him, Archer Sundering Shot cancels the extra armor, and Paralyzing Arc stuns stop his stomp. Keep Archers and Mages out of stomp range.'
+        title: `⚠️ BOSS: ${boss.base.name.toUpperCase()}`,
+        body: `${boss.base.abilityText ?? boss.base.description} Paralyzing Arc stuns pause boss abilities.`
       });
     }
     const heavy = groups.filter(g => g.armor >= 25);
@@ -1759,7 +1779,7 @@ export class UIManager {
             </div>
             <div class="tutorial-card-body">
               Upon passing through the <strong>Teleportation Gate</strong>, your buffed units warp directly into the <strong>Arena Island</strong>.<br/><br/>
-              When all units assemble, the gates open and battle commences! Slay all enemy raiders to claim victory and gold bounties, but beware of <strong>Lord Ignis</strong> and his ground stomps at Wave 25!<br/><br/>
+              When all units assemble, the gates open and battle commences! Slay all enemy raiders to claim victory and gold bounties, but beware: every mission ends with its own <strong>boss</strong> at Wave 25!<br/><br/>
               🏛️ <strong>Portal Guardians:</strong> Click the two Bastions flanking the Arrival Portal to upgrade their <strong>Damage</strong> and <strong>Range</strong> with gold for crucial artillery fire support!
             </div>
           </div>

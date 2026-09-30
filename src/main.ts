@@ -669,6 +669,11 @@ class GameApp {
     this.pvpActive = enabled;
     this.unitManager.pvpMode = enabled;
     this.portalGuardianManager.setPvpMode(enabled);
+    if (enabled) {
+      // The Moon maze mirrors the Sun one, so both must be on the PvP layout before the Moon side is built
+      this.grids.SUN.setLayout('FRONTIER');
+      this.grids.MOON.setLayout('FRONTIER');
+    }
     this.renderer.setPvpLayout(enabled, this.grids.SUN);
     this.towerManager.viewTeam = this.localTeam;
 
@@ -986,8 +991,11 @@ class GameApp {
     for (const id of Array.from(this.towerManager.towers.keys())) {
       this.towerManager.sellTower(id);
     }
-    this.grids.SUN.resetGrid();
-    this.grids.MOON.resetGrid();
+    // Each campaign mission has its own maze and look; PvP always uses the classic mirrored frontier
+    const layout = this.pvpActive ? 'FRONTIER' : mission.mazeLayout;
+    this.grids.SUN.setLayout(layout);
+    this.grids.MOON.setLayout(layout);
+    this.renderer.applyMapTheme(this.pvpActive ? 'FRONTIER' : mission.theme);
     this.renderer.buildRoadVisuals(this.grids.SUN);
 
     this.prepareWaveEnemiesInArena();
@@ -1024,7 +1032,7 @@ class GameApp {
         const z = (row - (ROWS - 1) / 2) * ROW_SPACING;
         const spawnPos = new THREE.Vector3(x, 0.4, z);
 
-        const enemy = this.unitManager.spawnEnemy(group.enemyClass, spawnPos, false, this.currentWaveIndex);
+        const enemy = this.unitManager.spawnEnemy(group.enemyClass, spawnPos, false, this.currentWaveIndex, this.currentMission.enemyStatMult);
         if (enemy) {
           enemy.isWaitingInArena = true;
           enemy.inCombat = false;

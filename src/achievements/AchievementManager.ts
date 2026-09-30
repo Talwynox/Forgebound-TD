@@ -54,7 +54,7 @@ export class AchievementManager {
   }
 
   public recordKill(enemyClass: EnemyClass | string, isBoss: boolean = false) {
-    if (isBoss || enemyClass === EnemyClass.BOSS_LORD_IGNIS) {
+    if (isBoss) {
       this.stats.bossKills++;
     }
 

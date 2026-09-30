@@ -1,7 +1,8 @@
 /**
  * Grid: Represents the isometric tile map for the Player Maze Island.
- * Features a distinct paved serpentine road with dedicated buildable plots lining both sides.
+ * Features a paved road (its route depends on the mission's maze layout) with buildable plots lining it.
  */
+import { MAZE_LAYOUTS, MazeLayoutId, expandRoad } from './MazeLayouts';
 
 export enum TileType {
   EMPTY = 0,    // Buildable plot next to the road
@@ -30,6 +31,8 @@ export class Grid {
   public originZ: number;
   /** Mirror the layout along X (the PvP Moon maze is the Sun maze reflected across the arena). */
   public mirrored: boolean;
+  /** Which maze the road follows. */
+  private layoutId: MazeLayoutId = 'FRONTIER';
 
   constructor(width: number = 11, depth: number = 15, tileSize: number = 2, originX: number = -22, originZ: number = 0, mirrored: boolean = false) {
     this.width = width;
@@ -53,49 +56,21 @@ export class Grid {
     this.initRoadLayout();
   }
 
-  /**
-   * Generates an authentic, winding serpentine road with:
-   * - 2 sections featuring 3 rows of buildable tower plots (z = 2..4 and z = 8..10)
-   * - 2 sections featuring 1 row of buildable tower plots (z = 6 and z = 12)
-   */
+  /** Switches to another road layout (a mission's maze) and rebuilds the grid. */
+  setLayout(layoutId: MazeLayoutId) {
+    this.layoutId = layoutId;
+    this.resetGrid();
+  }
+
+  /** Lays the current layout's road; everything else stays a buildable plot. */
   private initRoadLayout() {
     this.roadCoords = [];
-
-    const addRoad = (x: number, z: number) => {
+    for (const { x, z } of expandRoad(MAZE_LAYOUTS[this.layoutId])) {
       if (this.isValid(x, z)) {
         this.cells[x][z] = TileType.ROAD;
         this.roadCoords.push({ x, z });
       }
-    };
-
-    const maxX = this.width - 2;
-
-    // 1. Row z = 1: east from 0 to maxX (Spawn at (0, 1))
-    for (let x = 0; x <= maxX; x++) addRoad(x, 1);
-
-    // 2. Turn down 1: x = maxX, z = 2..4 (creates 3 rows of plots at z=2, 3, 4!)
-    for (let z = 2; z <= 4; z++) addRoad(maxX, z);
-
-    // 3. Row z = 5: west from maxX down to 1 (connects from (maxX, 4) down to (1, 5))
-    for (let x = maxX; x >= 1; x--) addRoad(x, 5);
-
-    // 4. Turn down 2: x = 1, z = 6 (creates 1 row of plots at z=6!)
-    addRoad(1, 6);
-
-    // 5. Row z = 7: east from 1 to maxX (connects from (1, 6) through to (maxX, 7))
-    for (let x = 1; x <= maxX; x++) addRoad(x, 7);
-
-    // 6. Turn down 3: x = maxX, z = 8..10 (creates 3 rows of plots at z=8, 9, 10!)
-    for (let z = 8; z <= 10; z++) addRoad(maxX, z);
-
-    // 7. Row z = 11: west from maxX down to 1 (connects from (maxX, 10) down to (1, 11))
-    for (let x = maxX; x >= 1; x--) addRoad(x, 11);
-
-    // 8. Turn down 4: x = 1, z = 12 (creates 1 row of plots at z=12!)
-    addRoad(1, 12);
-
-    // 9. Row z = 13: east from 1 to this.width - 1 (Teleporter Gate at (10, 13)!)
-    for (let x = 1; x < this.width; x++) addRoad(x, 13);
+    }
 
     // Set spawn and teleporter exit safely
     if (this.isValid(this.spawnCoord.x, this.spawnCoord.z)) {

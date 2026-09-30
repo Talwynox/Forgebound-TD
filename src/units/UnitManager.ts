@@ -8,7 +8,8 @@ import {
   calculateDamage,
   getUnitStats,
   getEnemyWaveScaling,
-  getKillBounty
+  getKillBounty,
+  UnitPassive
 } from './UnitData';
 import { buildUnitMesh, getUnitMeshHeight } from './UnitMeshFactory';
 import { VFXManager } from '../vfx/VFXManager';
@@ -25,6 +26,35 @@ export const ARENA_BOUNDS = {
   minZ: -8.4,
   maxZ: 8.4
 };
+
+// --- Special enemy tuning ---
+/** When each timed ability first fires after a unit spawns, and how often it repeats (seconds). */
+const ENEMY_ABILITY_TIMING: Partial<Record<UnitPassive, { firstCast: number; period: number }>> = {
+  SUMMON_GOBLINS: { firstCast: 5, period: 9 },
+  COLOSSUS_PLATING: { firstCast: 12, period: 12 },
+  BURROW: { firstCast: 6, period: 10 },
+  REWRITE: { firstCast: 7, period: 12 },
+  HEALER: { firstCast: 2, period: 4 },
+  HELLFIRE_AURA: { firstCast: 1, period: 1 }
+};
+const WARLORD_SUMMON_COUNT = 3;
+const WARLORD_MAX_ADDS = 9;
+const BOMBER_BLAST_RADIUS = 2.5;
+const BOMBER_BLAST_MULT = 6;
+const AUTOMATON_PLATE_LOSS = 2;
+const COLOSSUS_MIN_ARMOR = 10;
+const COLOSSUS_REFORGE = 15;
+const TROLL_REGEN_PER_SEC = 0.025;
+const RAIDER_DODGE_CHANCE = 0.3;
+const WYRM_ERUPT_RADIUS = 3;
+const SPELLBREAKER_DISPEL = 0.15;
+const CONSTRUCT_REFLECT = 0.2;
+const ARCHON_REWRITE_RADIUS = 6;
+const ARCHON_REWRITE_HP = 0.4;
+const CULTIST_HEAL_RADIUS = 4;
+const CULTIST_HEAL_SHARE = 0.08;
+const IGNIS_AURA_RADIUS = 3.5;
+const IGNIS_AURA_BURN = 0.15;
 
 export class Unit {
   public id: number;
@@ -118,10 +148,22 @@ export class Unit {
   public isDying: boolean = false;
   public deathTimer: number = 0;
 
-  // Boss Attributes (Lord Ignis)
+  // Boss & special-enemy ability state
   public isBoss: boolean = false;
-  public bossStompCooldown: number = 5.0; // Initial stomp cooldown
-  public magmaShieldActive: boolean = false;
+  public bossStompCooldown: number = 5.0; // Lord Ignis: initial stomp cooldown
+  public magmaShieldActive: boolean = false; // Lord Ignis: phase 2
+  /** Countdown to the next cast of a timed ability (summon, burrow, rewrite, heal, reforge, hellfire). */
+  public abilityTimer: number = 0;
+  public hasBlinked: boolean = false;
+  /** Id of the boss that summoned this unit (-1 if none); summoned adds pay no bounty. */
+  public summonerId: number = -1;
+  /** Armor at spawn: reforging plating climbs back up to it. */
+  public baseArmor: number = 0;
+  /** Wave context, so summoned adds get the same scaling as their summoner. */
+  public spawnWaveIndex: number = 0;
+  public spawnStatMult: number = 1;
+  /** Arena clock time of the last Fire Cultist mend (mends from several cultists do not stack). */
+  public lastMendAt: number = -Infinity;
 
   // 3D Visuals
   public mesh: THREE.Group;
@@ -150,9 +192,7 @@ export class Unit {
     this.unitClass = unitClass;
     this.stats = getUnitStats(unitClass);
 
-    if (!isFriendly && unitClass === EnemyClass.BOSS_LORD_IGNIS) {
-      this.isBoss = true;
-    }
+    this.isBoss = !isFriendly && this.stats.isBoss === true;
 
     this.maxHp = this.stats.hp;
     // Core Forgebound TD mechanic: friendly units spawn severely injured (1 HP) and need tower blessings!
@@ -467,6 +507,8 @@ export class UnitManager {
   public pvpMode: boolean = false;
   /** Arena escalation: multiplies all unit-vs-unit damage when a clash drags on. */
   public damageMultiplier: number = 1;
+  /** Seconds of simulated time, for ability windows. */
+  private clock: number = 0;
 
   private castles: Record<TeamId, ArenaCastle | null> = { SUN: null, MOON: null };
   private onCastleDestroyed: Record<TeamId, (() => void) | null> = { SUN: null, MOON: null };
@@ -516,18 +558,23 @@ export class UnitManager {
     return unit;
   }
 
-  spawnEnemy(enemyClass: EnemyClass, startPos: THREE.Vector3, isWaiting: boolean = true, waveIndex: number = 0): Unit {
+  spawnEnemy(enemyClass: EnemyClass, startPos: THREE.Vector3, isWaiting: boolean = true, waveIndex: number = 0, missionStatMult: number = 1): Unit {
     const unit = new Unit(this.nextId++, false, enemyClass, startPos);
     unit.isWaitingInArena = isWaiting;
     unit.inCombat = !isWaiting; // If waiting, inCombat is false until gates open
     unit.mesh.rotation.y = Math.PI / 2; // Face towards the friendly arrival side
 
-    // Escalating wave power: from wave 8 on, enemies scale up HP, Armor, and Attack
-    const { hpMult, armorBonus, atkMult } = getEnemyWaveScaling(waveIndex);
+    // Escalating wave power: from wave 8 on (and in harder missions), enemies scale up HP, Armor, and Attack
+    const { hpMult, armorBonus, atkMult } = getEnemyWaveScaling(waveIndex, missionStatMult);
     unit.maxHp = Math.round(unit.maxHp * hpMult);
     unit.currentHp = unit.maxHp;
     unit.armor += armorBonus;
     unit.attack = Math.round(unit.attack * atkMult);
+    unit.baseArmor = unit.armor;
+    unit.spawnWaveIndex = waveIndex;
+    unit.spawnStatMult = missionStatMult;
+    const ability = unit.stats.passive && ENEMY_ABILITY_TIMING[unit.stats.passive];
+    if (ability) unit.abilityTimer = ability.firstCast;
 
     this.scene.add(unit.mesh);
     this.units.push(unit);
@@ -640,6 +687,7 @@ export class UnitManager {
   }
 
   update(dt: number, time: number, onKill: KillCallback) {
+    this.clock += dt;
     // 1. Update Unit Buff Status & Navigation
     for (let i = this.units.length - 1; i >= 0; i--) {
       const unit = this.units[i];
@@ -815,6 +863,185 @@ export class UnitManager {
     }
   }
 
+  /** On-hit effects of special enemies: plating, reflect, dispel and burning attacks. */
+  private applyOnHitAbilities(attacker: Unit, defender: Unit, dealt: number, onKillEnemy: KillCallback) {
+    const hitPos = () => defender.worldPos.clone().add(new THREE.Vector3(0, 1.0, 0));
+
+    // Defender-side
+    switch (defender.stats.passive) {
+      case 'PLATING':
+        defender.armor = Math.max(0, defender.armor - AUTOMATON_PLATE_LOSS);
+        break;
+      case 'COLOSSUS_PLATING':
+        defender.armor = Math.max(COLOSSUS_MIN_ARMOR, defender.armor - 1);
+        break;
+      case 'REFLECT': {
+        if (attacker.isDead || attacker.isDying) break;
+        const reflected = Math.max(1, Math.round(dealt * CONSTRUCT_REFLECT));
+        attacker.currentHp -= reflected;
+        this.vfx.spawnFloatingText(attacker.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), `🔷 REFLECT -${reflected}`, '#818cf8', 0.9);
+        if (attacker.currentHp <= 0) this.killUnit(attacker, onKillEnemy);
+        break;
+      }
+    }
+
+    // Attacker-side
+    switch (attacker.stats.passive) {
+      case 'DISPEL': {
+        // Strip a share of what the towers granted (anything above the class's base stats)
+        const bonusAtk = defender.attack - defender.stats.attack;
+        const bonusArmor = defender.armor - defender.stats.armor;
+        if (bonusAtk > 0) defender.attack -= Math.ceil(bonusAtk * SPELLBREAKER_DISPEL);
+        if (bonusArmor > 0) defender.armor -= Math.ceil(bonusArmor * SPELLBREAKER_DISPEL);
+        if (bonusAtk > 0 || bonusArmor > 0) this.vfx.spawnFloatingText(hitPos(), '✖ DISPELLED', '#67e8f9', 0.9);
+        break;
+      }
+      case 'BURN_ON_HIT': {
+        const share = attacker.unitClass === EnemyClass.HELLHOUND ? 0.5 : 0.3;
+        defender.burnDmgPerSec = Math.max(defender.burnDmgPerSec, Math.max(1, Math.round(attacker.attack * share)));
+        defender.burnTimer = Math.max(defender.burnTimer, 3.0);
+        break;
+      }
+    }
+  }
+
+  /** Forge Bomber: explodes when it dies, hitting every opponent nearby. */
+  private detonate(unit: Unit, onKillEnemy: KillCallback) {
+    const pos = unit.worldPos.clone();
+    audio.playBossSlam();
+    this.vfx.spawnGroundStompShockwave(pos, BOMBER_BLAST_RADIUS, 0xf97316);
+    this.vfx.spawnBurstParticles(pos.clone().add(new THREE.Vector3(0, 0.5, 0)), 0xff7a1a, 22);
+    for (const target of this.units.filter(u => u.team !== unit.team && this.isEngageable(u) && u.worldPos.distanceTo(pos) <= BOMBER_BLAST_RADIUS)) {
+      const dmg = this.escalate(calculateDamage(unit.attack * BOMBER_BLAST_MULT, target.armor + target.combatAuraArmor));
+      target.currentHp -= dmg;
+      target.hitFlinchTimer = 0.2;
+      this.vfx.spawnFloatingText(target.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), `💥 -${dmg}`, '#fb923c', 1.0);
+      if (target.currentHp <= 0) this.killUnit(target, onKillEnemy);
+    }
+  }
+
+  /** Timed abilities of special enemies and bosses. Runs after the stun check, so stuns pause them. */
+  private updateEnemyAbility(unit: Unit, dt: number, onKillEnemy: KillCallback) {
+    const passive = unit.stats.passive;
+    if (!passive) return;
+    if (passive === 'BLINK') {
+      if (!unit.hasBlinked) this.blinkToBackline(unit);
+      return;
+    }
+    const timing = ENEMY_ABILITY_TIMING[passive];
+    if (!timing) return;
+    unit.abilityTimer -= dt;
+    if (unit.abilityTimer > 0) return;
+    // Nothing to act on: try again shortly instead of wasting the cooldown
+    unit.abilityTimer = this.castEnemyAbility(unit, passive, onKillEnemy) ? timing.period : 0.5;
+  }
+
+  private castEnemyAbility(unit: Unit, passive: UnitPassive, onKillEnemy: KillCallback): boolean {
+    const pos = unit.worldPos.clone();
+    const textPos = pos.clone().add(new THREE.Vector3(0, unit.stats.scale * 1.6, 0));
+    const opponents = this.units.filter(u => u.team !== unit.team && this.isEngageable(u));
+    const within = (r: number, from = pos) => opponents.filter(u => u.worldPos.distanceTo(from) <= r);
+
+    switch (passive) {
+      case 'SUMMON_GOBLINS': {
+        const alive = this.units.filter(u => u.summonerId === unit.id && !u.isDead && !u.isDying).length;
+        const count = Math.min(WARLORD_SUMMON_COUNT, WARLORD_MAX_ADDS - alive);
+        if (count <= 0 || opponents.length === 0) return false;
+        for (let i = 0; i < count; i++) {
+          const angle = (i / count) * Math.PI * 2;
+          const spot = new THREE.Vector3(pos.x + Math.cos(angle) * 1.4, 0.4, pos.z + Math.sin(angle) * 1.4);
+          const add = this.spawnEnemy(EnemyClass.GOBLIN, spot, false, unit.spawnWaveIndex, unit.spawnStatMult);
+          add.team = unit.team;
+          add.summonerId = unit.id;
+          this.clampUnitToArena(add);
+          this.vfx.spawnBurstParticles(spot, 0x84cc16, 8);
+        }
+        audio.playAlert();
+        this.vfx.spawnFloatingText(textPos, `📯 WAR HORN! +${count} GOBLINS`, '#a3e635', 1.6);
+        return true;
+      }
+      case 'COLOSSUS_PLATING': {
+        if (unit.armor >= unit.baseArmor) return true;
+        unit.armor = Math.min(unit.baseArmor, unit.armor + COLOSSUS_REFORGE);
+        audio.playArmorBuff();
+        this.vfx.spawnAscensionPillar(unit.worldPos, 0xff8a3d);
+        this.vfx.spawnFloatingText(textPos, `🔧 REFORGED +${COLOSSUS_REFORGE} ARMOR`, '#fdba74', 1.6);
+        return true;
+      }
+      case 'BURROW': {
+        if (opponents.length === 0) return false;
+        // Surface under the unit furthest from the wyrm: the backline
+        const target = opponents.reduce((a, b) => (a.worldPos.distanceTo(pos) >= b.worldPos.distanceTo(pos) ? a : b));
+        this.vfx.spawnBurstParticles(pos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xd6b27a, 20);
+        unit.mesh.position.set(target.worldPos.x + 0.6, unit.mesh.position.y, target.worldPos.z);
+        this.clampUnitToArena(unit);
+        const landing = unit.worldPos.clone();
+        audio.playBossSlam();
+        this.vfx.spawnGroundStompShockwave(landing, WYRM_ERUPT_RADIUS, 0xd6b27a);
+        this.vfx.spawnFloatingText(landing.clone().add(new THREE.Vector3(0, 2.2, 0)), '🐍 SANDMAW ERUPTS!', '#fbbf24', 1.6);
+        for (const t of within(WYRM_ERUPT_RADIUS, landing)) {
+          const dmg = this.escalate(calculateDamage(unit.attack * 2, t.armor + t.combatAuraArmor));
+          t.currentHp -= dmg;
+          t.hitFlinchTimer = 0.25;
+          this.vfx.spawnFloatingText(t.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), `ERUPT -${dmg}`, '#fbbf24', 1.0);
+          if (t.currentHp <= 0) this.killUnit(t, onKillEnemy);
+        }
+        return true;
+      }
+      case 'REWRITE': {
+        const targets = within(ARCHON_REWRITE_RADIUS).filter(t => t.currentHp > t.maxHp * ARCHON_REWRITE_HP);
+        if (targets.length === 0) return false;
+        audio.playRulebreaker();
+        this.vfx.spawnAscensionPillar(unit.worldPos, 0xa855f7);
+        this.vfx.spawnGroundStompShockwave(pos, ARCHON_REWRITE_RADIUS, 0xa855f7);
+        this.vfx.spawnFloatingText(textPos, '🌀 REALITY REWRITE!', '#c084fc', 1.8);
+        for (const t of targets) {
+          t.currentHp = Math.round(t.maxHp * ARCHON_REWRITE_HP);
+          this.vfx.spawnFloatingText(t.worldPos.clone().add(new THREE.Vector3(0, 0.8, 0)), `HP -> ${Math.round(ARCHON_REWRITE_HP * 100)}%`, '#c084fc', 1.0);
+        }
+        return true;
+      }
+      case 'HEALER': {
+        const period = ENEMY_ABILITY_TIMING.HEALER!.period;
+        const allies = this.units.filter(u => u.team === unit.team && this.isEngageable(u) && u.currentHp < u.maxHp &&
+          u.worldPos.distanceTo(pos) <= CULTIST_HEAL_RADIUS && this.clock - u.lastMendAt >= period * 0.9);
+        if (allies.length === 0) return false;
+        for (const a of allies) {
+          a.lastMendAt = this.clock;
+          a.currentHp = Math.min(a.maxHp, a.currentHp + a.maxHp * CULTIST_HEAL_SHARE);
+          this.vfx.spawnHealingPulse(a.worldPos, 0xf97316);
+        }
+        this.vfx.spawnFloatingText(textPos, '🔥 DARK MENDING', '#fdba74', 1.0);
+        return true;
+      }
+      case 'HELLFIRE_AURA': {
+        for (const t of within(IGNIS_AURA_RADIUS)) {
+          t.burnDmgPerSec = Math.max(t.burnDmgPerSec, Math.round(unit.attack * IGNIS_AURA_BURN));
+          t.burnTimer = Math.max(t.burnTimer, 1.5);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Rift Stalker: steps through reality to the opponent furthest away when the clash starts. */
+  private blinkToBackline(unit: Unit) {
+    const pos = unit.worldPos.clone();
+    const opponents = this.units.filter(u => u.team !== unit.team && this.isEngageable(u));
+    if (opponents.length === 0) return;
+    unit.hasBlinked = true;
+    // One of the three rearmost opponents, so a pack of stalkers spreads out
+    const rearmost = [...opponents].sort((a, b) => b.worldPos.distanceTo(pos) - a.worldPos.distanceTo(pos)).slice(0, 3);
+    const target = rearmost[Math.floor(Math.random() * rearmost.length)];
+    this.vfx.spawnBurstParticles(pos.clone().add(new THREE.Vector3(0, 0.5, 0)), 0x8b5cf6, 12);
+    const away = new THREE.Vector3().subVectors(pos, target.worldPos).setY(0).normalize();
+    unit.mesh.position.set(target.worldPos.x + away.x * 0.9, unit.mesh.position.y, target.worldPos.z + away.z * 0.9);
+    this.clampUnitToArena(unit);
+    this.vfx.spawnBurstParticles(unit.worldPos.clone().add(new THREE.Vector3(0, 0.5, 0)), 0x22d3ee, 12);
+    this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 1.4, 0)), '⚡ BLINK', '#a78bfa', 1.0);
+  }
+
   /** Applies arena escalation to unit-vs-unit damage. */
   private escalate(dmg: number): number {
     return this.damageMultiplier === 1 ? dmg : Math.max(1, Math.round(dmg * this.damageMultiplier));
@@ -869,14 +1096,22 @@ export class UnitManager {
       }
     }
 
+    // Rock Troll regeneration
+    if (unit.stats.passive === 'REGEN' && unit.currentHp < unit.maxHp) {
+      unit.currentHp = Math.min(unit.maxHp, unit.currentHp + unit.maxHp * TROLL_REGEN_PER_SEC * dt);
+    }
+
     // 4. Stun status: completely halts movement, attacks, and boss abilities!
     if (unit.stunTimer > 0) {
       unit.stunTimer -= dt;
       return;
     }
 
-    // Boss Abilities (Lord Ignis Infernal Ground Stomp)
-    if (unit.isBoss) {
+    this.updateEnemyAbility(unit, dt, onKillEnemy);
+    if (unit.isDying || unit.isDead) return;
+
+    // Lord Ignis: Infernal Ground Stomp
+    if (unit.stats.passive === 'HELLFIRE_AURA') {
       unit.bossStompCooldown -= dt;
       if (unit.bossStompCooldown <= 0) {
         const nearbyOpponents = this.units.filter(
@@ -1117,6 +1352,12 @@ export class UnitManager {
 
   private executeAttack(attacker: Unit, defender: Unit, onKillEnemy: KillCallback) {
     attacker.lungeTimer = 0.16;
+
+    // Sand Raider: evades the attack outright
+    if (defender.stats.passive === 'DODGE' && Math.random() < RAIDER_DODGE_CHANCE) {
+      this.vfx.spawnFloatingText(defender.worldPos.clone().add(new THREE.Vector3(0, 0.9, 0)), 'DODGE', '#fde68a', 0.8);
+      return;
+    }
     defender.hitFlinchTimer = 0.14;
 
     let rawDmg = attacker.attack + attacker.combatAuraAttack;
@@ -1134,16 +1375,22 @@ export class UnitManager {
     }
 
     const totalArmor = defender.armor + defender.combatAuraArmor;
-    const effectiveArmor = Math.max(0, totalArmor - defender.armorDebuff);
+    // Void Wisp bolts ignore armor entirely
+    const effectiveArmor = attacker.stats.passive === 'TRUE_DAMAGE' ? 0 : Math.max(0, totalArmor - defender.armorDebuff);
     let finalDmg = calculateDamage(rawDmg, effectiveArmor);
 
     // Defender flat damage reduction (Soldier Spiked Bulwark)
     if (defender.flatDmgReduction > 0) {
       finalDmg = Math.max(1, finalDmg - defender.flatDmgReduction);
     }
+    // Tomb Guardian wards halve ranged damage
+    if (defender.stats.passive === 'RANGED_WARD' && attacker.stats.range > 2.0) {
+      finalDmg = Math.max(1, Math.round(finalDmg * 0.5));
+    }
     finalDmg = this.escalate(finalDmg);
 
     defender.currentHp -= finalDmg;
+    this.applyOnHitAbilities(attacker, defender, finalDmg, onKillEnemy);
 
     // Audio & VFX
     audio.playHit();
@@ -1207,7 +1454,7 @@ export class UnitManager {
     }
 
     // Boss Phase 2 Transition (Magma Shield)
-    if (defender.isBoss && !defender.magmaShieldActive && defender.currentHp <= defender.maxHp * 0.5) {
+    if (defender.stats.passive === 'HELLFIRE_AURA' && !defender.magmaShieldActive && defender.currentHp <= defender.maxHp * 0.5) {
       defender.magmaShieldActive = true;
       defender.armor += 15; // Fortified magma armor
       audio.playRulebreaker();
@@ -1339,12 +1586,14 @@ export class UnitManager {
     if (unit.isDying || unit.isDead) return;
     this.beginDeath(unit);
 
+    if (unit.stats.passive === 'DEATH_BLAST') this.detonate(unit, onKillEnemy);
+
     // Death particle burst
     const burstColor = unit.isBoss ? 0xff4500 : (unit.isFriendly ? 0x38bdf8 : 0xef4444);
     this.vfx.spawnBurstParticles(unit.worldPos.clone().add(new THREE.Vector3(0, 0.5, 0)), burstColor, unit.isBoss ? 36 : 14);
 
-    if (!unit.isFriendly || this.pvpMode) {
-      // Bounty for enemies (and, in PvP, for every unit of the opposing army)
+    if ((!unit.isFriendly || this.pvpMode) && unit.summonerId < 0) {
+      // Bounty for enemies (and, in PvP, for every unit of the opposing army); summoned adds pay nothing
       const bounty = getKillBounty(unit.stats, unit.isBoss);
       onKillEnemy(bounty, unit);
       audio.playGoldGain();

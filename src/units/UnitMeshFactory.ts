@@ -649,6 +649,326 @@ function buildBossLordIgnis(): THREE.Group {
   return finish(b.root, 0.2);
 }
 
+// ── Mission 1 boss ──
+
+function buildGoblinWarlord(): THREE.Group {
+  // Oversized goblin king in scavenged plate, bone crown and a war horn, dragging a spiked cleaver
+  const b = buildBody({ skin: 0x6b8a3a, torso: 0x4a3b2c, torsoKind: 'plate', sleeves: 0x6b8a3a, legs: 0x3a2c20, boots: 0x2a1f16, belt: 0x7a4a22, pauldrons: 0x5a4a3a, bulk: 1.3, height: 1.0, hunch: 0.28 });
+  [-1, 1].forEach(side => add(b.upper, cone(0.06, 0.26, 4), mat(0x6b8a3a), side * 0.16, b.headY + 0.04, -0.01, 0, 0, side * -1.35));
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    add(b.upper, cone(0.02, 0.12, 4), mat(P.bone), Math.sin(a) * 0.1, b.headY + b.headR + 0.04, Math.cos(a) * 0.1);
+  }
+  eyes(b, 0xfacc15, 0.05, 0.02, 0.024);
+  cape(b, 0x7f1d1d, 0.55, 0.42);
+  // War horn slung at the hip
+  add(b.upper, torus(0.08, 0.025, 4, 10, Math.PI), mat(P.bone), 0.2, 0.02, 0.06, 0, Math.PI / 2, 0);
+  axe(b.root, b.rightHand, 1.6, 0x5a4a3a);
+  shield(b.root, b.leftHand, 'round', 0x3a2c20, 0x6b5a4a, 0xfacc15);
+  return finish(b.root, 0.15);
+}
+
+// ── Mission 2: Ironforge Pass (soot, riveted steel, forge glow) ──
+
+function buildForgeBomber(): THREE.Group {
+  const b = buildBody({ skin: 0x8a6a4a, torso: 0x3a2a1e, torsoKind: 'cloth', sleeves: 0x3a2a1e, legs: 0x2a1f16, boots: 0x1a1410, belt: 0x5a3a1e, bulk: 0.85, height: 0.75, hunch: 0.4 });
+  kettleHelm(b, 0x4a4e57);
+  eyes(b, 0xfb923c, 0.045, 0.02, 0.02);
+  // Powder keg on the back with a sparking fuse
+  add(b.upper, cyl(0.13, 0.13, 0.26, 8), mat(P.wood), 0, 0.2, b.backZ - 0.1, 0.2);
+  [-0.08, 0.08].forEach(y => add(b.upper, torus(0.13, 0.012, 4, 12), mat(P.iron, { metal: 0.7 }), 0, 0.2 + y, b.backZ - 0.1, Math.PI / 2 + 0.2));
+  const spark = add(b.upper, sph(0.04, 5, 4), glowMat(0xffb020, 3.4), 0, 0.4, b.backZ - 0.13);
+  spark.name = 'floating';
+  dagger(b.root, b.rightHand, 0x6b5a4a);
+  return finish(b.root);
+}
+
+function buildIronAutomaton(): THREE.Group {
+  const b = buildBody({ skin: 0x5d636e, torso: 0x6b7280, torsoKind: 'plate', sleeves: 0x5d636e, legs: 0x4b5160, boots: 0x3a3f4a, belt: 0x3a3f4a, pauldrons: 0x7c8490, bulk: 1.25, height: 1.0 });
+  // Layered plates and a furnace core
+  [0.08, 0.2].forEach(y => add(b.upper, box(0.36, 0.05, 0.3), mat(0x8a929e, { metal: 0.85, rough: 0.3 }), 0, y, 0));
+  add(b.upper, cyl(0.07, 0.07, 0.03, 8), glowMat(0xf97316, 2.4), 0, 0.2, b.chestZ + 0.03, Math.PI / 2);
+  add(b.upper, box(b.headR * 2, b.headR * 1.8, b.headR * 1.9), mat(0x6b7280, { metal: 0.85, rough: 0.3 }), 0, b.headY, 0);
+  add(b.upper, box(0.14, 0.025, 0.02), glowMat(0x38bdf8, 3.0), 0, b.headY + 0.01, b.headR + 0.01);
+  hammer(b.root, b.rightHand, 0x4b5160);
+  return finish(b.root);
+}
+
+function buildIronArbalist(): THREE.Group {
+  const b = buildBody({ skin: 0x9c6b4e, torso: 0x475569, torsoKind: 'mail', sleeves: 0x334155, legs: 0x2a2f38, boots: 0x1f232a, belt: 0x5a3a1e, bulk: 1.1, height: 0.85 });
+  // Squat helmet with a braided beard, heavy crossbow
+  greatHelm(b, 0x4a4e57);
+  add(b.upper, cone(0.08, 0.2, 5), mat(0x7c2d12, { rough: 0.9 }), 0, b.headY - 0.14, b.headR * 0.7, Math.PI);
+  const xb = new THREE.Group();
+  xb.position.copy(b.rightHand);
+  add(xb, box(0.06, 0.06, 0.5), mat(P.wood), 0, 0.02, 0.1);
+  add(xb, box(0.5, 0.04, 0.05), mat(P.steelDark, { metal: 0.8 }), 0, 0.03, 0.3);
+  add(xb, box(0.02, 0.02, 0.3), glowMat(0xf97316, 1.4), 0, 0.07, 0.2);
+  b.root.add(xb);
+  return finish(b.root);
+}
+
+function buildRockTroll(): THREE.Group {
+  const b = buildBody({ skin: 0x78716c, torso: 0x78716c, torsoKind: 'bare', sleeves: 0x78716c, legs: 0x57534e, boots: 0x44403c, belt: 0x3a2c20, bulk: 1.8, height: 1.1, hunch: 0.35 });
+  // Boulder shoulders overgrown with moss, tiny head
+  [-1, 1].forEach(side => {
+    add(b.upper, ico(0.16), mat(0x57534e, { rough: 0.95 }), side * 0.3, b.shoulderY + 0.02, 0);
+    add(b.upper, ico(0.07), mat(0x4d7c0f, { rough: 1 }), side * 0.3, b.shoulderY + 0.14, 0);
+  });
+  add(b.upper, ico(0.12), mat(0x57534e, { rough: 0.95 }), 0, 0.3, b.backZ - 0.05);
+  eyes(b, 0x84cc16, 0.04, 0.0, 0.02);
+  // Stone club
+  const club = new THREE.Group();
+  club.position.copy(b.rightHand);
+  club.rotation.x = -0.3;
+  add(club, cyl(0.04, 0.05, 0.5, 6), mat(P.wood), 0, 0.15, 0);
+  add(club, ico(0.14), mat(0x6b6560, { rough: 0.95 }), 0, 0.45, 0);
+  b.root.add(club);
+  return finish(b.root);
+}
+
+function buildIronColossus(): THREE.Group {
+  // Forge-engine giant: riveted adamant body, furnace heart, smokestack shoulders, anvil fists
+  const b = buildBody({ skin: 0x6b7280, torso: 0x94a3b8, torsoKind: 'plate', sleeves: 0x6b7280, legs: 0x4b5563, boots: 0x374151, belt: 0x374151, pauldrons: 0x94a3b8, bulk: 1.7, height: 1.1 });
+  add(b.upper, cyl(0.12, 0.12, 0.04, 10), glowMat(0xff6a14, 2.6), 0, 0.2, b.chestZ + 0.04, Math.PI / 2);
+  [0.06, 0.3].forEach(y => add(b.upper, torus(0.3, 0.02, 4, 16), mat(0xcbd5e1, { metal: 0.9, rough: 0.25 }), 0, y, 0, Math.PI / 2));
+  [-1, 1].forEach(side => {
+    add(b.upper, cyl(0.05, 0.06, 0.3, 7), mat(P.iron, { metal: 0.8 }), side * 0.28, b.shoulderY + 0.2, b.backZ);
+    add(b.upper, sph(0.045, 5, 4), glowMat(0xffb020, 2.0), side * 0.28, b.shoulderY + 0.37, b.backZ);
+  });
+  add(b.upper, box(b.headR * 2.2, b.headR * 1.7, b.headR * 2), mat(0x94a3b8, { metal: 0.9, rough: 0.25 }), 0, b.headY, 0);
+  add(b.upper, box(0.18, 0.03, 0.02), glowMat(0xff6a14, 3.4), 0, b.headY, b.headR + 0.02);
+  [b.rightHand, b.leftHand].forEach(hand => add(b.root, box(0.2, 0.14, 0.16), mat(P.iron, { metal: 0.85, rough: 0.3 }), hand.x, hand.y - 0.02, hand.z + 0.04));
+  const aura = add(b.root, torus(0.45, 0.016, 4, 32), glowMat(0xff8a3d, 1.1), 0, 0.04, 0, Math.PI / 2);
+  aura.name = 'rotating';
+  return finish(b.root, 0.2);
+}
+
+// ── Mission 3: Golden Canyon (sand, bronze, faded linen) ──
+
+function buildScarabSwarmer(): THREE.Group {
+  const g = new THREE.Group();
+  const shell = mat(0x0f766e, { metal: 0.6, rough: 0.3 });
+  const shellBody = add(g, sph(0.28, 8, 6), shell, 0, 0.22, 0);
+  shellBody.scale.set(1, 0.6, 1.3);
+  add(g, box(0.02, 0.2, 0.6), mat(0x134e4a, { metal: 0.6 }), 0, 0.36, 0);
+  add(g, sph(0.12, 6, 5), mat(0x134e4a, { metal: 0.5 }), 0, 0.2, 0.34);
+  [-1, 1].forEach(side => {
+    add(g, cone(0.02, 0.14, 4), mat(0xca8a04, { metal: 0.6 }), side * 0.06, 0.2, 0.46, Math.PI / 2 + 0.3, 0, side * 0.3);
+    [-0.15, 0, 0.15].forEach(z => add(g, cyl(0.015, 0.012, 0.22, 4), mat(0x134e4a), side * 0.26, 0.1, z, 0, 0, side * 1.0));
+  });
+  eyesAt(g, 0xfacc15, 0.05, 0.24, 0.43);
+  g.userData.headTop = 0.45;
+  return g;
+}
+
+function buildSandRaider(): THREE.Group {
+  const b = buildBody({ skin: 0x9c6b4e, torso: 0xd6b27a, torsoKind: 'cloth', sleeves: 0xc8a064, legs: 0x8a6a3a, boots: 0x5a3d26, belt: 0x7c2d12, bulk: 0.95, hunch: 0.15 });
+  hood(b, 0xd6b27a, false);
+  add(b.upper, box(0.2, 0.06, 0.04), mat(0x7c2d12, { rough: 0.9 }), 0, b.headY - 0.04, b.headR * 0.95);
+  eyes(b, 0xfbbf24, 0.04, 0.03, 0.017);
+  [b.rightHand, b.leftHand].forEach(hand => sword(b.root, hand, 0.4, 0xd6d3d1));
+  return finish(b.root);
+}
+
+function buildDuneSlinger(): THREE.Group {
+  const b = buildBody({ skin: 0x9c6b4e, torso: 0xa16207, torsoKind: 'cloth', sleeves: 0xca8a04, legs: 0x78350f, boots: 0x5a3d26, belt: 0x44403c, bulk: 0.9, hunch: 0.1 });
+  hood(b, 0xca8a04, false);
+  eyes(b, 0xfde68a, 0.04, 0.02, 0.017);
+  // Sling with a loaded stone
+  add(b.root, cyl(0.006, 0.006, 0.4, 4), mat(0x78350f), b.rightHand.x, b.rightHand.y + 0.18, b.rightHand.z, 0.3);
+  add(b.root, ico(0.05), mat(0x78716c), b.rightHand.x, b.rightHand.y + 0.38, b.rightHand.z + 0.1);
+  add(b.upper, cyl(0.07, 0.06, 0.16, 6), mat(0x5a3d26), -0.2, 0.0, 0.05);
+  return finish(b.root);
+}
+
+function buildTombGuardian(): THREE.Group {
+  const b = buildBody({ skin: 0xd6cdb4, torso: 0xc8bfa4, torsoKind: 'bare', sleeves: 0xc8bfa4, legs: 0xb8ae94, boots: 0x8a7a5a, belt: 0xc9973a, bulk: 1.6, height: 1.15 });
+  // Linen bandage bands, golden pharaoh headdress, glowing ward sigils
+  [0.05, 0.15, 0.25].forEach(y => add(b.upper, torus(0.18 * 1.6, 0.015, 4, 14), mat(0xa8a08a, { rough: 1 }), 0, y, 0, Math.PI / 2 + 0.1));
+  add(b.upper, cone(b.headR * 1.6, 0.34, 4), mat(P.gold, { metal: 0.8, rough: 0.3 }), 0, b.headY + 0.02, -0.06, -0.3, Math.PI / 4);
+  add(b.upper, box(0.3, 0.04, 0.03), mat(0x1e3a8a), 0, b.headY + 0.06, b.headR * 0.8);
+  eyes(b, 0x22d3ee, 0.04, 0.01, 0.02);
+  add(b.upper, torus(0.36, 0.012, 4, 20), glowMat(0x22d3ee, 1.4), 0, 0.2, 0, Math.PI / 2);
+  // Khopesh
+  sword(b.root, b.rightHand, 0.55, P.gold);
+  shield(b.root, b.leftHand, 'tower', 0xa8a08a, P.gold, 0x22d3ee);
+  return finish(b.root);
+}
+
+function buildSandWyrm(): THREE.Group {
+  // Serpent rearing out of the sand: coiled segmented body, horned jaw and fin crest
+  const g = new THREE.Group();
+  const scale = mat(0xb45309, { rough: 0.6, metal: 0.2 });
+  const belly = mat(0xfcd34d, { rough: 0.7 });
+  for (let i = 0; i < 7; i++) {
+    const t = i / 6;
+    const seg = add(g, sph(0.34 - t * 0.12, 8, 6), scale, Math.sin(t * 5) * 0.22, 0.2 + t * 1.1, -0.2 + t * 0.35);
+    seg.scale.set(1, 0.8, 1);
+    add(g, box(0.02, 0.12, 0.14), mat(0x7c2d12), Math.sin(t * 5) * 0.22, 0.46 + t * 1.1 - t * 0.12, -0.25 + t * 0.35);
+  }
+  add(g, sph(0.28, 8, 6), belly, 0, 0.15, 0.1).scale.set(1.4, 0.35, 1.4);
+  // Head
+  const head = add(g, sph(0.24, 8, 6), scale, 0.0, 1.45, 0.3);
+  head.scale.set(1, 0.8, 1.4);
+  add(g, cone(0.18, 0.36, 6), mat(0x92400e, { rough: 0.6 }), 0, 1.38, 0.62, Math.PI / 2);
+  [-1, 1].forEach(side => {
+    add(g, cone(0.04, 0.34, 5), mat(P.bone), side * 0.14, 1.64, 0.2, -0.7, 0, side * -0.4);
+    add(g, sph(0.035, 5, 4), glowMat(0xfbbf24, 3.4), side * 0.11, 1.52, 0.52);
+  });
+  const dust = add(g, torus(0.55, 0.03, 4, 28), mat(0xd6b27a, { opacity: 0.55, rough: 1 }), 0, 0.05, 0, Math.PI / 2);
+  dust.name = 'rotating';
+  g.userData.headTop = 1.75;
+  return g;
+}
+
+// ── Mission 4: Arcane Rift (void violet, glyph cyan, floating shards) ──
+
+function buildVoidWisp(): THREE.Group {
+  const g = new THREE.Group();
+  const core = add(g, oct(0.2), glowMat(0x8b5cf6, 2.8), 0, 0.75, 0);
+  core.name = 'floating';
+  add(g, ico(0.3), mat(0x4c1d95, { opacity: 0.35, emissive: 0x6d28d9, glow: 0.8 }), 0, 0.75, 0);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    add(g, oct(0.06), glowMat(0x22d3ee, 2.2), Math.cos(a) * 0.32, 0.6 + i * 0.1, Math.sin(a) * 0.32);
+  }
+  add(g, cone(0.12, 0.45, 6), mat(0x2e1065, { opacity: 0.5 }), 0, 0.35, 0, Math.PI);
+  const ring = add(g, torus(0.35, 0.012, 4, 20), glowMat(0x22d3ee, 1.5), 0, 0.75, 0, Math.PI / 2);
+  ring.name = 'rotating';
+  g.userData.headTop = 1.05;
+  return g;
+}
+
+function buildRiftStalker(): THREE.Group {
+  const b = buildBody({ skin: 0x2e1065, torso: 0x1e1b4b, torsoKind: 'cloth', sleeves: 0x1e1b4b, legs: 0x0f0a24, boots: 0x0a0718, belt: 0x4c1d95, bulk: 0.95, hunch: 0.3 });
+  hood(b, 0x1e1b4b);
+  eyes(b, 0x22d3ee, 0.04, 0.0, 0.018);
+  // Phase shards trailing behind
+  [0, 1, 2].forEach(i => add(b.upper, oct(0.05), glowMat(0x8b5cf6, 1.8), (i - 1) * 0.12, 0.1 + i * 0.08, b.backZ - 0.18 - i * 0.05));
+  dagger(b.root, b.rightHand, 0x4c1d95, 0x22d3ee);
+  dagger(b.root, b.leftHand, 0x4c1d95, 0x22d3ee);
+  return finish(b.root);
+}
+
+function buildSpellbreaker(): THREE.Group {
+  const b = buildBody({ skin: 0xc4a484, torso: 0x164e63, torsoKind: 'mail', sleeves: 0xc4a484, legs: 0x0c2d3a, boots: 0x0a1f28, belt: 0x155e75, bulk: 1.15 });
+  hornedHelm(b, 0x155e75, 0xa5f3fc);
+  eyes(b, 0x67e8f9, 0.045, 0.01, 0.02);
+  // Null-rune tattoos and a rune-etched glaive
+  [-1, 1].forEach(side => add(b.upper, box(0.02, 0.14, 0.02), glowMat(0x22d3ee, 2.0), side * 0.22, b.shoulderY - 0.15, 0.05));
+  const glaive = spear(b.root, b.rightHand, 1.25);
+  add(glaive, box(0.1, 0.2, 0.015), glowMat(0x67e8f9, 1.6), 0, 1.15, 0);
+  return finish(b.root);
+}
+
+function buildArcaneConstruct(): THREE.Group {
+  const g = new THREE.Group();
+  const stone = mat(0x1e1b4b, { rough: 0.5, metal: 0.3 });
+  const glyph = glowMat(0x818cf8, 2.2);
+  // Floating monolith torso with hovering fists and a glyph eye
+  const body = add(g, box(0.62, 0.9, 0.42), stone, 0, 0.95, 0);
+  body.name = 'floating';
+  add(g, box(0.64, 0.05, 0.44), glyph, 0, 0.75, 0);
+  add(g, box(0.64, 0.05, 0.44), glyph, 0, 1.2, 0);
+  add(g, oct(0.09), glowMat(0x22d3ee, 3.2), 0, 1.25, 0.23);
+  [-1, 1].forEach(side => {
+    add(g, box(0.24, 0.24, 0.24), stone, side * 0.52, 0.85, 0.12);
+    add(g, box(0.25, 0.04, 0.25), glyph, side * 0.52, 0.85, 0.12);
+    add(g, cone(0.14, 0.4, 4), stone, side * 0.2, 0.28, 0, Math.PI);
+  });
+  const ring = add(g, torus(0.5, 0.015, 4, 24), glyph, 0, 0.1, 0, Math.PI / 2);
+  ring.name = 'rotating';
+  g.userData.headTop = 1.5;
+  return g;
+}
+
+function buildRiftArchon(): THREE.Group {
+  // Robed rift-lord with a shattered halo, floating glyph plates and a reality-splitting staff
+  const b = buildBody({ skin: 0x6d28d9, torso: 0x2e1065, torsoKind: 'robe', sleeves: 0x3b0764, belt: 0x22d3ee, bulk: 1.3, height: 1.15 });
+  hood(b, 0x1e1b4b);
+  eyes(b, 0x22d3ee, 0.045, 0.0, 0.026);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    add(b.upper, oct(0.05), glowMat(i % 2 ? 0x22d3ee : 0xc084fc, 2.4), Math.cos(a) * 0.22, b.headY + 0.22, Math.sin(a) * 0.1 - 0.05);
+  }
+  [-1, 1].forEach(side => add(b.upper, box(0.16, 0.24, 0.02), mat(0x312e81, { emissive: 0x6d28d9, glow: 0.8 }), side * 0.38, b.shoulderY + 0.05, 0, 0, 0, side * 0.3));
+  staff(b.root, b.rightHand, 0x22d3ee, 1.4);
+  const halo = add(b.root, torus(0.5, 0.02, 4, 32), glowMat(0xa855f7, 1.4), 0, 0.05, 0, Math.PI / 2);
+  halo.name = 'rotating';
+  return finish(b.root, 0.2);
+}
+
+// ── Mission 5: Infernal Citadel (charred hide, embers, blood iron) ──
+
+function buildImp(): THREE.Group {
+  const b = buildBody({ skin: 0xb91c1c, torso: 0xb91c1c, torsoKind: 'bare', sleeves: 0xb91c1c, legs: 0x7f1d1d, boots: 0x450a0a, belt: 0x1c1917, bulk: 0.8, height: 0.7, hunch: 0.4 });
+  const wing = mat(0x450a0a, { rough: 0.8 });
+  wing.side = THREE.DoubleSide;
+  [-1, 1].forEach(side => {
+    add(b.upper, cone(0.025, 0.12, 4), mat(0x1c1917), side * 0.07, b.headY + b.headR, 0, 0, 0, side * -0.4);
+    const w = add(b.upper, cone(0.2, 0.36, 3), wing, side * 0.22, b.shoulderY, b.backZ - 0.06, 0.3, 0, side * -1.1);
+    w.scale.z = 0.08;
+  });
+  eyes(b, 0xfde047, 0.04, 0.02, 0.02);
+  add(b.root, sph(0.06, 6, 5), glowMat(0xff7a1a, 3.0), b.rightHand.x, b.rightHand.y + 0.06, b.rightHand.z).name = 'floating';
+  return finish(b.root);
+}
+
+function buildHellhound(): THREE.Group {
+  const g = new THREE.Group();
+  const hide = mat(0x3f0d0d, { rough: 0.8 });
+  const body = add(g, sph(0.3, 8, 6), hide, 0, 0.5, -0.05);
+  body.scale.set(0.9, 0.75, 1.5);
+  [[-0.14, 0.25], [0.14, 0.25], [-0.14, -0.3], [0.14, -0.3]].forEach(([x, z]) => add(g, cyl(0.05, 0.04, 0.4, 5), hide, x, 0.2, z));
+  const head = add(g, sph(0.18, 7, 6), hide, 0, 0.65, 0.45);
+  head.scale.set(1, 0.9, 1.25);
+  add(g, box(0.16, 0.08, 0.22), mat(0x2a0808), 0, 0.57, 0.6);
+  add(g, box(0.14, 0.02, 0.18), glowMat(0xff4a14, 3.0), 0, 0.6, 0.62);
+  [-1, 1].forEach(side => {
+    add(g, cone(0.04, 0.14, 4), hide, side * 0.1, 0.8, 0.4, -0.3);
+    add(g, sph(0.025, 5, 4), glowMat(0xfbbf24, 3.4), side * 0.07, 0.7, 0.62);
+  });
+  // Ember spine and tail flame
+  for (let i = 0; i < 4; i++) add(g, cone(0.03, 0.1, 4), glowMat(0xff5a14, 2.0), 0, 0.72, 0.2 - i * 0.16);
+  add(g, cone(0.06, 0.28, 5), glowMat(0xff7a1a, 2.4), 0, 0.62, -0.58, -1.0);
+  g.userData.headTop = 0.95;
+  return g;
+}
+
+function buildFireCultist(): THREE.Group {
+  const b = buildBody({ skin: 0xc28a6a, torso: 0x9a3412, torsoKind: 'robe', sleeves: 0x7c2d12, belt: 0x1c1917, bulk: 1.0 });
+  hood(b, 0x7c2d12);
+  eyes(b, 0xfb923c, 0.04, 0.0, 0.018);
+  add(b.upper, box(0.03, 0.26, 0.02), glowMat(0xff7a1a, 1.6), 0, 0.15, b.chestZ + 0.02);
+  staff(b.root, b.rightHand, 0xff5a14, 1.2);
+  return finish(b.root);
+}
+
+function buildDemonBrute(): THREE.Group {
+  const b = buildBody({ skin: 0x7f1d1d, torso: 0x7f1d1d, torsoKind: 'bare', sleeves: 0x7f1d1d, legs: 0x450a0a, boots: 0x1c1917, belt: 0x292524, pauldrons: 0x292524, bulk: 1.85, height: 1.15, hunch: 0.3 });
+  const magma = glowMat(0xff4a14, 1.6);
+  add(b.upper, box(0.025, 0.2, 0.02), magma, 0.08, 0.18, b.chestZ + 0.02, 0, 0, 0.5);
+  add(b.upper, box(0.025, 0.16, 0.02), magma, -0.08, 0.24, b.chestZ + 0.02, 0, 0, -0.5);
+  [-1, 1].forEach(side => add(b.upper, cone(0.06, 0.34, 5), mat(0x1c1917, { rough: 0.5 }), side * 0.12, b.headY + 0.12, 0, -0.3, 0, side * -0.7));
+  eyes(b, 0xfbbf24, 0.045, 0.01, 0.022);
+  // Brazier-headed maul
+  const maul = new THREE.Group();
+  maul.position.copy(b.rightHand);
+  maul.rotation.x = -0.25;
+  add(maul, cyl(0.035, 0.04, 0.75, 6), mat(0x292524), 0, 0.22, 0);
+  add(maul, cyl(0.16, 0.12, 0.2, 8), mat(0x292524, { metal: 0.7, rough: 0.4 }), 0, 0.62, 0);
+  add(maul, cone(0.12, 0.22, 6), glowMat(0xff6a14, 2.6), 0, 0.8, 0).name = 'floating';
+  b.root.add(maul);
+  return finish(b.root);
+}
+
+/** Eyes on a non-humanoid model (beasts, constructs). */
+function eyesAt(g: THREE.Object3D, color: number, spread: number, y: number, z: number) {
+  const m = glowMat(color, 3.2);
+  [-1, 1].forEach(side => add(g, sph(0.025, 5, 4), m, side * spread, y, z));
+}
+
 // ─── PUBLIC API ─────────────────────────────────────────────
 
 const FRIENDLY_BUILDERS: Record<FriendlyClass, () => THREE.Group> = {
@@ -671,6 +991,26 @@ const ENEMY_BUILDERS: Record<EnemyClass, () => THREE.Group> = {
   [EnemyClass.SKELETON_ARCHER]: buildSkeletonArcher,
   [EnemyClass.SHADOW_ASSASSIN]: buildShadowAssassin,
   [EnemyClass.IRONCLAD_OGRE]: buildIroncladOgre,
+  [EnemyClass.BOSS_GOBLIN_WARLORD]: buildGoblinWarlord,
+  [EnemyClass.FORGE_BOMBER]: buildForgeBomber,
+  [EnemyClass.IRON_AUTOMATON]: buildIronAutomaton,
+  [EnemyClass.IRON_ARBALIST]: buildIronArbalist,
+  [EnemyClass.ROCK_TROLL]: buildRockTroll,
+  [EnemyClass.BOSS_IRON_COLOSSUS]: buildIronColossus,
+  [EnemyClass.SCARAB_SWARMER]: buildScarabSwarmer,
+  [EnemyClass.SAND_RAIDER]: buildSandRaider,
+  [EnemyClass.DUNE_SLINGER]: buildDuneSlinger,
+  [EnemyClass.TOMB_GUARDIAN]: buildTombGuardian,
+  [EnemyClass.BOSS_SAND_WYRM]: buildSandWyrm,
+  [EnemyClass.VOID_WISP]: buildVoidWisp,
+  [EnemyClass.RIFT_STALKER]: buildRiftStalker,
+  [EnemyClass.SPELLBREAKER]: buildSpellbreaker,
+  [EnemyClass.ARCANE_CONSTRUCT]: buildArcaneConstruct,
+  [EnemyClass.BOSS_RIFT_ARCHON]: buildRiftArchon,
+  [EnemyClass.IMP]: buildImp,
+  [EnemyClass.HELLHOUND]: buildHellhound,
+  [EnemyClass.FIRE_CULTIST]: buildFireCultist,
+  [EnemyClass.DEMON_BRUTE]: buildDemonBrute,
   [EnemyClass.BOSS_LORD_IGNIS]: buildBossLordIgnis
 };
 
