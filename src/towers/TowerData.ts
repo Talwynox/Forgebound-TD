@@ -77,9 +77,9 @@ export interface EvoAbilityTier {
   cost: number;
   name: string;
   description: string;
-  bonus?: number; // Armor aura bonus, damage aura bonus, fireball radius, or general bonus
-  chance?: number; // Crit chance, multishot chance, or stun chance
-  multiplier?: number; // Crit multiplier, fireball damage multiplier, thorns multiplier, or burn multiplier
+  bonus?: number; // Armor aura bonus, damage aura bonus, fireball radius, ramp per hit, or general bonus
+  chance?: number; // Multishot chance or stun chance
+  multiplier?: number; // Fireball damage multiplier, thorns multiplier, or burn multiplier
   targets?: number; // Multishot target count
   duration?: number; // Stun duration or debuff duration
   secondaryBonus?: number; // Flat damage reduction or secondary stat
@@ -98,17 +98,17 @@ export const SOLDIER_ABILITIES = {
     { level: 9, cost: 380, name: 'Armor Aura IX', description: 'Radiates +99 Armor to all surrounding allies in combat.', bonus: 99 },
     { level: 10, cost: 460, name: 'Armor Aura X - Aegis of the Sun', description: 'Radiates +120 Armor to all surrounding allies in combat!', bonus: 120 }
   ] as EvoAbilityTier[],
-  crit: [
-    { level: 1, cost: 50, name: 'Critical Strike I', description: '10% chance to deal 1.9x Critical Strike damage.', chance: 0.10, multiplier: 1.9 },
-    { level: 2, cost: 70, name: 'Critical Strike II', description: '15% chance to deal 2.4x Critical Strike damage.', chance: 0.15, multiplier: 2.4 },
-    { level: 3, cost: 95, name: 'Critical Strike III', description: '20% chance to deal 2.8x Critical Strike damage.', chance: 0.20, multiplier: 2.8 },
-    { level: 4, cost: 125, name: 'Critical Strike IV', description: '25% chance to deal 3.2x Critical Strike damage.', chance: 0.25, multiplier: 3.2 },
-    { level: 5, cost: 160, name: 'Critical Strike V', description: '30% chance to deal 3.6x Critical Strike damage.', chance: 0.30, multiplier: 3.6 },
-    { level: 6, cost: 200, name: 'Critical Strike VI', description: '35% chance to deal 4.0x Critical Strike damage.', chance: 0.35, multiplier: 4.0 },
-    { level: 7, cost: 250, name: 'Critical Strike VII', description: '40% chance to deal 4.4x Critical Strike damage.', chance: 0.40, multiplier: 4.4 },
-    { level: 8, cost: 310, name: 'Critical Strike VIII', description: '45% chance to deal 4.8x Critical Strike damage.', chance: 0.45, multiplier: 4.8 },
-    { level: 9, cost: 380, name: 'Critical Strike IX', description: '50% chance to deal 5.2x Critical Strike damage.', chance: 0.50, multiplier: 5.2 },
-    { level: 10, cost: 460, name: 'Critical Strike X - Guillotine', description: '55% chance to deal 5.6x Critical Strike damage!', chance: 0.55, multiplier: 5.6 }
+  relentless: [
+    { level: 1, cost: 50, name: 'Relentless Assault I', description: 'Each consecutive hit on the same target deals +1% more damage (stacks; resets on a new target).', bonus: 0.01 },
+    { level: 2, cost: 70, name: 'Relentless Assault II', description: 'Each consecutive hit on the same target deals +2% more damage (stacks; resets on a new target).', bonus: 0.02 },
+    { level: 3, cost: 95, name: 'Relentless Assault III', description: 'Each consecutive hit on the same target deals +3.25% more damage (stacks; resets on a new target).', bonus: 0.0325 },
+    { level: 4, cost: 125, name: 'Relentless Assault IV', description: 'Each consecutive hit on the same target deals +4.75% more damage (stacks; resets on a new target).', bonus: 0.0475 },
+    { level: 5, cost: 160, name: 'Relentless Assault V', description: 'Each consecutive hit on the same target deals +6.5% more damage (stacks; resets on a new target).', bonus: 0.065 },
+    { level: 6, cost: 200, name: 'Relentless Assault VI', description: 'Each consecutive hit on the same target deals +8.5% more damage (stacks; resets on a new target).', bonus: 0.085 },
+    { level: 7, cost: 250, name: 'Relentless Assault VII', description: 'Each consecutive hit on the same target deals +10.75% more damage (stacks; resets on a new target).', bonus: 0.1075 },
+    { level: 8, cost: 310, name: 'Relentless Assault VIII', description: 'Each consecutive hit on the same target deals +13.25% more damage (stacks; resets on a new target).', bonus: 0.1325 },
+    { level: 9, cost: 380, name: 'Relentless Assault IX', description: 'Each consecutive hit on the same target deals +16.25% more damage (stacks; resets on a new target).', bonus: 0.1625 },
+    { level: 10, cost: 460, name: 'Relentless Assault X - Guillotine', description: 'Each consecutive hit on the same target deals +19.75% more damage (stacks; resets on a new target)!', bonus: 0.1975 }
   ] as EvoAbilityTier[],
   lifeRegen: [
     { level: 1, cost: 50, name: 'Iron Vigor I', description: 'Passively regenerates +8 HP/sec in combat.', bonus: 8 },
@@ -1588,7 +1588,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Soldier Forge',
         cost: 0,
         badge: 'Melee Champion',
-        description: 'Evolves 1 unit (at 250 HP) per wave into a Soldier (1,250 HP cap) with Armor Aura and Critical Strike.',
+        description: 'Evolves 1 unit (at 250 HP) per wave into a Soldier (3,750 HP cap) with Armor Aura and Relentless Assault.',
         range: 3.0,
         rate: 1.0
       }
@@ -1598,7 +1598,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Archer Forge',
         cost: 0,
         badge: 'Ranged Marksman',
-        description: 'Evolves 1 unit (at 250 HP) per wave into an Archer (1,000 HP cap) with Multishot and Damage Aura.',
+        description: 'Evolves 1 unit (at 250 HP) per wave into an Archer (3,000 HP cap) with Multishot and Damage Aura.',
         range: 3.0,
         rate: 1.0
       }
@@ -1608,7 +1608,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         name: 'Mage Sanctum',
         cost: 0,
         badge: 'Arcane Pyromancer',
-        description: 'Evolves 1 unit (at 250 HP) per wave into a Mage (850 HP cap). Generates mana on attack, casting an explosive AoE Mega Fireball at full mana.',
+        description: 'Evolves 1 unit (at 250 HP) per wave into a Mage (2,550 HP cap). Generates mana on attack, casting an explosive AoE Mega Fireball at full mana.',
         range: 3.0,
         rate: 1.0
       }

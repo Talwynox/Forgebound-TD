@@ -559,8 +559,8 @@ export class UIManager {
       const isArcher = tower.evoPath === 'ARCHER';
       const pathTitle = isSoldier ? '⚔️ Soldier Forge' : (isArcher ? '🏹 Archer Forge' : '🔮 Mage Sanctum');
       const pathBadge = isSoldier
-        ? 'Melee Champion (1,250 HP Cap)'
-        : (isArcher ? 'Ranged Marksman (1,000 HP Cap)' : 'Arcane Pyromancer (850 HP Cap)');
+        ? 'Melee Champion (3,750 HP Cap)'
+        : (isArcher ? 'Ranged Marksman (3,000 HP Cap)' : 'Arcane Pyromancer (2,550 HP Cap)');
       const quotaHTML = tower.hasEvolvedThisWave
         ? `<div id="tower-live-quota" class="p-2 mb-2 rounded bg-amber-950/70 border border-amber-600/60 text-amber-300 text-xs font-semibold text-center">🔒 1/1 Unit Evolved this wave (Next wave recharges)</div>`
         : `<div id="tower-live-quota" class="p-2 mb-2 rounded bg-emerald-950/70 border border-emerald-600/60 text-emerald-300 text-xs font-semibold text-center">⚡ Ready to evolve 1 unit (Requires 250 HP)</div>`;
@@ -573,8 +573,8 @@ export class UIManager {
       const nextAb1 = ab1Level < ab1List.length ? ab1List[ab1Level] : null;
 
       // Ability 2 details
-      const ab2Name = isSoldier ? 'Critical Strike' : (isArcher ? 'Damage Aura' : 'Mega Fireball');
-      const ab2List = isSoldier ? SOLDIER_ABILITIES.crit : (isArcher ? ARCHER_ABILITIES.damageAura : MAGE_ABILITIES.fireball);
+      const ab2Name = isSoldier ? 'Relentless Assault' : (isArcher ? 'Damage Aura' : 'Mega Fireball');
+      const ab2List = isSoldier ? SOLDIER_ABILITIES.relentless : (isArcher ? ARCHER_ABILITIES.damageAura : MAGE_ABILITIES.fireball);
       const ab2Level = tower.ability2Level;
       const curAb2Desc = ab2Level === 0 ? 'Not Unlocked' : ab2List[ab2Level - 1].description;
       const nextAb2 = ab2Level < ab2List.length ? ab2List[ab2Level] : null;
@@ -892,7 +892,7 @@ export class UIManager {
       const isSoldier = tower.evoPath === 'SOLDIER';
       const isArcher = tower.evoPath === 'ARCHER';
       const ab1List = isSoldier ? SOLDIER_ABILITIES.armorAura : (isArcher ? ARCHER_ABILITIES.multishot : MAGE_ABILITIES.manaGain);
-      const ab2List = isSoldier ? SOLDIER_ABILITIES.crit : (isArcher ? ARCHER_ABILITIES.damageAura : MAGE_ABILITIES.fireball);
+      const ab2List = isSoldier ? SOLDIER_ABILITIES.relentless : (isArcher ? ARCHER_ABILITIES.damageAura : MAGE_ABILITIES.fireball);
       const ab3List = isSoldier ? SOLDIER_ABILITIES.lifeRegen : (isArcher ? ARCHER_ABILITIES.armorShred : MAGE_ABILITIES.stun);
       const ab4List = isSoldier ? SOLDIER_ABILITIES.thorns : (isArcher ? ARCHER_ABILITIES.rapidQuiver : MAGE_ABILITIES.burn);
       const nextAb1 = tower.ability1Level < ab1List.length ? ab1List[tower.ability1Level] : null;
@@ -1119,7 +1119,7 @@ export class UIManager {
         <div class="bg-purple-950/40 p-2 rounded border border-purple-800/40 my-2 text-xs">
           <div class="font-bold text-purple-300 mb-1">🌟 Champion Traits:</div>
           ${unit.armorAuraBonus > 0 ? `<div class="text-sky-300 font-medium">🛡️ Armor Aura: +${unit.armorAuraBonus} to nearby allies</div>` : ''}
-          ${unit.critChance > 0 ? `<div class="text-amber-300 font-medium">💥 Crit Strike: ${Math.round(unit.critChance * 100)}% chance (${unit.critMultiplier}x dmg)</div>` : ''}
+          ${unit.rampPerHit > 0 ? `<div class="text-amber-300 font-medium">⚔️ Relentless Assault: +${+(unit.rampPerHit * 100).toFixed(2)}% dmg per hit on same target (now +${Math.round(unit.rampStacks * unit.rampPerHit * 100)}%)</div>` : ''}
           ${unit.multishotChance > 0 ? `<div class="text-emerald-300 font-medium">🏹 Multishot: ${Math.round(unit.multishotChance * 100)}% chance (${unit.multishotTargets} targets)</div>` : ''}
           ${unit.damageAuraBonus > 0 ? `<div class="text-orange-300 font-medium">⚔️ Damage Aura: +${unit.damageAuraBonus} to nearby allies</div>` : ''}
           ${unit.unitClass === FriendlyClass.MAGE ? `

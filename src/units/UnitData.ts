@@ -158,7 +158,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
   [FriendlyClass.SOLDIER]: {
     name: 'Soldier',
     tier: UnitTier.TIER_2,
-    hp: 1250, // Massively increased HP cap
+    hp: 3750, // High HP cap: champions are the sink for heal towers
     armor: 16,
     attack: 38,
     attackRate: 1.0,
@@ -166,12 +166,12 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     range: 1.0,
     color: 0x3b82f6, // Royal Champion Blue
     scale: 1.25,
-    description: 'Melee champion forged at 250 HP with high HP cap, Armor Aura, and Critical Strike.'
+    description: 'Melee champion forged at 250 HP with high HP cap, Armor Aura, and Relentless Assault.'
   },
   [FriendlyClass.ARCHER]: {
     name: 'Archer',
     tier: UnitTier.TIER_2,
-    hp: 1000, // Massively increased HP cap
+    hp: 3000, // High HP cap: champions are the sink for heal towers
     armor: 6,
     attack: 42,
     attackRate: 0.85,
@@ -184,7 +184,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
   [FriendlyClass.MAGE]: {
     name: 'Mage',
     tier: UnitTier.TIER_2,
-    hp: 850, // Massively increased HP cap
+    hp: 2550, // High HP cap: champions are the sink for heal towers
     armor: 8,
     attack: 45,
     attackRate: 1.1,

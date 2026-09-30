@@ -63,11 +63,14 @@ export class Unit {
   // Multiplayer client mirroring: latest authoritative transform from the host
   public netTargetPos: THREE.Vector3 | null = null;
   public netTargetYaw: number = 0;
+  /** Whether the unit walked this frame; units holding position aren't shoved by walkers. */
+  public movedThisFrame: boolean = false;
 
   // Evolution Champion Abilities (Soldier, Archer, Mage)
   public armorAuraBonus: number = 0;
-  public critChance: number = 0;
-  public critMultiplier: number = 2.0;
+  public rampPerHit: number = 0; // Soldier Ability 2: bonus damage gained per consecutive hit on the same target
+  public rampStacks: number = 0;
+  public rampTargetId: number = -1;
   public lifeRegen: number = 0; // Soldier Ability 3: HP recovered per second in combat
   public thornsMultiplier: number = 0; // Soldier Ability 4: Reflect % of incoming melee dmg
   public flatDmgReduction: number = 0; // Soldier Ability 4: Flat damage reduction per incoming hit
@@ -355,10 +358,10 @@ export class Unit {
     const newStats = FRIENDLY_UNIT_STATS[newClass];
     this.stats = newStats;
 
-    // Increase max HP ceiling without full healing (preserve Forgebound TD heal necessity)
+    // Increase max HP ceiling without full healing: heal towers have to fill the rest
     const hpCeilingBonus = Math.max(0, newStats.hp - prevMax);
     this.maxHp += hpCeilingBonus;
-    this.currentHp = Math.min(this.maxHp, this.currentHp + Math.round(hpCeilingBonus * 0.25));
+    this.currentHp = Math.min(this.maxHp, this.currentHp + Math.round(hpCeilingBonus * 0.08));
 
     this.armor = Math.max(this.armor, newStats.armor);
     this.attack = Math.max(this.attack, newStats.attack);
@@ -460,6 +463,8 @@ export class UnitManager {
   public focusTargets: Record<TeamId, Unit | null> = { SUN: null, MOON: null };
   /** PvP: both armies are recruit-type units; every kill pays a bounty and units wear team rings. */
   public pvpMode: boolean = false;
+  /** Arena escalation: multiplies all unit-vs-unit damage when a clash drags on. */
+  public damageMultiplier: number = 1;
 
   private castles: Record<TeamId, ArenaCastle | null> = { SUN: null, MOON: null };
   private onCastleDestroyed: Record<TeamId, (() => void) | null> = { SUN: null, MOON: null };
@@ -658,6 +663,10 @@ export class UnitManager {
 
       this.animateCombatTimers(unit, dt);
 
+      const prevX = unit.mesh.position.x;
+      const prevZ = unit.mesh.position.z;
+      unit.movedThisFrame = false;
+
       // Decrement slow timer
       if (unit.slowTimer > 0) {
         unit.slowTimer -= dt;
@@ -730,6 +739,7 @@ export class UnitManager {
       if (unit.inCombat) {
         this.handleCombatMovementAndAttack(unit, dt, time, onKill);
       }
+      unit.movedThisFrame = Math.abs(unit.mesh.position.x - prevX) + Math.abs(unit.mesh.position.z - prevZ) > 1e-5;
 
       // Constrain units located in the arena to arena perimeter walls
       this.clampUnitToArena(unit);
@@ -784,25 +794,34 @@ export class UnitManager {
 
         if (distSq < minRadius * minRadius && distSq > 0.0001) {
           const dist = Math.sqrt(distSq);
-          const overlap = (minRadius - dist) * 0.5;
+          const overlap = minRadius - dist;
 
           // Cap maximum push per frame to eliminate explosive launches when crowds swarm a single boss
-          const maxPush = 1.2 * dt;
-          const rawPushX = (dx / dist) * overlap * 2.2 * dt;
-          const rawPushZ = (dz / dist) * overlap * 2.2 * dt;
-          const pushX = THREE.MathUtils.clamp(rawPushX, -maxPush, maxPush);
-          const pushZ = THREE.MathUtils.clamp(rawPushZ, -maxPush, maxPush);
+          const maxPush = 2.4 * dt;
+          const pushX = THREE.MathUtils.clamp((dx / dist) * overlap * 2.2 * dt, -maxPush, maxPush);
+          const pushZ = THREE.MathUtils.clamp((dz / dist) * overlap * 2.2 * dt, -maxPush, maxPush);
 
-          uA.mesh.position.x += pushX;
-          uA.mesh.position.z += pushZ;
-          uB.mesh.position.x -= pushX;
-          uB.mesh.position.z -= pushZ;
+          // A unit holding position (e.g. fighting) is anchored: whoever walked into it steps aside,
+          // so a crowd advancing on one defender can't bulldoze it across the arena
+          const aAnchored = !uA.movedThisFrame;
+          const bAnchored = !uB.movedThisFrame;
+          const shareA = aAnchored === bAnchored ? 0.5 : (aAnchored ? 0 : 1);
+
+          uA.mesh.position.x += pushX * shareA;
+          uA.mesh.position.z += pushZ * shareA;
+          uB.mesh.position.x -= pushX * (1 - shareA);
+          uB.mesh.position.z -= pushZ * (1 - shareA);
 
           if (aInArena) this.clampUnitToArena(uA);
           if (bInArena) this.clampUnitToArena(uB);
         }
       }
     }
+  }
+
+  /** Applies arena escalation to unit-vs-unit damage. */
+  private escalate(dmg: number): number {
+    return this.damageMultiplier === 1 ? dmg : Math.max(1, Math.round(dmg * this.damageMultiplier));
   }
 
   public clampUnitToArena(unit: Unit) {
@@ -831,7 +850,7 @@ export class UnitManager {
     // 2. Burn DoT timer & damage
     if (unit.burnTimer > 0) {
       unit.burnTimer -= dt;
-      const burnDmgThisFrame = unit.burnDmgPerSec * dt;
+      const burnDmgThisFrame = unit.burnDmgPerSec * dt * this.damageMultiplier;
       unit.currentHp -= burnDmgThisFrame;
       if (time - unit.lastBurnTick >= 500) {
         unit.lastBurnTick = time;
@@ -874,7 +893,7 @@ export class UnitManager {
           this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 2.0, 0)), '💥 INFERNAL GROUND STOMP! 💥', '#ff4500', 1.6);
 
           for (const target of nearbyOpponents) {
-            const stompDmg = calculateDamage(Math.round(unit.attack * 1.5), target.armor + target.combatAuraArmor);
+            const stompDmg = this.escalate(calculateDamage(Math.round(unit.attack * 1.5), target.armor + target.combatAuraArmor));
             target.currentHp -= stompDmg;
             target.hitFlinchTimer = 0.25;
 
@@ -1105,11 +1124,17 @@ export class UnitManager {
     defender.hitFlinchTimer = 0.14;
 
     let rawDmg = attacker.attack + attacker.combatAuraAttack;
-    let isCrit = false;
 
-    if (attacker.critChance > 0 && Math.random() < attacker.critChance) {
-      rawDmg = Math.round(rawDmg * attacker.critMultiplier);
-      isCrit = true;
+    // Soldier Relentless Assault: each consecutive hit on the same target deals more damage
+    let rampBonus = 0;
+    if (attacker.rampPerHit > 0) {
+      if (attacker.rampTargetId !== defender.id) {
+        attacker.rampTargetId = defender.id;
+        attacker.rampStacks = 0;
+      }
+      rampBonus = attacker.rampStacks * attacker.rampPerHit;
+      rawDmg = Math.round(rawDmg * (1 + rampBonus));
+      attacker.rampStacks++;
     }
 
     const totalArmor = defender.armor + defender.combatAuraArmor;
@@ -1120,6 +1145,7 @@ export class UnitManager {
     if (defender.flatDmgReduction > 0) {
       finalDmg = Math.max(1, finalDmg - defender.flatDmgReduction);
     }
+    finalDmg = this.escalate(finalDmg);
 
     defender.currentHp -= finalDmg;
 
@@ -1127,9 +1153,9 @@ export class UnitManager {
     audio.playHit();
     const hitPos = defender.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
 
-    if (isCrit) {
+    if (rampBonus >= 0.5) {
       this.vfx.spawnBurstParticles(hitPos, 0xfacc15, 8);
-      this.vfx.spawnFloatingText(hitPos, `💥 CRIT! -${finalDmg}`, '#facc15', 1.2);
+      this.vfx.spawnFloatingText(hitPos, `⚔️ +${Math.round(rampBonus * 100)}% -${finalDmg}`, '#facc15', 1.2);
     } else {
       this.vfx.spawnBurstParticles(hitPos, attacker.isFriendly ? 0xf87171 : 0xef4444, 4);
       this.vfx.spawnFloatingText(hitPos, `-${finalDmg}`, attacker.isFriendly ? '#f87171' : '#fb923c', 0.8);
@@ -1211,6 +1237,7 @@ export class UnitManager {
         const tEffArmor = Math.max(0, tArmor - t.armorDebuff);
         let extraDmg = calculateDamage(attacker.attack + attacker.combatAuraAttack, tEffArmor);
         if (t.flatDmgReduction > 0) extraDmg = Math.max(1, extraDmg - t.flatDmgReduction);
+        extraDmg = this.escalate(extraDmg);
         t.currentHp -= extraDmg;
         t.hitFlinchTimer = 0.14;
         const extraHitPos = t.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));
@@ -1258,6 +1285,7 @@ export class UnitManager {
             const splashArmor = Math.max(0, enemy.armor + enemy.combatAuraArmor - enemy.armorDebuff);
             let enemyFinalDmg = calculateDamage(rawSplashDmg, splashArmor);
             if (enemy.flatDmgReduction > 0) enemyFinalDmg = Math.max(1, enemyFinalDmg - enemy.flatDmgReduction);
+            enemyFinalDmg = this.escalate(enemyFinalDmg);
             enemy.currentHp -= enemyFinalDmg;
             enemy.hitFlinchTimer = 0.18;
             const enemyHitPos = enemy.worldPos.clone().add(new THREE.Vector3(0, 0.6, 0));

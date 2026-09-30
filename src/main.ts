@@ -62,6 +62,10 @@ const CAMERA_MAX_X_SOLO = 44;
 // PvP round flow
 const PVP_FIRST_BUILD_TIME = 45;
 const PVP_BUILD_TIME = 30;
+/** Arena escalation: a clash still running after this many seconds deals double damage... */
+const ESCALATION_START = 45;
+/** ...and the multiplier doubles again every this many seconds. */
+const ESCALATION_STEP = 15;
 const PVP_STORM_TIME = 30;
 const PVP_CASTLE_HP = 1500;
 const pvpRoundReward = (roundIndex: number) => 75 + roundIndex * 15;
@@ -114,6 +118,9 @@ class GameApp {
   // PvP timers (seconds of game time); null when not running
   private buildTimer: number | null = null;
   private stormTimer: number | null = null;
+  /** Seconds the current arena clash has lasted, and the escalation tier reached (0 = none). */
+  private clashTime: number = 0;
+  private escalationLevel: number = 0;
   /** PvP round 1: players who voted to start before the build timer runs out. */
   private readyVotes = new Set<string>();
 
@@ -940,6 +947,7 @@ class GameApp {
     this.wavePhase = 'IDLE';
     this.extraPurchasedRecruits = { SUN: 0, MOON: 0 };
     this.recruitsToSpawn = { SUN: 0, MOON: 0 };
+    this.resetEscalation();
     this.stormTimer = null;
     this.buildTimer = this.pvpActive ? PVP_FIRST_BUILD_TIME : null;
     this.readyVotes.clear();
@@ -1037,6 +1045,7 @@ class GameApp {
 
   private triggerArenaClash() {
     this.wavePhase = 'ARENA_CLASH';
+    this.resetEscalation();
     audio.playEvolution();
     this.vfx.spawnFloatingText(ARENA_MSG_POS, '⚔️ THE ARENA CLASH BEGINS! CHARGE! ⚔️', '#facc15', 3.0);
     this.vfx.spawnAscensionPillar(new THREE.Vector3(2, 0, 0), 0x38bdf8);
@@ -1050,6 +1059,25 @@ class GameApp {
     }
 
     this.updateHUD();
+  }
+
+  private resetEscalation() {
+    this.clashTime = 0;
+    this.escalationLevel = 0;
+    this.unitManager.damageMultiplier = 1;
+  }
+
+  /** Long clashes escalate: x2 unit damage at 45s, doubling every 15s after, so no fight stalls forever. */
+  private updateEscalation(dt: number) {
+    this.clashTime += dt;
+    if (this.clashTime < ESCALATION_START) return;
+    const level = 1 + Math.floor((this.clashTime - ESCALATION_START) / ESCALATION_STEP);
+    if (level === this.escalationLevel) return;
+    this.escalationLevel = level;
+    const mult = 2 ** level;
+    this.unitManager.damageMultiplier = mult;
+    audio.playBossSlam();
+    this.vfx.spawnFloatingText(ARENA_MSG_POS, `🔥 ESCALATION! ALL UNIT DAMAGE x${mult} 🔥`, '#f97316', 2.5);
   }
 
   private spawnFriendlyRecruit(team: TeamId) {
@@ -1102,6 +1130,7 @@ class GameApp {
   /** Clears round state shared by all modes and moves to the next wave/round. */
   private advanceRound() {
     this.currentWaveIndex++;
+    this.resetEscalation();
     this.extraPurchasedRecruits = { SUN: 0, MOON: 0 };
     this.setFocusTarget(null, 'SUN');
     this.setFocusTarget(null, 'MOON');
@@ -1959,6 +1988,7 @@ class GameApp {
         if (this.wavePhase === 'MAZE_RUN') {
           this.simulateMazeRun(dt);
         } else if (this.wavePhase === 'ARENA_CLASH') {
+          this.updateEscalation(dt);
           if (this.pvpActive) {
             this.simulatePvpClash(dt);
           } else if (!this.waveCleared && !this.unitManager.units.some(u => !u.isFriendly && !u.isDead)) {

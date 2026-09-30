@@ -362,7 +362,7 @@ export class TowerManager {
     let abilityList: EvoAbilityTier[];
     if (tower.evoPath === 'SOLDIER') {
       if (abilityIndex === 1) abilityList = SOLDIER_ABILITIES.armorAura;
-      else if (abilityIndex === 2) abilityList = SOLDIER_ABILITIES.crit;
+      else if (abilityIndex === 2) abilityList = SOLDIER_ABILITIES.relentless;
       else if (abilityIndex === 3) abilityList = SOLDIER_ABILITIES.lifeRegen;
       else abilityList = SOLDIER_ABILITIES.thorns;
     } else if (tower.evoPath === 'ARCHER') {
@@ -664,19 +664,19 @@ export class TowerManager {
           const quotaStr = tower.hasEvolvedThisWave
             ? '🔒 1/1 Evolved this wave'
             : '⚡ Ready to Evolve (Requires 250 HP)';
-          effectStr = `Forges Soldier (1,250 HP cap, Melee). Status: ${quotaStr}`;
-          lifetimeStr = `Aura Lv.${tower.ability1Level} | Crit Lv.${tower.ability2Level} | Regen Lv.${tower.ability3Level} | Thorns Lv.${tower.ability4Level} (${tower.totalHits} forged)`;
+          effectStr = `Forges Soldier (3,750 HP cap, Melee). Status: ${quotaStr}`;
+          lifetimeStr = `Aura Lv.${tower.ability1Level} | Relentless Lv.${tower.ability2Level} | Regen Lv.${tower.ability3Level} | Thorns Lv.${tower.ability4Level} (${tower.totalHits} forged)`;
         } else if (tower.evoPath === 'ARCHER') {
           const quotaStr = tower.hasEvolvedThisWave
             ? '🔒 1/1 Evolved this wave'
             : '⚡ Ready to Evolve (Requires 250 HP)';
-          effectStr = `Forges Archer (1,000 HP cap, Ranged). Status: ${quotaStr}`;
+          effectStr = `Forges Archer (3,000 HP cap, Ranged). Status: ${quotaStr}`;
           lifetimeStr = `Multishot Lv.${tower.ability1Level} | Aura Lv.${tower.ability2Level} | Sunder Lv.${tower.ability3Level} | Flurry Lv.${tower.ability4Level} (${tower.totalHits} forged)`;
         } else {
           const quotaStr = tower.hasEvolvedThisWave
             ? '🔒 1/1 Evolved this wave'
             : '⚡ Ready to Evolve (Requires 250 HP)';
-          effectStr = `Forges Mage (850 HP cap, Pyromancer). Status: ${quotaStr}`;
+          effectStr = `Forges Mage (2,550 HP cap, Pyromancer). Status: ${quotaStr}`;
           lifetimeStr = `Siphon Lv.${tower.ability1Level} | Fireball Lv.${tower.ability2Level} | Stun Lv.${tower.ability3Level} | Burn Lv.${tower.ability4Level} (${tower.totalHits} forged)`;
         }
         break;
@@ -949,10 +949,9 @@ export class TowerManager {
               target.recordBuff(`Armor Aura Lv.${tower.ability1Level} (+${tier.bonus} Armor)`);
             }
             if (tower.ability2Level > 0) {
-              const tier = SOLDIER_ABILITIES.crit[tower.ability2Level - 1];
-              target.critChance = tier.chance || 0;
-              target.critMultiplier = tier.multiplier || 2.0;
-              target.recordBuff(`Crit Lv.${tower.ability2Level} (${Math.round((tier.chance || 0) * 100)}% @ ${tier.multiplier}x)`);
+              const tier = SOLDIER_ABILITIES.relentless[tower.ability2Level - 1];
+              target.rampPerHit = tier.bonus || 0;
+              target.recordBuff(`Relentless Lv.${tower.ability2Level} (+${+((tier.bonus || 0) * 100).toFixed(2)}% per hit on same target)`);
             }
             if (tower.ability3Level > 0) {
               const tier = SOLDIER_ABILITIES.lifeRegen[tower.ability3Level - 1];
