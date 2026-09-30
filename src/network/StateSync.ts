@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Unit, UnitManager } from '../units/UnitManager';
 import { EnemyClass, FriendlyClass, getUnitStats, isFriendlyClass } from '../units/UnitData';
-import { TowerManager } from '../towers/TowerManager';
+import { TowerManager, TARGET_PRIORITIES } from '../towers/TowerManager';
 import { PortalGuardianManager } from '../towers/PortalGuardianManager';
 import { ArenaCastle } from '../engine/ArenaCastle';
 import { UnitState, TowerState, GuardianState, CastleState, UNIT_FLAG } from './NetworkTypes';
@@ -122,12 +122,15 @@ export function encodeTowers(towerManager: TowerManager): TowerState[] {
     t.roundsStacked,
     t.hasEvolvedThisWave ? 1 : 0,
     Math.round(t.totalBuffApplied),
-    t.totalHits
+    t.totalHits,
+    TARGET_PRIORITIES.findIndex(p => p.id === t.targetPriority)
   ]);
 }
 
-export function applyTowerStates(towerManager: TowerManager, states: TowerState[]) {
-  for (const [id, stack, rounds, evolved, buff, hits] of states) {
+/** Returns whether any tower's target priority changed (open tower cards need a redraw). */
+export function applyTowerStates(towerManager: TowerManager, states: TowerState[]): boolean {
+  let priorityChanged = false;
+  for (const [id, stack, rounds, evolved, buff, hits, priorityIdx] of states) {
     const t = towerManager.towers.get(id);
     if (!t) continue;
     t.accumulatedStackBonus = stack;
@@ -135,7 +138,13 @@ export function applyTowerStates(towerManager: TowerManager, states: TowerState[
     t.hasEvolvedThisWave = evolved === 1;
     t.totalBuffApplied = buff;
     t.totalHits = hits;
+    const priority = TARGET_PRIORITIES[priorityIdx]?.id ?? 'AUTO';
+    if (t.targetPriority !== priority) {
+      t.targetPriority = priority;
+      priorityChanged = true;
+    }
   }
+  return priorityChanged;
 }
 
 // --- Portal Guardians ---

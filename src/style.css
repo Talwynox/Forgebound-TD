@@ -2842,3 +2842,75 @@ body {
   letter-spacing: 0.03em;
   text-shadow: 0 0 6px rgba(0, 0, 0, 0.95), 0 1px 2px #000 !important;
 }
+
+/* --- Tower target priority picker (Smart Focus) --- */
+.target-picker {
+  background: var(--df-inset);
+  border: 1px solid rgba(201, 164, 90, 0.28);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.target-picker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--df-gold);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.target-picker.smart-off .target-picker-head {
+  color: var(--df-text-dim);
+}
+
+.target-picker-label {
+  margin: 6px 0 5px;
+  color: var(--df-text-dim);
+}
+
+.target-picker-label span {
+  color: var(--df-text);
+}
+
+.target-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.target-chip {
+  background: var(--df-iron);
+  border: 1px solid rgba(201, 164, 90, 0.22);
+  border-radius: 6px;
+  color: var(--df-text);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.target-chip:hover:not(:disabled) {
+  border-color: var(--df-gold);
+  background: var(--df-iron-hover);
+}
+
+.target-chip.active {
+  border-color: var(--df-gold);
+  color: #fff4dc;
+  background: linear-gradient(180deg, rgba(201, 164, 90, 0.3) 0%, rgba(40, 28, 22, 0.95) 100%);
+  box-shadow: 0 0 10px var(--df-ember-glow);
+}
+
+.target-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Priorities are ignored while Smart Focus is off */
+.target-picker.smart-off .target-chips {
+  opacity: 0.45;
+}

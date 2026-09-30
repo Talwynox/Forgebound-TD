@@ -5,7 +5,7 @@ import { audio } from './engine/AudioSystem';
 import { Grid, TileType, GridCoord } from './grid/Grid';
 import { Pathfinder } from './grid/Pathfinder';
 import { VFXManager } from './vfx/VFXManager';
-import { TowerInstance, TowerManager } from './towers/TowerManager';
+import { TowerInstance, TowerManager, TARGET_PRIORITIES } from './towers/TowerManager';
 import { Unit, UnitManager, ARENA_BOUNDS } from './units/UnitManager';
 import { TechTreeManager } from './campaign/TechTree';
 import { UIManager } from './ui/UIManager';
@@ -316,6 +316,7 @@ class GameApp {
     switch (action.kind) {
       case 'UPGRADE_TOWER':
       case 'EVO_UPGRADE':
+      case 'SET_TARGET_PRIORITY':
       case 'SELL_TOWER': {
         const tower = this.towerManager.towers.get(action.towerId);
         if (tower) return tower.worldPos.clone().add(new THREE.Vector3(0, 1.5, 0));
@@ -508,12 +509,22 @@ class GameApp {
         audio.playUpgrade();
         this.vfx.spawnFloatingText(
           new THREE.Vector3(sideX(actor.team, 0), 3, 0),
-          `🎯 ${this.pvpActive ? `${TEAM_NAMES[actor.team].toUpperCase()} ` : ''}SMART FOCUS: ${active ? 'ON (Champions First)' : 'OFF (Lead Recruits)'}`,
+          `🎯 ${this.pvpActive ? `${TEAM_NAMES[actor.team].toUpperCase()} ` : ''}SMART FOCUS: ${active ? 'ON (Tower Priorities)' : 'OFF (Lead Unit)'}`,
           active ? '#a5b4fc' : '#94a3b8',
           1.4
         );
         this.updateHUD();
         if (this.towerManager.selectedTower) this.refreshTowerCardIfOpen(this.towerManager.selectedTower);
+        return null;
+      }
+
+      case 'SET_TARGET_PRIORITY': {
+        const tower = this.towerManager.towers.get(action.towerId);
+        if (!tower || tower.team !== actor.team) return 'Tower not found.';
+        if (!this.canManageTower(actor, tower)) return '⛔ Only the builder can retarget this tower!';
+        if (!TARGET_PRIORITIES.some(p => p.id === action.priority)) return 'Invalid target priority.';
+        if (!this.towerManager.setTargetPriority(tower.id, action.priority)) return 'This tower has no target priority.';
+        this.refreshTowerCardIfOpen(tower);
         return null;
       }
 
@@ -538,6 +549,7 @@ class GameApp {
     this.ui.onToggleFocusFire = () => this.toggleFocusFireMode();
     this.ui.onClearFocusTarget = () => this.requestAction({ kind: 'SET_FOCUS', unitId: null });
     this.ui.onToggleSmartFocus = () => this.requestAction({ kind: 'TOGGLE_SMART_FOCUS' });
+    this.ui.onSetTargetPriority = (towerId, priority) => this.requestAction({ kind: 'SET_TARGET_PRIORITY', towerId, priority });
     this.ui.onSelectTowerPlacement = (type) => {
       if (type) {
         if (this.towerManager.selectedTower) {
@@ -805,7 +817,9 @@ class GameApp {
     applyUnitStates(this.unitManager, s.units, (unit) => {
       if (!unit.isFriendly) this.achievementManager.recordKill(unit.unitClass as EnemyClass, unit.isBoss);
     });
-    applyTowerStates(this.towerManager, s.towers);
+    if (applyTowerStates(this.towerManager, s.towers) && this.towerManager.selectedTower) {
+      this.refreshTowerCardIfOpen(this.towerManager.selectedTower);
+    }
     applyGuardianStates(this.portalGuardianManager, s.guardians);
 
     // Guardian levels changed (someone upgraded): refresh an open guardian card

@@ -41,9 +41,36 @@ export interface TowerInstance {
   ability3Level: number; // 0 to 10
   ability4Level: number; // 0 to 10
   hasEvolvedThisWave: boolean;
+  /** Which unit this tower buffs first while Smart Focus is on (single-target buff towers). */
+  targetPriority: TargetPriority;
   // Dynamic visual parts for animation
   floatingElement?: THREE.Object3D;
   rotatingRing?: THREE.Object3D;
+}
+
+/** Target priority for single-target buff towers; a preferred class is buffed first, then the Auto order. */
+export type TargetPriority = 'AUTO' | 'SOLDIER' | 'ARCHER' | 'MAGE' | 'RECRUIT' | 'FIRST';
+
+export const TARGET_PRIORITIES: { id: TargetPriority; label: string; hint: string }[] = [
+  { id: 'AUTO', label: 'Auto', hint: 'Role-based: damage feeds Archers, armor & healing go to Soldiers' },
+  { id: 'SOLDIER', label: 'Soldier', hint: 'Soldiers first' },
+  { id: 'ARCHER', label: 'Archer', hint: 'Archers first' },
+  { id: 'MAGE', label: 'Mage', hint: 'Mages first' },
+  { id: 'RECRUIT', label: 'Recruits', hint: 'Plain recruits before champions' },
+  { id: 'FIRST', label: 'First', hint: 'Whoever leads the march (Shrines: most wounded)' }
+];
+
+/** Auto order per tower type: damage goes to the backline, armor and healing to the frontline. */
+export const AUTO_TARGET_ORDER: Partial<Record<TowerType, FriendlyClass[]>> = {
+  [TowerType.OBELISK]: [FriendlyClass.ARCHER, FriendlyClass.MAGE, FriendlyClass.SOLDIER],
+  [TowerType.FORGE]: [FriendlyClass.SOLDIER, FriendlyClass.MAGE, FriendlyClass.ARCHER],
+  [TowerType.SHRINE]: [FriendlyClass.SOLDIER, FriendlyClass.ARCHER, FriendlyClass.MAGE],
+  [TowerType.FROST]: [FriendlyClass.SOLDIER, FriendlyClass.ARCHER, FriendlyClass.MAGE]
+};
+
+/** Whether the tower picks a single unit to buff, so a target priority applies. */
+export function hasTargetPriority(type: TowerType): boolean {
+  return type in AUTO_TARGET_ORDER;
 }
 
 export class TowerManager {
@@ -207,7 +234,8 @@ export class TowerManager {
       ability2Level: 0,
       ability3Level: 0,
       ability4Level: 0,
-      hasEvolvedThisWave: false
+      hasEvolvedThisWave: false,
+      targetPriority: 'AUTO'
     };
 
     // Extract animated parts
@@ -451,6 +479,28 @@ export class TowerManager {
     });
 
     this.scene.add(newMesh);
+  }
+
+  /** Lower rank = buffed first. Units the priority doesn't name fall back to the tower's Auto order. */
+  private targetRank(tower: TowerInstance, unit: Unit): number {
+    const order = AUTO_TARGET_ORDER[tower.type] ?? [];
+    const cls = unit.unitClass as FriendlyClass;
+    const autoRank = order.includes(cls) ? order.indexOf(cls) : order.length;
+    switch (tower.targetPriority) {
+      case 'FIRST': return 0;
+      case 'RECRUIT': return order.includes(cls) ? 1 + autoRank : 0;
+      case 'SOLDIER': return cls === FriendlyClass.SOLDIER ? 0 : 1 + autoRank;
+      case 'ARCHER': return cls === FriendlyClass.ARCHER ? 0 : 1 + autoRank;
+      case 'MAGE': return cls === FriendlyClass.MAGE ? 0 : 1 + autoRank;
+      default: return autoRank;
+    }
+  }
+
+  setTargetPriority(towerId: number, priority: TargetPriority): boolean {
+    const tower = this.towers.get(towerId);
+    if (!tower || !hasTargetPriority(tower.type)) return false;
+    tower.targetPriority = priority;
+    return true;
   }
 
   sellTower(towerId: number): number {
@@ -791,18 +841,12 @@ export class TowerManager {
 
       if (targetsInRange.length === 0) continue;
 
-      // Select target: for Vitality Shrines, prioritize the most wounded unit
-      if (tower.type === TowerType.SHRINE) {
-        targetsInRange.sort((a, b) => (a.currentHp / a.maxHp) - (b.currentHp / b.maxHp));
-      } else if (this.smartFocusByTeam[tower.team] && (tower.type === TowerType.FORGE || tower.type === TowerType.OBELISK)) {
-        // Smart Focus: prioritize evolved champions / higher tier units over normal recruits
-        targetsInRange.sort((a, b) => {
-          const rankA = (a.unitClass === FriendlyClass.SOLDIER || a.unitClass === FriendlyClass.ARCHER || a.unitClass === FriendlyClass.MAGE)
-            ? 3 : (a.unitClass !== FriendlyClass.RECRUIT ? 2 : 1);
-          const rankB = (b.unitClass === FriendlyClass.SOLDIER || b.unitClass === FriendlyClass.ARCHER || b.unitClass === FriendlyClass.MAGE)
-            ? 3 : (b.unitClass !== FriendlyClass.RECRUIT ? 2 : 1);
-          return rankB - rankA;
-        });
+      // Smart Focus: follow the tower's target priority; Vitality Shrines then prefer the most wounded
+      const smart = this.smartFocusByTeam[tower.team] && hasTargetPriority(tower.type);
+      if (smart || tower.type === TowerType.SHRINE) {
+        targetsInRange.sort((a, b) =>
+          (smart ? this.targetRank(tower, a) - this.targetRank(tower, b) : 0) ||
+          (tower.type === TowerType.SHRINE ? (a.currentHp / a.maxHp) - (b.currentHp / b.maxHp) : 0));
       }
 
       const target = targetsInRange[0];

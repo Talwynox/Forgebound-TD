@@ -1,6 +1,6 @@
 import confetti from 'canvas-confetti';
 import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, SOLDIER_ABILITIES, ARCHER_ABILITIES, MAGE_ABILITIES } from '../towers/TowerData';
-import { TowerInstance, TowerManager } from '../towers/TowerManager';
+import { TowerInstance, TowerManager, TargetPriority, TARGET_PRIORITIES, AUTO_TARGET_ORDER, hasTargetPriority } from '../towers/TowerManager';
 import { Unit, UnitManager } from '../units/UnitManager';
 import { FriendlyClass, EnemyClass, ENEMY_UNIT_STATS } from '../units/UnitData';
 import { CAMPAIGN_MISSIONS, CampaignMission } from '../campaign/CampaignData';
@@ -37,6 +37,7 @@ export class UIManager {
   public onToggleFocusFire: () => void = () => {};
   public onClearFocusTarget: () => void = () => {};
   public onToggleSmartFocus: () => void = () => {};
+  public onSetTargetPriority: (towerId: number, priority: TargetPriority) => void = () => {};
 
   // Elements
   private topBarEl!: HTMLElement;
@@ -242,7 +243,7 @@ export class UIManager {
         <button id="btn-focus-fire" class="hud-btn btn-focus-fire" title="Focus Fire: Direct all towers in range and champions to focus on an enemy (Hotkey: F)">
           🎯<span class="btn-label">Focus</span><span class="key-badge minor-key">F</span>
         </button>
-        <button id="btn-smart-focus" class="hud-btn btn-smart-focus ${this.towerManager?.smartFocusEnabled ? 'active' : ''}" title="Smart Focus: Damage (Obelisk) & Armor (Forge) towers prioritize evolved Champions over normal recruits in range (Hotkey: Z)">
+        <button id="btn-smart-focus" class="hud-btn btn-smart-focus ${this.towerManager?.smartFocusEnabled ? 'active' : ''}" title="Smart Focus: single-target buff towers follow their target priority (set on each tower's card). Off: they buff the lead unit (Hotkey: Z)">
           ✨<span class="btn-label">Smart</span><span class="${this.towerManager?.smartFocusEnabled ? 'text-amber-400 font-bold' : 'text-slate-400'}">${this.towerManager?.smartFocusEnabled ? 'ON' : 'OFF'}</span><span class="key-badge minor-key">Z</span>
         </button>
         <button id="btn-speed" class="hud-btn speed-btn">${gameSpeed === 0 ? '⏸️ PAUSED' : gameSpeed + 'x'}</button>
@@ -787,12 +788,7 @@ export class UIManager {
         <div>Cast Interval: <strong>${tower.effectiveRate.toFixed(2)}s</strong></div>
         ${tower.auraBonusMultiplier > 0 ? `<div class="text-purple-400">Aura Haste: <strong>+${Math.round(tower.auraBonusMultiplier * 100)}%</strong></div>` : ''}
       </div>
-      ${(tower.type === TowerType.FORGE || tower.type === TowerType.OBELISK) ? `
-        <div id="btn-card-smart-focus" class="p-2 mb-2 rounded ${this.towerManager.smartFocusEnabled ? 'bg-amber-950/70 border border-amber-600/60 text-amber-300' : 'bg-slate-900 border border-slate-700 text-slate-400'} text-xs font-semibold flex justify-between items-center cursor-pointer hover:border-amber-400 transition-colors" title="Click or press Z to toggle Smart Focus">
-          <span>🎯 Smart Focus: <strong>${this.towerManager.smartFocusEnabled ? 'ON (Champions First)' : 'OFF (Lead Recruits)'}</strong></span>
-          <span class="key-badge" style="margin: 0;">Z</span>
-        </div>
-      ` : ''}
+      ${this.renderTargetPriorityPicker(tower, isOwner)}
       ${branchHTML}
       <div class="card-actions">
         ${isOwner ? `
@@ -813,6 +809,11 @@ export class UIManager {
     this.towerCardEl.querySelector('#btn-card-smart-focus')?.addEventListener('click', () => {
       this.onToggleSmartFocus();
     });
+    if (isOwner) {
+      this.towerCardEl.querySelectorAll<HTMLButtonElement>('.target-chip').forEach(chip => {
+        chip.addEventListener('click', () => this.onSetTargetPriority(tower.id, chip.dataset.priority as TargetPriority));
+      });
+    }
 
     if (isOwner) {
       if (isEvo && tower.evoPath) {
@@ -930,6 +931,30 @@ export class UIManager {
         btnNext.classList.toggle('disabled', playerGold < next.upg.cost);
       }
     }
+  }
+
+  /** Smart Focus switch plus the per-tower "who do I buff first" picker (single-target buff towers only). */
+  private renderTargetPriorityPicker(tower: TowerInstance, isOwner: boolean): string {
+    // Blizzard Frost is AoE: it chills everyone in range, so there's nothing to prioritise
+    if (!hasTargetPriority(tower.type) || (tower.type === TowerType.FROST && tower.currentBranch === UpgradeBranch.BRANCH_B)) return '';
+
+    const smartOn = this.towerManager.smartFocusEnabled;
+    const autoOrder = (AUTO_TARGET_ORDER[tower.type] ?? []).map(c => c.charAt(0) + c.slice(1).toLowerCase()).join(' → ');
+    const chips = TARGET_PRIORITIES.map(p => {
+      const title = p.id === 'AUTO' ? `Auto: ${autoOrder} → Recruits` : p.hint;
+      return `<button class="target-chip ${tower.targetPriority === p.id ? 'active' : ''}" data-priority="${p.id}" title="${escapeHtml(title)}" ${isOwner ? '' : 'disabled'}>${p.label}</button>`;
+    }).join('');
+
+    return `
+      <div class="target-picker ${smartOn ? '' : 'smart-off'}">
+        <div id="btn-card-smart-focus" class="target-picker-head" title="Click or press Z to toggle Smart Focus for your team">
+          <span>🎯 Smart Focus: <strong>${smartOn ? 'ON' : 'OFF (lead unit)'}</strong></span>
+          <span class="key-badge" style="margin: 0;">Z</span>
+        </div>
+        <div class="target-picker-label">Buff first${tower.targetPriority === 'AUTO' ? `: <span>${autoOrder}</span>` : ''}</div>
+        <div class="target-chips">${chips}</div>
+      </div>
+    `;
   }
 
   hideTowerCard() {

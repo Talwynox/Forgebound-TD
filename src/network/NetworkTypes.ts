@@ -1,6 +1,7 @@
 import { GridCoord } from '../grid/Grid';
 import { TowerType, UpgradeBranch } from '../towers/TowerData';
 import { TeamId } from '../game/Teams';
+import type { TargetPriority } from '../towers/TowerManager';
 
 export type { TeamId } from '../game/Teams';
 export type GameMode = 'COOP' | 'PVP';
@@ -45,8 +46,8 @@ export const UNIT_FLAG = {
 /** [id, unitClass, flags, x*100, y*100, z*100, yaw*100, hp, maxHp, armor, attack, mana] */
 export type UnitState = [number, string, number, number, number, number, number, number, number, number, number, number];
 
-/** [id, accumulatedStackBonus, roundsStacked, hasEvolvedThisWave (0|1), totalBuffApplied, totalHits] */
-export type TowerState = [number, number, number, number, number, number];
+/** [id, accumulatedStackBonus, roundsStacked, hasEvolvedThisWave (0|1), totalBuffApplied, totalHits, targetPriority index] */
+export type TowerState = [number, number, number, number, number, number, number];
 
 /** [id, damageLevel, rangeLevel, totalDamageDealt, totalKills, shotsFired] */
 export type GuardianState = [string, number, number, number, number, number];
@@ -97,6 +98,7 @@ export type GameAction =
   | { kind: 'UPGRADE_GUARDIAN'; guardianId: string; upgradeType: 'damage' | 'range' }
   | { kind: 'SET_FOCUS'; unitId: number | null }
   | { kind: 'TOGGLE_SMART_FOCUS' }
+  | { kind: 'SET_TARGET_PRIORITY'; towerId: number; priority: TargetPriority }
   | { kind: 'SET_GAME_SPEED'; speed: number };
 
 // --- Discrete world events (Host -> Clients) ---
