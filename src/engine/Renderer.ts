@@ -4,6 +4,7 @@ import { ARENA_MIRROR_X, ARENA_WIDTH, ARENA_CENTER_X, mirrorX } from '../game/Te
 import { PostFX } from './PostFX';
 import { MAP_THEMES, MapTheme, MapThemeId } from './MapThemes';
 import { createFlagstoneTexture, createGlowSprite, createMasonryTexture, createMossTexture } from './ProceduralTextures';
+import { buildBarracks } from './Barracks';
 import { buildWorldGround, disposeWorldGround, mazeFloor, WorldGround } from './WorldGround';
 
 interface ParticleField {
@@ -100,7 +101,7 @@ export class SceneRenderer {
     this.sunLight.shadow.bias = -0.0005;
     this.scene.add(this.sunLight);
 
-    // Warm hearth glow at the barracks castle
+    // Warm campfire glow at the barracks camp
     const castleLight = new THREE.PointLight(0xff8a3d, 2.2, 24, 1.6);
     castleLight.position.set(-34, 5, -12);
     this.scene.add(castleLight);
@@ -367,7 +368,7 @@ export class SceneRenderer {
   }
 
   /**
-   * Maze island at the Sun position (X = -22): plateau, trims, decor, road, barracks castle & teleport gate.
+   * Maze island at the Sun position (X = -22): plateau, trims, decor, road, barracks camp & teleport gate.
    * The PvP Moon side reuses this inside a group mirrored across the arena.
    */
   private buildMazeIsland(parent: THREE.Object3D, roadGroup: THREE.Group, theme: CastleTheme = 'SUN') {
@@ -432,8 +433,8 @@ export class SceneRenderer {
 
     parent.add(roadGroup);
 
-    // Player Castle (Start of Maze: X = -34, Z = -12)
-    this.buildPlayerCastle(new THREE.Vector3(-34, 0, -12), parent, theme);
+    // Barracks war camp (Start of Maze: X = -34, Z = -12)
+    this.buildBarracksCamp(new THREE.Vector3(-34, 0, -12), parent, theme);
     this.buildMazeWisps(parent);
 
     // Teleportation Gate (End of Maze: X = -10, Z = 12)
@@ -623,269 +624,12 @@ export class SceneRenderer {
     }
   }
 
-  private buildPlayerCastle(pos: THREE.Vector3, parent: THREE.Object3D = this.scene, theme: CastleTheme = 'SUN'): THREE.Group {
-    const palette = CASTLE_THEMES[theme];
-    const group = new THREE.Group();
-    group.position.copy(pos);
-
-    // Castle Palette Materials
-    const stoneBaseMat = new THREE.MeshStandardMaterial({
-      color: 0x2a2522, // Deep soot-stained foundation granite
-      roughness: 0.8,
-      metalness: 0.15
-    });
-    const fortressStoneMat = new THREE.MeshStandardMaterial({
-      color: 0x55493f, // Weathered ashlar masonry
-      roughness: 0.7,
-      metalness: 0.15
-    });
-    const stoneTrimMat = new THREE.MeshStandardMaterial({
-      color: 0x7a6c5e, // Carved limestone trims, corbels & parapets
-      roughness: 0.6,
-      metalness: 0.1
-    });
-    const royalBlueSlateMat = new THREE.MeshStandardMaterial({
-      color: palette.roof, // Weathered slate spire tiles in the team's colour
-      roughness: 0.55,
-      metalness: 0.3
-    });
-    const gildedGoldMat = new THREE.MeshStandardMaterial({
-      color: 0xf59e0b, // Heraldic royal gold finials & crests
-      metalness: 0.85,
-      roughness: 0.25
-    });
-    const darkIronMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b, // Wrought iron portcullis & wall bands
-      metalness: 0.85,
-      roughness: 0.3
-    });
-    const woodOakMat = new THREE.MeshStandardMaterial({
-      color: 0x451a03, // Sturdy reinforced dark oak doors
-      roughness: 0.85
-    });
-    const glowingWindowMat = new THREE.MeshStandardMaterial({
-      color: 0xffedd5,
-      emissive: 0xf59e0b,
-      emissiveIntensity: 0.95
-    });
-    const arcaneBeaconMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0284c7,
-      emissiveIntensity: 1.2
-    });
-
-    // 1. Fortified Stepped Foundation Terrace
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.45, 7.8), stoneBaseMat);
-    plinth.position.y = 0.22;
-    plinth.receiveShadow = true;
-    group.add(plinth);
-
-    // Stone entrance steps in front of the gate (facing +X)
-    const steps = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.2, 3.2), stoneTrimMat);
-    steps.position.set(3.5, 0.1, 0);
-    steps.receiveShadow = true;
-    group.add(steps);
-
-    // 2. Main Keep (Royal Donjon) - Multi-tiered Centerpiece
-    // Lower Great Hall
-    const keepLower = new THREE.Mesh(new THREE.BoxGeometry(4.4, 4.2, 5.4), fortressStoneMat);
-    keepLower.position.set(0, 2.3, 0);
-    keepLower.castShadow = true;
-    keepLower.receiveShadow = true;
-    group.add(keepLower);
-
-    // Middle Fortress Tier
-    const keepMid = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.6, 4.4), fortressStoneMat);
-    keepMid.position.set(0, 5.2, 0);
-    keepMid.castShadow = true;
-    keepMid.receiveShadow = true;
-    group.add(keepMid);
-
-    // Machicolated Overhang & Corbel Ring
-    const corbelLedge = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.35, 4.8), stoneTrimMat);
-    corbelLedge.position.set(0, 6.6, 0);
-    corbelLedge.castShadow = true;
-    group.add(corbelLedge);
-
-    // Upper Belfry Tower
-    const belfry = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 2.6, 8), fortressStoneMat);
-    belfry.position.set(0, 7.8, 0);
-    belfry.castShadow = true;
-    group.add(belfry);
-
-    // High Grand Spire (Cobalt Slate)
-    const belfryRoof = new THREE.Mesh(new THREE.ConeGeometry(1.15, 2.8, 8), royalBlueSlateMat);
-    belfryRoof.position.set(0, 10.2, 0);
-    belfryRoof.castShadow = true;
-    group.add(belfryRoof);
-
-    // Gilded Finial & Arcane Pinnacle Beacon
-    const finialRod = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 6), gildedGoldMat);
-    finialRod.position.set(0, 11.8, 0);
-    group.add(finialRod);
-
-    const beaconCrystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.24), arcaneBeaconMat);
-    beaconCrystal.position.set(0, 12.3, 0);
-    group.add(beaconCrystal);
-
-    // Rooftop Crenellations / Merlons around Upper Keep
-    [-1.8, 1.8].forEach(xOff => {
-      [-2.2, -0.7, 0.7, 2.2].forEach(zOff => {
-        const merlon = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, 0.45), stoneTrimMat);
-        merlon.position.set(xOff, 6.95, zOff);
-        group.add(merlon);
-      });
-    });
-
-    // 3. Grand Gatehouse & Portcullis (Front +X face)
-    const gatehouse = new THREE.Mesh(new THREE.BoxGeometry(1.4, 3.4, 3.2), fortressStoneMat);
-    gatehouse.position.set(2.4, 1.8, 0);
-    gatehouse.castShadow = true;
-    gatehouse.receiveShadow = true;
-    group.add(gatehouse);
-
-    // Gatehouse Stone Arch Coping
-    const gateCoping = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 3.4), stoneTrimMat);
-    gateCoping.position.set(2.4, 3.55, 0);
-    group.add(gateCoping);
-
-    // Twin Dark Oak Timber Doors (Arched Opening)
-    const doorLeft = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.2, 0.8), woodOakMat);
-    doorLeft.position.set(2.9, 1.2, -0.42);
-    doorLeft.rotation.y = -0.25; // Slightly ajar
-    doorLeft.castShadow = true;
-    group.add(doorLeft);
-
-    const doorRight = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.2, 0.8), woodOakMat);
-    doorRight.position.set(2.9, 1.2, 0.42);
-    doorRight.rotation.y = 0.25; // Slightly ajar
-    doorRight.castShadow = true;
-    group.add(doorRight);
-
-    // Iron Portcullis Grill (Partially raised above entrance)
-    const portcullis = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.6, 1.6), darkIronMat);
-    portcullis.position.set(2.95, 2.2, 0);
-    group.add(portcullis);
-
-    // Royal Crest Shield above the Gate
-    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, 0.55), gildedGoldMat);
-    crest.position.set(3.12, 2.95, 0);
-    group.add(crest);
-
-    // Flanking Entrance Lantern Torches
-    [-1.2, 1.2].forEach(zLantern => {
-      const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.08), darkIronMat);
-      bracket.position.set(3.15, 2.1, zLantern);
-      group.add(bracket);
-
-      const lantern = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.28, 0.18), glowingWindowMat);
-      lantern.position.set(3.3, 2.05, zLantern);
-      group.add(lantern);
-
-      const lanternLight = new THREE.PointLight(0xffa040, 0.5, 5);
-      lanternLight.position.set(3.4, 2.05, zLantern);
-      group.add(lanternLight);
-    });
-
-    // 4. Stained Glass Windows & Lancet Openings
-    // Grand Rose Window on Keep Front Face
-    const roseWindow = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.08, 12), glowingWindowMat);
-    roseWindow.rotation.z = Math.PI / 2;
-    roseWindow.position.set(2.22, 4.8, 0);
-    group.add(roseWindow);
-
-    // Lancet windows on Keep sides
-    [-2.72, 2.72].forEach(zWindow => {
-      [3.0, 4.8].forEach(yWindow => {
-        const win = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.75, 0.08), glowingWindowMat);
-        win.position.set(0, yWindow, zWindow);
-        group.add(win);
-      });
-    });
-
-    // 5. Four Stately Sentry Corner Towers
-    const towerPositions = [
-      { x: 1.9, z: -2.7, hasBanner: true },   // Front North
-      { x: 1.9, z: 2.7, hasBanner: true },    // Front South
-      { x: -1.9, z: -2.7, hasBanner: false }, // Rear North
-      { x: -1.9, z: 2.7, hasBanner: false }   // Rear South
-    ];
-
-    towerPositions.forEach(tp => {
-      // Tower Lower Cylinder
-      const tBase = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.05, 6.2, 8), fortressStoneMat);
-      tBase.position.set(tp.x, 3.2, tp.z);
-      tBase.castShadow = true;
-      tBase.receiveShadow = true;
-      group.add(tBase);
-
-      // Machicolation Corbel Gallery
-      const tGallery = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 0.9, 0.45, 8), stoneTrimMat);
-      tGallery.position.set(tp.x, 6.35, tp.z);
-      tGallery.castShadow = true;
-      group.add(tGallery);
-
-      // Parapet Merlons
-      for (let m = 0; m < 4; m++) {
-        const mAngle = (m * Math.PI) / 2 + Math.PI / 4;
-        const merlon = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.35, 0.3), stoneTrimMat);
-        merlon.position.set(tp.x + Math.cos(mAngle) * 0.95, 6.7, tp.z + Math.sin(mAngle) * 0.95);
-        group.add(merlon);
-      }
-
-      // Conical Gothic Slate Roof
-      const tRoof = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.4, 8), royalBlueSlateMat);
-      tRoof.position.set(tp.x, 7.8, tp.z);
-      tRoof.castShadow = true;
-      group.add(tRoof);
-
-      // Gilded Spire Finial Ball
-      const tFinial = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), gildedGoldMat);
-      tFinial.position.set(tp.x, 9.1, tp.z);
-      group.add(tFinial);
-
-      // Arrow Slit Window
-      const arrowSlit = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.1), darkIronMat);
-      arrowSlit.position.set(tp.x + (tp.x > 0 ? 0.9 : -0.9), 4.2, tp.z);
-      group.add(arrowSlit);
-
-      // Royal Blue Wall Banners on front towers
-      if (tp.hasBanner) {
-        const banner = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.8, 0.45), royalBlueSlateMat);
-        banner.position.set(tp.x + 0.95, 4.6, tp.z);
-        group.add(banner);
-
-        // Gold Trim Border at bottom of banner
-        const bTrim = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.47), gildedGoldMat);
-        bTrim.position.set(tp.x + 0.95, 3.65, tp.z);
-        group.add(bTrim);
-      }
-    });
-
-    // 6. Royal Standard Pennant flying from the main keep peak
-    const flagStaff = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.4, 6), darkIronMat);
-    flagStaff.position.set(0.6, 7.4, -0.6);
-    group.add(flagStaff);
-
-    // Fluttering Royal Standard Flag
-    const flagGeom = new THREE.BufferGeometry();
-    const flagVertices = new Float32Array([
-      0, 0.5, 0,
-      1.2, 0.25, 0.1,
-      0, 0, 0
-    ]);
-    flagGeom.setAttribute('position', new THREE.BufferAttribute(flagVertices, 3));
-    flagGeom.computeVertexNormals();
-    const flagMesh = new THREE.Mesh(flagGeom, new THREE.MeshStandardMaterial({
-      color: palette.banner,
-      side: THREE.DoubleSide,
-      roughness: 0.5
-    }));
-    flagMesh.position.set(0.6, 7.4, -0.6);
-    group.add(flagMesh);
-
-    parent.add(group);
-    return group;
+  /** The war camp recruits march out of, its gate opening onto the first road tile (facing +X). */
+  private buildBarracksCamp(pos: THREE.Vector3, parent: THREE.Object3D, theme: CastleTheme) {
+    const camp = buildBarracks(CASTLE_THEMES[theme]);
+    camp.position.copy(pos);
+    camp.scale.setScalar(1.15); // the gate still stops short of the first plot column
+    parent.add(camp);
   }
 
   private buildTeleportationGate(pos: THREE.Vector3, parent: THREE.Object3D = this.scene): THREE.Group {
