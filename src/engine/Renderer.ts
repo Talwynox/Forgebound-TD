@@ -3,7 +3,8 @@ import { Grid, TileType } from '../grid/Grid';
 import { ARENA_MIRROR_X, ARENA_WIDTH, ARENA_CENTER_X, mirrorX } from '../game/Teams';
 import { PostFX } from './PostFX';
 import { MAP_THEMES, MapTheme, MapThemeId } from './MapThemes';
-import { createFlagstoneTexture, createGlowSprite, createMasonryTexture, createMistTexture, createMossTexture } from './ProceduralTextures';
+import { createFlagstoneTexture, createGlowSprite, createMasonryTexture, createMossTexture } from './ProceduralTextures';
+import { buildWorldGround, disposeWorldGround, mazeFloor, WorldGround } from './WorldGround';
 
 interface ParticleField {
   points: THREE.Points;
@@ -35,9 +36,14 @@ export class SceneRenderer {
   private portalVortices: THREE.Mesh[] = [];
   private arrivalVortices: THREE.Mesh[] = [];
   private roadGroup: THREE.Group = new THREE.Group();
-  /** Sun maze island ground (tinted per mission theme). */
-  private mazeGroundMat: THREE.MeshStandardMaterial | null = null;
+  /** Maze island floors (Sun, and the PvP Moon one once built), dressed per map theme. */
+  private mazeGroundMats: THREE.MeshStandardMaterial[] = [];
+  /** PvP Moon maze road (mirrors the Sun road; rebuilt with it). */
+  private moonRoad: THREE.Group | null = null;
+  private mapThemeId: MapThemeId = 'FRONTIER';
   private mapTheme: MapTheme = MAP_THEMES.FRONTIER;
+  /** Solid ground dressed in the current mission's scenery. */
+  private ground: WorldGround | null = null;
 
   // PvP layout: mirrored Moon maze island & arena side; the decorative enemy citadel is hidden
   private enemyCitadel: THREE.Group | null = null;
@@ -53,7 +59,7 @@ export class SceneRenderer {
   constructor(container: HTMLElement) {
     this.container = container;
 
-    // 1. Scene - Dark fantasy night: the void swallows everything beyond the islands
+    // 1. Scene - Dark fantasy night: fog swallows the meadow beyond the battlefield
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x07060c);
     this.scene.fog = new THREE.FogExp2(0x0d0b17, 0.0085);
@@ -104,19 +110,16 @@ export class SceneRenderer {
     citadelLight.position.set(mirrorX(-0.4), 5, 0);
     this.scene.add(citadelLight);
 
-    // 4. Ground Environment (Maze Island + Void + Arena Island)
+    // 4. Ground Environment (Meadow + Maze Island + Arena Island)
     this.buildWorldEnvironment();
   }
 
   private buildWorldEnvironment() {
-    // 1. Medieval Fantasy Atmosphere, Mountains, Terrain & Floating Bedrock
+    // 1. Medieval Fantasy Atmosphere, Mountains & the solid meadow the battlefield stands on
     this.buildSkyAndAtmosphere();
-    this.buildIslandBedrock();
+    this.buildGround();
     this.buildDistantMountainRanges();
-    this.buildWestKingdomTerrain();
-    this.buildEastInfernalTerrain();
-    this.buildCentralChasmAndLeyLines();
-    this.buildMistSea();
+    this.buildLeyLineConduit();
     this.buildArenaEmbers();
 
     this.buildMazeIsland(this.scene, this.roadGroup);
@@ -335,9 +338,10 @@ export class SceneRenderer {
       side.position.x = 2 * ARENA_MIRROR_X;
 
       const moonRoad = new THREE.Group();
+      this.moonRoad = moonRoad;
       this.buildMazeIsland(side, moonRoad, 'MOON');
+      this.applyMazeFloor(this.mazeGroundMats[this.mazeGroundMats.length - 1]);
       this.buildRoadVisuals(sunGrid, moonRoad);
-      this.buildMazeBedrock(side);
       this.buildArrivalTeleportPad(new THREE.Vector3(1.8, 0, 0), side);
 
       const barrierMat = new THREE.MeshStandardMaterial({ color: 0x3b3634, roughness: 0.85, metalness: 0.15 });
@@ -358,6 +362,8 @@ export class SceneRenderer {
 
     if (this.moonSide) this.moonSide.visible = enabled;
     if (this.enemyCitadel) this.enemyCitadel.visible = !enabled;
+    // The Moon maze island stands where the open field's decor would be
+    if (this.ground) this.ground.moonFieldDecor.visible = !enabled;
   }
 
   /**
@@ -375,7 +381,8 @@ export class SceneRenderer {
       roughness: 0.95,
       metalness: 0.0
     });
-    if (theme === 'SUN') this.mazeGroundMat = mazeIslandMat;
+    mazeIslandMat.userData.moss = mazeIslandMat.map;
+    this.mazeGroundMats.push(mazeIslandMat);
     const mazeIsland = new THREE.Mesh(mazeIslandGeom, mazeIslandMat);
     mazeIsland.position.set(-22, -0.15, 0);
     mazeIsland.receiveShadow = true;
@@ -433,13 +440,11 @@ export class SceneRenderer {
     this.buildTeleportationGate(new THREE.Vector3(-10, 0, 12), parent);
   }
 
-  /**
-   * Builds distinct, high-contrast cobblestone road paving across all road tiles
-   */
-  /** Recolours sky, fog, light, maze ground and (on the next buildRoadVisuals) the road for a mission. */
+  /** Recolours sky, fog, light, maze ground and (on the next buildRoadVisuals) the road, and swaps in the theme's scenery. */
   applyMapTheme(themeId: MapThemeId) {
     const theme = MAP_THEMES[themeId];
     this.mapTheme = theme;
+    this.mapThemeId = themeId;
     (this.scene.background as THREE.Color).setHex(theme.background);
     const fog = this.scene.fog as THREE.FogExp2;
     fog.color.setHex(theme.fog);
@@ -447,10 +452,23 @@ export class SceneRenderer {
     this.ambientLight.color.setHex(theme.ambient);
     this.hemiLight.color.setHex(theme.hemiSky);
     this.hemiLight.groundColor.setHex(theme.hemiGround);
-    this.mazeGroundMat?.color.setHex(theme.ground);
+    this.mazeGroundMats.forEach(m => this.applyMazeFloor(m));
+    this.buildGround(themeId);
   }
 
+  /** Frontier keeps its damp moss; other themes floor the maze with their own ground, a shade darker than the field. */
+  private applyMazeFloor(mat: THREE.MeshStandardMaterial) {
+    const floor = mazeFloor(this.mapThemeId);
+    mat.map = floor ? floor.map : mat.userData.moss;
+    mat.color.setHex(floor ? floor.tint : this.mapTheme.ground);
+  }
+
+  /**
+   * Builds distinct, high-contrast cobblestone road paving across all road tiles
+   * (the PvP Moon road mirrors the Sun one, so it is rebuilt alongside it).
+   */
   buildRoadVisuals(grid: Grid, roadGroup: THREE.Group = this.roadGroup) {
+    if (roadGroup === this.roadGroup && this.moonRoad) this.buildRoadVisuals(grid, this.moonRoad);
     // Clear old road meshes
     while (roadGroup.children.length > 0) {
       const child = roadGroup.children[0];
@@ -1200,7 +1218,7 @@ export class SceneRenderer {
 
   /**
    * The Infernal Citadel: the enemy fortress forming the arena's east wall (solo & co-op).
-   * Built facing west (-X) towards the arena; its bulk hangs out over the abyss on a molten rock spur.
+   * Built facing west (-X) towards the arena; its bulk stands on a scorched basalt footing east of the arena.
    */
   private buildEnemyCitadel(pos: THREE.Vector3, parent: THREE.Object3D = this.scene): THREE.Group {
     const group = new THREE.Group();
@@ -1241,15 +1259,9 @@ export class SceneRenderer {
     /** Tall arrow-slit windows lit by the forges inside. */
     const slit = (x: number, y: number, z: number, h = 0.7) => add(new THREE.BoxGeometry(0.08, h, 0.16), magma, x, y, z);
 
-    // 1. Molten rock spur the fortress stands on, hanging into the abyss
+    // 1. Scorched basalt footing the fortress is built on
     const rock = new THREE.MeshStandardMaterial({ color: 0x151013, roughness: 0.95, flatShading: true });
     add(new THREE.BoxGeometry(7.5, 1.4, 19.6), rock, 3.2, -0.55, 0);
-    add(new THREE.ConeGeometry(6.5, 11, 6), rock, 3.6, -6.8, 0, Math.PI);
-    add(new THREE.ConeGeometry(3.2, 7, 5), rock, 3.0, -4.5, 6.5, Math.PI);
-    add(new THREE.ConeGeometry(3.2, 7, 5), rock, 3.0, -4.5, -6.5, Math.PI);
-    [[0.2, -2.2, 5.5, 0.3], [0.2, -3.2, -3.0, -0.2], [0.2, -2.6, 1.6, 0.15]].forEach(([x, y, z, rz]) => {
-      add(new THREE.BoxGeometry(0.12, 3.6, 0.25), magma, x, y, z, 0, 0, rz);
-    });
 
     // 2. Curtain wall: the arena's east wall, with spiked battlements
     add(new THREE.BoxGeometry(1.4, 4.2, 19.2), volcanicBrick, 0.2, 2.1, 0);
@@ -1413,104 +1425,24 @@ export class SceneRenderer {
   }
 
   /**
-   * 2. Sculpted Bedrock Foundations beneath the Floating Islands
+   * 2. One continuous ground under the maze islands and the arena, dressed for the map theme.
+   * Rebuilt (and the old scenery freed) only when the theme actually changes.
    */
-  private buildIslandBedrock() {
-    this.buildMazeBedrock(this.scene);
-    this.buildArenaBedrock();
-  }
-
-  /** Floating rock foundation under the maze island (Sun position). */
-  private buildMazeBedrock(parent: THREE.Object3D) {
-    // --- Maze Island Bedrock (Kingdom of Light Floating Rock Foundation) ---
-    const mazeBedrock = new THREE.Group();
-    mazeBedrock.position.set(-22, 0, 0);
-
-    const graniteMat = new THREE.MeshStandardMaterial({ color: 0x332e29, roughness: 0.9 });
-    const deepRockMat = new THREE.MeshStandardMaterial({ color: 0x24201c, roughness: 0.95 });
-
-    // Stepped bedrock tiers (depth 32)
-    const l1 = new THREE.Mesh(new THREE.BoxGeometry(23.2, 1.2, 31.2), graniteMat);
-    l1.position.y = -0.7;
-    mazeBedrock.add(l1);
-
-    const l2 = new THREE.Mesh(new THREE.BoxGeometry(20.5, 1.6, 27.5), deepRockMat);
-    l2.position.y = -1.9;
-    mazeBedrock.add(l2);
-
-    const l3 = new THREE.Mesh(new THREE.BoxGeometry(16.0, 2.0, 22.0), deepRockMat);
-    l3.position.y = -3.5;
-    mazeBedrock.add(l3);
-
-    const l4 = new THREE.Mesh(new THREE.ConeGeometry(8.5, 4.5, 6), deepRockMat);
-    l4.position.y = -6.0;
-    l4.rotation.x = Math.PI;
-    mazeBedrock.add(l4);
-
-    // Hanging stalactite earth crags along the rim
-    const stalactiteMat = new THREE.MeshStandardMaterial({ color: 0x2a2521, roughness: 0.85 });
-    const cragPositions = [
-      { x: -11.0, z: -12.0, h: 2.8, r: 0.65 },
-      { x: -11.0, z: 12.0, h: 3.2, r: 0.75 },
-      { x: 11.0, z: -10.0, h: 2.8, r: 0.65 },
-      { x: 11.0, z: 10.0, h: 3.5, r: 0.8 },
-      { x: -5.0, z: 15.2, h: 2.5, r: 0.6 },
-      { x: 6.0, z: 15.2, h: 3.2, r: 0.7 },
-      { x: -4.0, z: -15.2, h: 2.6, r: 0.65 },
-      { x: 5.0, z: -15.2, h: 3.0, r: 0.7 }
-    ];
-    cragPositions.forEach(cp => {
-      const crag = new THREE.Mesh(new THREE.ConeGeometry(cp.r, cp.h, 5), stalactiteMat);
-      crag.position.set(cp.x, -cp.h * 0.5 - 0.3, cp.z);
-      crag.rotation.x = Math.PI;
-      mazeBedrock.add(crag);
-    });
-
-    parent.add(mazeBedrock);
-  }
-
-  private buildArenaBedrock() {
-
-    // --- Arena Island Bedrock (Infernal Dreadfort Basalt Foundation) ---
-    const arenaBedrock = new THREE.Group();
-    arenaBedrock.position.set(ARENA_CENTER_X, 0, 0);
-
-    const basaltMat = new THREE.MeshStandardMaterial({ color: 0x1c1719, roughness: 0.85, metalness: 0.2 });
-    const deepBasaltMat = new THREE.MeshStandardMaterial({ color: 0x120e10, roughness: 0.95 });
-    const lavaVeinMat = new THREE.MeshBasicMaterial({ color: 0xff4500 });
-    this.lavaMaterials.push(lavaVeinMat);
-
-    const a1 = new THREE.Mesh(new THREE.BoxGeometry(ARENA_WIDTH - 0.8, 1.4, 19.4), basaltMat);
-    a1.position.y = -0.8;
-    arenaBedrock.add(a1);
-
-    const a2 = new THREE.Mesh(new THREE.BoxGeometry(ARENA_WIDTH - 4.5, 1.8, 16.0), deepBasaltMat);
-    a2.position.y = -2.2;
-    arenaBedrock.add(a2);
-
-    const a3 = new THREE.Mesh(new THREE.BoxGeometry(ARENA_WIDTH - 10.5, 2.2, 11.5), deepBasaltMat);
-    a3.position.y = -4.0;
-    arenaBedrock.add(a3);
-
-    const a4 = new THREE.Mesh(new THREE.ConeGeometry(7.0, 4.5, 6), deepBasaltMat);
-    a4.position.y = -6.8;
-    a4.rotation.x = Math.PI;
-    arenaBedrock.add(a4);
-
-    // Glowing magma fissures running down bedrock edges
-    [-6, 2, 8].forEach(xOff => {
-      const veinN = new THREE.Mesh(new THREE.BoxGeometry(0.25, 2.5, 0.1), lavaVeinMat);
-      veinN.position.set(xOff, -1.8, -9.8);
-      veinN.rotation.z = (xOff % 2 === 0) ? 0.2 : -0.2;
-      arenaBedrock.add(veinN);
-
-      const veinS = new THREE.Mesh(new THREE.BoxGeometry(0.25, 2.5, 0.1), lavaVeinMat);
-      veinS.position.set(xOff, -1.8, 9.8);
-      veinS.rotation.z = (xOff % 2 === 0) ? -0.2 : 0.2;
-      arenaBedrock.add(veinS);
-    });
-
-    this.scene.add(arenaBedrock);
+  private buildGround(themeId: MapThemeId = 'FRONTIER') {
+    const old = this.ground;
+    if (old?.themeId === themeId) return;
+    if (old) {
+      this.scene.remove(old.root);
+      this.lavaMaterials = this.lavaMaterials.filter(m => !old.lavaMaterials.includes(m));
+      this.mistLayers = this.mistLayers.filter(l => !old.mistLayers.includes(l));
+      disposeWorldGround(old);
+    }
+    const ground = buildWorldGround(themeId);
+    ground.moonFieldDecor.visible = !this.moonSide?.visible;
+    this.scene.add(ground.root);
+    this.lavaMaterials.push(...ground.lavaMaterials);
+    this.mistLayers.push(...ground.mistLayers);
+    this.ground = ground;
   }
 
   /**
@@ -1604,284 +1536,17 @@ export class SceneRenderer {
       mountainGroup.add(hill);
     });
 
-    mountainGroup.position.y = -8;
+    mountainGroup.position.y = -2; // bases buried in the rolling hills
     this.scene.add(mountainGroup);
   }
 
   /**
-   * 4. West Kingdom Terrain: Rolling Valleys, Pine Forests, Mountain River & Ancient Ruins
+   * 6. Arcane Ley-Line Conduit: crystals hovering over carved waystones
    */
-  private buildWestKingdomTerrain() {
-    const westGroup = new THREE.Group();
-
-    // Lower valley ground plane
-    const valleyGeom = new THREE.PlaneGeometry(90, 110);
-    valleyGeom.rotateX(-Math.PI / 2);
-    const valleyMat = new THREE.MeshStandardMaterial({ color: 0x162c18, roughness: 0.95 });
-    const valley = new THREE.Mesh(valleyGeom, valleyMat);
-    valley.position.set(-45, -6.5, 0);
-    westGroup.add(valley);
-
-    // Rolling grassy mounds
-    const knollMat1 = new THREE.MeshStandardMaterial({ color: 0x224823, roughness: 0.9 });
-    const knollMat2 = new THREE.MeshStandardMaterial({ color: 0x1c3a1e, roughness: 0.9 });
-    const knolls = [
-      { x: -55, z: -35, r: 15, h: 4.5, mat: knollMat1 },
-      { x: -40, z: -40, r: 12, h: 4.0, mat: knollMat2 },
-      { x: -60, z: -10, r: 16, h: 5.0, mat: knollMat1 },
-      { x: -58, z: 20,  r: 14, h: 4.2, mat: knollMat2 },
-      { x: -45, z: 35,  r: 15, h: 4.5, mat: knollMat1 },
-      { x: -30, z: 38,  r: 11, h: 3.5, mat: knollMat2 },
-      { x: -18, z: -36, r: 10, h: 3.2, mat: knollMat1 },
-      { x: -25, z: -45, r: 13, h: 3.8, mat: knollMat2 }
-    ];
-    knolls.forEach(k => {
-      const kGeom = new THREE.SphereGeometry(k.r, 8, 6);
-      const mound = new THREE.Mesh(kGeom, k.mat);
-      mound.position.set(k.x, -k.r + k.h - 6.5, k.z);
-      westGroup.add(mound);
-    });
-
-    // Ancient Medieval Watchtower Ruin in the Western Hills
-    const towerStoneMat = new THREE.MeshStandardMaterial({ color: 0x48423b, roughness: 0.85 });
-    const towerWoodMat = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.8 });
-    const ruinGroup = new THREE.Group();
-    ruinGroup.position.set(-52, -2.5, -20);
-    const rBase = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.7, 5.0, 6), towerStoneMat);
-    rBase.position.y = 2.5;
-    ruinGroup.add(rBase);
-    for (let c = 0; c < 5; c++) {
-      const ang = (c / 6) * Math.PI * 2;
-      const bGeom = new THREE.BoxGeometry(0.5, 0.6, 0.4);
-      const merl = new THREE.Mesh(bGeom, towerStoneMat);
-      merl.position.set(Math.cos(ang) * 1.4, 5.2, Math.sin(ang) * 1.4);
-      ruinGroup.add(merl);
-    }
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.0, 4), towerWoodMat);
-    beam.position.set(0.6, 3.5, 0.8);
-    beam.rotation.z = 0.5;
-    ruinGroup.add(beam);
-    westGroup.add(ruinGroup);
-
-    // Clustered Alpine Pine Forests
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3b2416, roughness: 0.9 });
-    const foliageMat1 = new THREE.MeshStandardMaterial({ color: 0x143c1c, roughness: 0.85 });
-    const foliageMat2 = new THREE.MeshStandardMaterial({ color: 0x1e4a26, roughness: 0.85 });
-
-    const createPineTree = (x: number, y: number, z: number, scale: number) => {
-      const tree = new THREE.Group();
-      tree.position.set(x, y, z);
-      tree.scale.set(scale, scale, scale);
-
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.22, 1.8, 5), trunkMat);
-      trunk.position.y = 0.9;
-      tree.add(trunk);
-
-      const fMat = (x + z) % 2 > 0 ? foliageMat1 : foliageMat2;
-      const tiers = [
-        { r: 1.1, h: 1.4, y: 1.7 },
-        { r: 0.85, h: 1.3, y: 2.5 },
-        { r: 0.6, h: 1.2, y: 3.3 }
-      ];
-      tiers.forEach(t => {
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(t.r, t.h, 5), fMat);
-        cone.position.y = t.y;
-        tree.add(cone);
-      });
-      return tree;
-    };
-
-    const treePositions = [
-      // Cluster 1: West hills
-      { x: -50, y: -2.5, z: -30, s: 1.1 }, { x: -47, y: -3.0, z: -27, s: 0.9 },
-      { x: -53, y: -2.3, z: -25, s: 1.2 }, { x: -44, y: -3.5, z: -32, s: 0.85 },
-      { x: -56, y: -2.0, z: -15, s: 1.0 }, { x: -48, y: -2.8, z: -12, s: 1.15 },
-      { x: -52, y: -2.4, z: -8,  s: 0.9 }, { x: -58, y: -2.0, z: -4,  s: 1.05 },
-      // Cluster 2: North valley
-      { x: -38, y: -3.5, z: -34, s: 1.0 }, { x: -33, y: -4.0, z: -32, s: 0.95 },
-      { x: -42, y: -3.2, z: -38, s: 1.2 }, { x: -28, y: -4.5, z: -35, s: 0.8 },
-      { x: -22, y: -4.8, z: -32, s: 1.1 }, { x: -17, y: -5.0, z: -30, s: 0.9 },
-      // Cluster 3: South meadows
-      { x: -54, y: -2.2, z: 18,  s: 1.1 }, { x: -48, y: -2.8, z: 22,  s: 0.85 },
-      { x: -42, y: -3.2, z: 26,  s: 1.05 }, { x: -38, y: -3.8, z: 29,  s: 0.95 },
-      { x: -46, y: -3.0, z: 32,  s: 1.15 }, { x: -33, y: -4.2, z: 35,  s: 0.9 },
-      { x: -27, y: -4.6, z: 33,  s: 1.0 }, { x: -20, y: -5.0, z: 28,  s: 0.85 }
-    ];
-    treePositions.forEach(tp => {
-      westGroup.add(createPineTree(tp.x, tp.y, tp.z, tp.s));
-    });
-
-    // Crystalline Alpine Mountain River
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x14203a,
-      emissive: 0x0b1a33,
-      roughness: 0.1,
-      metalness: 0.5,
-      transparent: true,
-      opacity: 0.9
-    });
-    const riverSegments = [
-      { x: -44, z: -45, sx: 3.5, sz: 12, rot: 0.4 },
-      { x: -39, z: -32, sx: 3.8, sz: 14, rot: 0.1 },
-      { x: -36, z: -16, sx: 4.0, sz: 16, rot: -0.2 },
-      { x: -33, z: 0,   sx: 4.2, sz: 16, rot: 0.15 },
-      { x: -28, z: 16,  sx: 4.5, sz: 16, rot: 0.5 },
-      { x: -19, z: 26,  sx: 5.0, sz: 14, rot: 0.8 }
-    ];
-    riverSegments.forEach(seg => {
-      const rGeom = new THREE.PlaneGeometry(seg.sx, seg.sz);
-      rGeom.rotateX(-Math.PI / 2);
-      const riverMesh = new THREE.Mesh(rGeom, waterMat);
-      riverMesh.position.set(seg.x, -6.35, seg.z);
-      riverMesh.rotation.y = seg.rot;
-      westGroup.add(riverMesh);
-    });
-
-    // Riverbank stones
-    const boulderMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.85 });
-    for (let i = 0; i < 12; i++) {
-      const bGeom = new THREE.DodecahedronGeometry(0.3 + (i % 3) * 0.15);
-      const b = new THREE.Mesh(bGeom, boulderMat);
-      b.position.set(-36 + Math.sin(i * 1.5) * 6, -6.3, -35 + i * 5.5);
-      westGroup.add(b);
-    }
-
-    // Far below the floating islands, mostly swallowed by the mist sea & fog
-    westGroup.position.y = -22;
-    this.scene.add(westGroup);
-  }
-
-  /**
-   * 5. East Infernal Terrain: Scorched Badlands, Magma Rivers, Basalt Pillars & Obsidian Spikes
-   */
-  private buildEastInfernalTerrain() {
-    const eastGroup = new THREE.Group();
-
-    // Lower badlands ground plane
-    const ashGeom = new THREE.PlaneGeometry(90, 110);
-    ashGeom.rotateX(-Math.PI / 2);
-    const ashMat = new THREE.MeshStandardMaterial({ color: 0x120f12, roughness: 0.95 });
-    const ashField = new THREE.Mesh(ashGeom, ashMat);
-    ashField.position.set(45, -6.5, 0);
-    eastGroup.add(ashField);
-
-    // Scorched volcanic crags
-    const basaltCragMat = new THREE.MeshStandardMaterial({ color: 0x1d1719, roughness: 0.9, metalness: 0.2 });
-    const crags = [
-      { x: 38, z: -35, r: 13, h: 4.2 },
-      { x: 55, z: -25, r: 16, h: 4.8 },
-      { x: 62, z: 10,  r: 15, h: 4.5 },
-      { x: 48, z: 30,  r: 14, h: 4.0 },
-      { x: 32, z: 38,  r: 12, h: 3.5 },
-      { x: 18, z: -36, r: 11, h: 3.2 },
-      { x: 20, z: 34,  r: 10, h: 3.0 }
-    ];
-    crags.forEach(c => {
-      const cGeom = new THREE.DodecahedronGeometry(c.r);
-      const crag = new THREE.Mesh(cGeom, basaltCragMat);
-      crag.position.set(c.x, -c.r + c.h - 6.5, c.z);
-      crag.scale.set(1.2, 0.45, 1.0);
-      eastGroup.add(crag);
-    });
-
-    // Glowing Rivers of Molten Magma
-    const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff3800 });
-    const lavaEdgeMat = new THREE.MeshBasicMaterial({ color: 0x3a0906 });
-    this.lavaMaterials.push(lavaMat);
-
-    const lavaStreams = [
-      { x: 42, z: -8,  sx: 3.2, sz: 14, rot: -0.3 },
-      { x: 32, z: -15, sx: 3.6, sz: 16, rot: -0.6 },
-      { x: 20, z: -22, sx: 4.0, sz: 14, rot: -0.8 },
-      { x: 10, z: -25, sx: 4.5, sz: 12, rot: -1.1 },
-      { x: 38, z: 14,  sx: 3.0, sz: 16, rot: 0.4 },
-      { x: 26, z: 22,  sx: 3.5, sz: 14, rot: 0.6 },
-      { x: 12, z: 26,  sx: 4.2, sz: 12, rot: 0.9 }
-    ];
-    lavaStreams.forEach((str, idx) => {
-      // Each stream is a chain of narrow, slightly bending fissure segments
-      const segments = 5;
-      const segLen = str.sz / segments;
-      let angle = str.rot;
-      let cx = str.x - Math.sin(str.rot) * str.sz * 0.5;
-      let cz = str.z - Math.cos(str.rot) * str.sz * 0.5;
-      for (let i = 0; i < segments; i++) {
-        angle += Math.sin(idx * 3.1 + i * 1.7) * 0.35;
-        const width = str.sx * (0.12 + 0.08 * Math.abs(Math.sin(idx + i * 2.3)));
-        const midX = cx + Math.sin(angle) * segLen * 0.5;
-        const midZ = cz + Math.cos(angle) * segLen * 0.5;
-
-        const coreGeom = new THREE.PlaneGeometry(width, segLen * 1.08);
-        coreGeom.rotateX(-Math.PI / 2);
-        const core = new THREE.Mesh(coreGeom, lavaMat);
-        core.position.set(midX, -6.38, midZ);
-        core.rotation.y = angle;
-        eastGroup.add(core);
-
-        const crustGeom = new THREE.PlaneGeometry(width * 3.2, segLen * 1.12);
-        crustGeom.rotateX(-Math.PI / 2);
-        const crust = new THREE.Mesh(crustGeom, lavaEdgeMat);
-        crust.position.set(midX, -6.42, midZ);
-        crust.rotation.y = angle;
-        eastGroup.add(crust);
-
-        cx += Math.sin(angle) * segLen;
-        cz += Math.cos(angle) * segLen;
-      }
-    });
-
-    // Hexagonal Basalt Columns (Giant's Causeway style)
-    const columnMat = new THREE.MeshStandardMaterial({ color: 0x241d20, roughness: 0.85, metalness: 0.3 });
-    const colClusters = [
-      { cx: 34, cz: -26 }, { cx: 48, cz: 20 }, { cx: 22, cz: 30 }
-    ];
-    colClusters.forEach(cc => {
-      for (let i = 0; i < 6; i++) {
-        const h = 2.5 + (i % 4) * 0.9;
-        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, h, 6), columnMat);
-        const ang = (i / 6) * Math.PI * 2;
-        col.position.set(cc.cx + Math.cos(ang) * 1.3, -6.5 + h * 0.5, cc.cz + Math.sin(ang) * 1.3);
-        eastGroup.add(col);
-      }
-    });
-
-    // Jagged Demonic Obsidian Spikes
-    const spikeMat = new THREE.MeshStandardMaterial({ color: 0x181014, roughness: 0.4, metalness: 0.8 });
-    const spikes = [
-      { x: 32, z: -32, h: 4.5, rotZ: 0.3,  rotX: 0.2 },
-      { x: 50, z: -15, h: 5.5, rotZ: -0.2, rotX: -0.3 },
-      { x: 42, z: 28,  h: 5.0, rotZ: 0.25, rotX: 0.3 },
-      { x: 26, z: 36,  h: 4.0, rotZ: -0.3, rotX: 0.2 },
-      { x: 18, z: -14, h: 3.5, rotZ: 0.35, rotX: -0.2 }
-    ];
-    spikes.forEach(sp => {
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.45, sp.h, 4), spikeMat);
-      spike.position.set(sp.x, -6.5 + sp.h * 0.45, sp.z);
-      spike.rotation.z = sp.rotZ;
-      spike.rotation.x = sp.rotX;
-      eastGroup.add(spike);
-    });
-
-    eastGroup.position.y = -22;
-    this.scene.add(eastGroup);
-  }
-
-  /**
-   * 6. Central Chasm & Levitating Arcane Ley-Line Conduit Bridge
-   */
-  private buildCentralChasmAndLeyLines() {
+  private buildLeyLineConduit() {
     const chasmGroup = new THREE.Group();
 
-    // Deep abyss floor beneath the chasm
-    const abyssGeom = new THREE.PlaneGeometry(28, 90);
-    abyssGeom.rotateX(-Math.PI / 2);
-    const abyssMat = new THREE.MeshStandardMaterial({ color: 0x080b12, roughness: 0.99 });
-    const abyss = new THREE.Mesh(abyssGeom, abyssMat);
-    abyss.position.set(-5, -40.0, 0);
-    chasmGroup.add(abyss);
-
-    // Floating Arcane Ley-Line Conduit Bridge
-    // Spanning from Maze Exit (-11, 0, 8) across the chasm to Arena Pad (1.8, 0, 0)
+    // Spanning from Maze Exit (-11, 0, 8) across the meadow to Arena Pad (1.8, 0, 0)
     const crystalMat = new THREE.MeshStandardMaterial({
       color: 0x38bdf8,
       emissive: 0x0284c7,
@@ -1897,15 +1562,29 @@ export class SceneRenderer {
     });
 
     const conduitNodes = [
-      { x: -8.8, y: 0.2, z: 10.5 },
-      { x: -7.0, y: 0.5, z: 8.4 },
-      { x: -5.2, y: 0.8, z: 6.3 },
-      { x: -3.4, y: 0.7, z: 4.2 },
-      { x: -1.6, y: 0.4, z: 2.1 },
-      { x: 0.2,  y: 0.2, z: 0.4 }
+      { x: -8.8, y: 0.75, z: 10.5 },
+      { x: -7.0, y: 0.95, z: 8.4 },
+      { x: -5.2, y: 1.15, z: 6.3 },
+      { x: -3.4, y: 1.05, z: 4.2 },
+      { x: -1.6, y: 0.9, z: 2.1 },
+      { x: 0.2,  y: 0.75, z: 0.4 }
     ];
 
+    const waystoneMat = new THREE.MeshStandardMaterial({ color: 0x3f3d46, roughness: 0.9, flatShading: true });
+    const waystoneRuneMat = new THREE.MeshStandardMaterial({ color: 0x0c2a3a, emissive: 0x38bdf8, emissiveIntensity: 0.9 });
+
     conduitNodes.forEach((node, idx) => {
+      // Carved waystone on the ground beneath each hovering crystal
+      const waystone = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 0.3, 6), waystoneMat);
+      waystone.position.set(node.x, 0.15, node.z);
+      waystone.rotation.y = idx * 0.7;
+      waystone.castShadow = true;
+      waystone.receiveShadow = true;
+      chasmGroup.add(waystone);
+      const rune = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.02, 6), waystoneRuneMat);
+      rune.position.set(node.x, 0.31, node.z);
+      chasmGroup.add(rune);
+
       const nodeGroup = new THREE.Group();
       nodeGroup.position.set(node.x, node.y, node.z);
 
@@ -1931,69 +1610,6 @@ export class SceneRenderer {
     chasmGroup.add(conduitLight);
 
     this.scene.add(chasmGroup);
-  }
-
-  /**
-   * 7. A drifting sea of mist beneath the floating islands: cold violet in the west,
-   * lit from below by the lava rivers in the east.
-   */
-  private buildMistSea() {
-    const mistTex = createMistTexture();
-    const layers = [
-      { y: -4.5, opacity: 0.5, color: 0x544a78, repeat: 3.0, drift: new THREE.Vector2(0.004, 0.0015) },
-      { y: -8.5, opacity: 0.7, color: 0x3a3360, repeat: 2.1, drift: new THREE.Vector2(-0.0025, 0.001) },
-      { y: -14.0, opacity: 0.85, color: 0x241f3c, repeat: 1.5, drift: new THREE.Vector2(0.0015, -0.002) }
-    ];
-    for (const l of layers) {
-      const tex = mistTex.clone();
-      tex.needsUpdate = true;
-      tex.repeat.set(l.repeat, l.repeat);
-      const mat = new THREE.MeshBasicMaterial({
-        map: tex,
-        color: l.color,
-        transparent: true,
-        opacity: l.opacity,
-        depthWrite: false
-      });
-      const plane = new THREE.Mesh(new THREE.PlaneGeometry(320, 240), mat);
-      plane.rotation.x = -Math.PI / 2;
-      plane.position.set(0, l.y, 0);
-      plane.renderOrder = -1;
-      this.scene.add(plane);
-      this.mistLayers.push({ mat, drift: l.drift });
-    }
-
-    // Infernal underglow bleeding up through the mist on the east side
-    const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(130, 100),
-      new THREE.MeshBasicMaterial({
-        map: this.glowSprite,
-        color: new THREE.Color().setRGB(0.9, 0.22, 0.05),
-        transparent: true,
-        opacity: 0.22,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      })
-    );
-    glow.rotation.x = -Math.PI / 2;
-    glow.position.set(ARENA_CENTER_X + 16, -16, 0);
-    this.scene.add(glow);
-
-    // Cold moonlit haze under the western kingdom
-    const cold = new THREE.Mesh(
-      new THREE.PlaneGeometry(90, 80),
-      new THREE.MeshBasicMaterial({
-        map: this.glowSprite,
-        color: new THREE.Color().setRGB(0.18, 0.22, 0.45),
-        transparent: true,
-        opacity: 0.25,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      })
-    );
-    cold.rotation.x = -Math.PI / 2;
-    cold.position.set(-30, -16, 0);
-    this.scene.add(cold);
   }
 
   private buildLowPolyCloudCover() {

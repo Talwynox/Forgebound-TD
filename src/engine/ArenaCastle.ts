@@ -172,26 +172,12 @@ export class ArenaCastle {
       });
     }
 
-    // 1. Bedrock Foundation & Chasm Pier Buttresses
+    // 1. Foundation
     // Main raised terrace (X: 3.8, Y: 0.5, Z: 7.2)
     const basePlinth = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.5, 7.2), foundationPlinthMat);
     basePlinth.position.set(-0.3, 0.22, 0);
     basePlinth.receiveShadow = true;
     this.keepInnerGroup.add(basePlinth);
-
-    // Deep subterranean foundation block hanging over the abyss
-    const abyssPillar = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.2, 6.8), foundationPlinthMat);
-    abyssPillar.position.set(-1.4, -1.6, 0);
-    abyssPillar.receiveShadow = true;
-    this.keepInnerGroup.add(abyssPillar);
-
-    // Angled stone foundation buttresses anchored into bedrock
-    [-2.4, -0.8, 0.8, 2.4].forEach(zCorbel => {
-      const buttress = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 3.6, 6), foundationPlinthMat);
-      buttress.position.set(-1.8, -1.2, zCorbel);
-      buttress.rotation.z = 0.35;
-      this.keepInnerGroup.add(buttress);
-    });
 
     // Broad entrance stone steps in front of the gate (facing +X towards Arena)
     const steps = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.25, 3.6), stoneTrimMat);

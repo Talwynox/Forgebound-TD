@@ -56,6 +56,130 @@ export function createMossTexture(repeatX: number, repeatY: number): THREE.Canva
   return toTexture(canvas, repeatX, repeatY);
 }
 
+/** Look of a seamless ground tile: base colour, soft patches, blade strokes, cracks and speckles. */
+export interface GroundTextureStyle {
+  seed: number;
+  base: string;
+  /** "r,g,b" tones for the soft patches. */
+  patches: string[];
+  /** Grass blade strokes and the RGB multipliers of living / dead blades. */
+  blades: number;
+  live: [number, number, number];
+  dead: [number, number, number];
+  deadRatio: number;
+  /** Random-walk cracks (dried mud, scorched earth, glowing veins). */
+  cracks?: { count: number; color: string; width: number };
+  /** Tiny dots: frost, pebbles, cinders. */
+  speckles?: { count: number; colors: string[]; size: number }[];
+}
+
+/** Seamless ground tile (meadow grass, frost, cracked earth, ash…) for the open ground around the battlefield. */
+export function createGroundTexture(style: GroundTextureStyle, repeatX: number, repeatY: number): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const rand = seededRandom(style.seed);
+
+  ctx.fillStyle = style.base;
+  ctx.fillRect(0, 0, size, size);
+
+  // Draws with wrap-around copies so the tile repeats without seams
+  const wrapped = (x: number, y: number, r: number, draw: (x: number, y: number) => void) => {
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        const px = x + ox;
+        const py = y + oy;
+        if (px + r < 0 || px - r > size || py + r < 0 || py - r > size) continue;
+        draw(px, py);
+      }
+    }
+  };
+
+  // Soft-edged patches of sod, straw, soil, frost or ash
+  for (let i = 0; i < 220; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = 10 + rand() * 40;
+    const tone = style.patches[Math.floor(rand() * style.patches.length)];
+    const alpha = 0.18 + rand() * 0.14;
+    wrapped(x, y, r, (px, py) => {
+      const g = ctx.createRadialGradient(px, py, 0, px, py, r);
+      g.addColorStop(0, `rgba(${tone},${alpha})`);
+      g.addColorStop(1, `rgba(${tone},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(px - r, py - r, r * 2, r * 2);
+    });
+  }
+
+  // Short blade strokes
+  ctx.lineWidth = 1;
+  for (let i = 0; i < style.blades; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const len = 2 + rand() * 5;
+    const lean = (rand() - 0.5) * 3;
+    const m = rand() < style.deadRatio ? style.dead : style.live;
+    const shade = 45 + rand() * 55;
+    ctx.strokeStyle = `rgba(${shade * m[0]},${shade * m[1]},${shade * m[2]},0.45)`;
+    wrapped(x, y, len, (px, py) => {
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + lean, py - len);
+      ctx.stroke();
+    });
+  }
+
+  if (style.cracks) {
+    ctx.strokeStyle = style.cracks.color;
+    for (let i = 0; i < style.cracks.count; i++) {
+      const pts: [number, number][] = [[rand() * size, rand() * size]];
+      let angle = rand() * Math.PI * 2;
+      const steps = 4 + Math.floor(rand() * 6);
+      for (let s = 0; s < steps; s++) {
+        angle += (rand() - 0.5) * 1.4;
+        const [lx, ly] = pts[pts.length - 1];
+        const step = 8 + rand() * 18;
+        pts.push([lx + Math.cos(angle) * step, ly + Math.sin(angle) * step]);
+      }
+      ctx.lineWidth = style.cracks.width * (0.6 + rand() * 0.8);
+      wrapped(pts[0][0], pts[0][1], 200, (px, py) => {
+        const dx = px - pts[0][0];
+        const dy = py - pts[0][1];
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0] + dx, pts[0][1] + dy);
+        for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k][0] + dx, pts[k][1] + dy);
+        ctx.stroke();
+      });
+    }
+  }
+
+  for (const sp of style.speckles ?? []) {
+    for (let i = 0; i < sp.count; i++) {
+      ctx.fillStyle = sp.colors[Math.floor(rand() * sp.colors.length)];
+      const s = sp.size * (0.5 + rand());
+      ctx.fillRect(rand() * size, rand() * size, s, s);
+    }
+  }
+
+  return toTexture(canvas, repeatX, repeatY);
+}
+
+/** Alpha mask that is opaque in the middle and fades softly to every edge (for mist banks). */
+export function createSoftEdgeMask(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, '#ffffff');
+  g.addColorStop(0.45, '#cccccc');
+  g.addColorStop(1, '#000000');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
+
 /** Worn, cracked flagstones for the arena floor. */
 export function createFlagstoneTexture(repeatX: number, repeatY: number): THREE.CanvasTexture {
   const size = 256;
