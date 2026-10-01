@@ -227,7 +227,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     attack: 42,
     attackRate: 0.85,
     moveSpeed: 2.2,
-    range: 5.5, // Long-range sharpshooter
+    range: 6.5, // Long-range sharpshooter
     color: 0x10b981, // Emerald Archer
     scale: 1.2,
     description: 'Ranged marksman forged at 250 HP with high HP cap, Multishot volleys, and Damage Aura.'
@@ -240,7 +240,7 @@ export const FRIENDLY_UNIT_STATS: Record<FriendlyClass, UnitStats> = {
     attack: 45,
     attackRate: 1.1,
     moveSpeed: 2.0,
-    range: 4.2, // Ranged arcane caster
+    range: 5.2, // Ranged arcane caster
     color: 0xa855f7, // Arcane Pyromancer Purple
     scale: 1.2,
     description: 'Arcane Pyromancer forged at 250 HP with high HP cap. Attacks generate Mana, casting an explosive AoE Mega Fireball at 100 Mana.'

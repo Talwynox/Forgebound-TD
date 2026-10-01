@@ -12,7 +12,7 @@ import { UIManager } from './ui/UIManager';
 import { CAMPAIGN_MISSIONS, CampaignMission } from './campaign/CampaignData';
 import { FriendlyClass, EnemyClass } from './units/UnitData';
 import { TowerType, UpgradeBranch, TOWER_DEFINITIONS } from './towers/TowerData';
-import { PortalGuardian, PortalGuardianManager } from './towers/PortalGuardianManager';
+import { PortalGuardian, PortalGuardianManager, GUARDIAN_DAMAGE_LEVELS } from './towers/PortalGuardianManager';
 import { AchievementManager } from './achievements/AchievementManager';
 import { ArenaCastle } from './engine/ArenaCastle';
 import type { MapThemeId } from './engine/MapThemes';
@@ -64,7 +64,7 @@ const CAMERA_MAX_X_SOLO = 44;
 const PVP_FIRST_BUILD_TIME = 45;
 const PVP_BUILD_TIME = 30;
 /** Arena escalation: a clash still running after this many seconds deals double damage... */
-const ESCALATION_START = 45;
+const ESCALATION_START = 75;
 /** ...and the multiplier doubles again every this many seconds. */
 const ESCALATION_STEP = 15;
 const PVP_STORM_TIME = 30;
@@ -132,7 +132,13 @@ class GameApp {
   private extraPurchasedRecruits: Record<TeamId, number> = { SUN: 0, MOON: 0 };
 
   private getRecruitCost(team: TeamId): number {
-    return Math.round(25 * Math.pow(1.8, this.extraPurchasedRecruits[team]));
+    const discount = this.networkManager.inMatch ? 1 : this.techTree.getRecruitCostMultiplier();
+    return Math.round(25 * Math.pow(1.8, this.extraPurchasedRecruits[team]) * discount);
+  }
+
+  /** Recruits a team marches each wave before any hires (Militia Levy adds free ones outside PvP). */
+  private getBaseRecruits(): number {
+    return this.BASE_RECRUITS_PER_WAVE + (this.pvpActive ? 0 : this.techTree.getBonusFreeRecruits());
   }
 
   // Phase and Mission lifecycle
@@ -184,8 +190,16 @@ class GameApp {
     this.ui.initMultiplayer(this.networkManager);
     this.setupNetworkHandlers();
 
-    this.towerManager.onChampionEvolved = () => {
+    this.towerManager.onChampionEvolved = (champion) => {
       this.achievementManager.recordChampionEvolved();
+      // Champion's Pedigree Tech Tree bonus (skipped in PvP to keep it fair)
+      const bonus = this.pvpActive ? 0 : this.techTree.getChampionBonus();
+      if (bonus > 0) {
+        const extraHp = Math.round(champion.maxHp * bonus);
+        champion.maxHp += extraHp;
+        champion.currentHp += extraHp;
+        champion.attack = Math.round(champion.attack * (1 + bonus));
+      }
     };
 
     this.achievementManager.onAchievementUnlocked = (ach, tier) => {
@@ -376,6 +390,7 @@ class GameApp {
         const tower = this.towerManager.buildTower(coord, towerType, undefined, actor.peerId, actor.name, actor.team);
         if (!tower) return 'Cannot build here!';
         actor.wallet.gold -= def.cost;
+        if (this.isLocalActor(actor)) this.achievementManager.recordTowerBuilt();
 
         if (this.isHostInMatch) {
           this.vfx.spawnFloatingText(tower.worldPos.clone(), `🏗️ ${actor.name} BUILT ${def.name}!`, '#38bdf8', 1.8);
@@ -448,7 +463,8 @@ class GameApp {
 
         actor.wallet.gold -= cost;
         this.extraPurchasedRecruits[team]++;
-        const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits[team];
+        if (this.isLocalActor(actor)) this.achievementManager.recordRecruitHired();
+        const totalRecruits = this.getBaseRecruits() + this.extraPurchasedRecruits[team];
         const nextCost = this.getRecruitCost(team);
         const hirer = this.networkManager.inMatch ? `${actor.name}: ` : '';
         const msgPos = recruitMsgPos(team);
@@ -750,6 +766,7 @@ class GameApp {
     const isCoop = this.networkManager.mode === 'COOP';
     const won = isCoop ? isCoopVictory : this.networkManager.localTeam === winningTeam;
     const winnerName = TEAM_NAMES[winningTeam];
+    if (won) this.achievementManager.recordMultiplayerWin();
 
     setTimeout(() => {
       if (won) {
@@ -981,7 +998,7 @@ class GameApp {
     if (!this.networkManager.inMatch) {
       this.soloWallet.gold = mission.startingGold + this.techTree.getBonusStartingGold();
     }
-    const castleHp = this.pvpActive ? PVP_CASTLE_HP : mission.castleMaxHp;
+    const castleHp = this.pvpActive ? PVP_CASTLE_HP : mission.castleMaxHp + this.techTree.getBonusCastleHp();
     this.castleHp = castleHp;
     this.castleMaxHp = castleHp;
     this.arenaCastle.reset(castleHp);
@@ -989,6 +1006,12 @@ class GameApp {
 
     this.unitManager.clearAll();
     this.portalGuardianManager.resetAll();
+    if (!this.pvpActive) {
+      // Ballista Drills Tech Tree bonus: guardians start a few Damage levels up
+      for (const g of this.portalGuardianManager.guardians) {
+        g.damageLevel = Math.min(GUARDIAN_DAMAGE_LEVELS.length, g.damageLevel + this.techTree.getBonusGuardianLevels());
+      }
+    }
     this.ui.hideGuardianCard();
     this.ui.hideTowerCard();
     this.ui.hideUnitCard();
@@ -1066,7 +1089,7 @@ class GameApp {
     this.towerManager.resetWaveEvolutions();
 
     for (const team of this.armyTeams) {
-      this.recruitsToSpawn[team] = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits[team];
+      this.recruitsToSpawn[team] = this.getBaseRecruits() + this.extraPurchasedRecruits[team];
     }
     this.recruitSpawnTimer = 0;
     this.castleHpAtWaveStart = this.castleHp;
@@ -1104,7 +1127,7 @@ class GameApp {
     this.unitManager.damageMultiplier = 1;
   }
 
-  /** Long clashes escalate: x2 unit damage at 45s, doubling every 15s after, so no fight stalls forever. */
+  /** Long clashes escalate: x2 damage at 75s, doubling every 15s after, so no fight stalls forever. */
   private updateEscalation(dt: number) {
     this.clashTime += dt;
     if (this.clashTime < ESCALATION_START) return;
@@ -1114,7 +1137,7 @@ class GameApp {
     const mult = 2 ** level;
     this.unitManager.damageMultiplier = mult;
     audio.playBossSlam();
-    this.vfx.spawnFloatingText(ARENA_MSG_POS, `🔥 ESCALATION! ALL UNIT DAMAGE x${mult} 🔥`, '#f97316', 2.5);
+    this.vfx.spawnFloatingText(ARENA_MSG_POS, `🔥 ESCALATION! ALL DAMAGE x${mult} 🔥`, '#f97316', 2.5);
   }
 
   private spawnFriendlyRecruit(team: TeamId) {
@@ -1125,12 +1148,11 @@ class GameApp {
 
     const unit = this.unitManager.spawnFriendly(FriendlyClass.RECRUIT, startPos, waypoints, team);
 
-    // Warrior Heritage Tech Tree bonus (the host's campaign progress; skipped in PvP to keep it fair)
+    // Warrior Heritage & Weapon Drills Tech Tree bonuses (the host's campaign progress; skipped in PvP to keep it fair)
     if (!this.pvpActive) {
-      const bonusHp = this.techTree.getBonusRecruitHp();
-      unit.maxHp += bonusHp;
-      unit.currentHp += bonusHp;
+      unit.maxHp = Math.round(unit.maxHp * (1 + this.techTree.getBonusRecruitHpPercent()));
       unit.armor += this.techTree.getBonusRecruitArmor();
+      unit.attack += this.techTree.getBonusRecruitAttack();
     }
   }
 
@@ -1168,7 +1190,6 @@ class GameApp {
   private advanceRound() {
     this.currentWaveIndex++;
     this.resetEscalation();
-    this.extraPurchasedRecruits = { SUN: 0, MOON: 0 };
     this.setFocusTarget(null, 'SUN');
     this.setFocusTarget(null, 'MOON');
     this.toggleFocusFireMode(false);
@@ -1186,15 +1207,23 @@ class GameApp {
     const waveDef = this.currentMission.waves[this.currentWaveIndex];
     if (this.networkManager.inMatch) {
       this.networkManager.awardTeamGold('SUN', waveDef.rewardGold);
+      this.achievementManager.recordGold(waveDef.rewardGold);
     } else {
-      this.soloWallet.gold += waveDef.rewardGold;
+      // Royal Taxes Tech Tree bonus (solo only, like Masonry Mastery's starting gold)
+      const reward = waveDef.rewardGold + this.techTree.getBonusWaveGold();
+      this.soloWallet.gold += reward;
+      this.achievementManager.recordGold(reward);
     }
-    this.achievementManager.recordGold(waveDef.rewardGold);
 
     this.applyRoundEndTowerEffects();
 
-    if (this.castleHp >= this.castleHpAtWaveStart) {
-      this.achievementManager.recordFlawlessWave();
+    this.achievementManager.recordWaveCleared(this.castleHp >= this.castleHpAtWaveStart, this.escalationLevel > 0);
+
+    // Mending Mortar Tech Tree bonus: patch up damage taken this wave
+    const repair = this.techTree.getCastleRepairPerWave();
+    if (repair > 0 && this.castleHp < this.castleMaxHp) {
+      this.arenaCastle.repair(repair);
+      this.castleHp = this.arenaCastle.currentHp;
     }
 
     this.advanceRound();
@@ -1249,6 +1278,7 @@ class GameApp {
     else if (this.castleHp >= this.castleMaxHp * 0.4) earnedStars = 2;
 
     this.techTree.recordMissionCompletion(this.currentMission.id, earnedStars);
+    this.achievementManager.recordMissionWon();
     this.achievementManager.recordCampaignStars(this.techTree.getTotalStarsEarned());
 
     this.ui.showVictory(
@@ -1309,7 +1339,7 @@ class GameApp {
 
   private updateHUD() {
     const team = this.localTeam;
-    const totalRecruits = this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits[team];
+    const totalRecruits = this.getBaseRecruits() + this.extraPurchasedRecruits[team];
     const currentRecruitCost = this.getRecruitCost(team);
     const gold = this.playerGold;
 
@@ -1363,7 +1393,7 @@ class GameApp {
       return this.buildTimer !== null ? `⏳ Build: ${Math.ceil(this.buildTimer)}s` : 'Prepare Maze';
     }
     if (this.wavePhase === 'MAZE_RUN') {
-      const count = (t: TeamId) => `${this.countAssembledRecruits(t)}/${this.BASE_RECRUITS_PER_WAVE + this.extraPurchasedRecruits[t]}`;
+      const count = (t: TeamId) => `${this.countAssembledRecruits(t)}/${this.getBaseRecruits() + this.extraPurchasedRecruits[t]}`;
       return `🏃 ☀️ ${count('SUN')} · 🌙 ${count('MOON')}`;
     }
     if (this.stormTimer !== null) {

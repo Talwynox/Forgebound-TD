@@ -11,131 +11,159 @@ const STORAGE_KEY = 'pyro_td_achievements_v1';
 
 export interface PlayerStats {
   lifetimeGoldEarned: number;
+  totalKills: number;
   goblinKills: number;
   orcKills: number;
   skeletonKills: number;
   assassinKills: number;
   ogreKills: number;
+  ironforgeKills: number;
+  canyonKills: number;
+  riftKills: number;
+  infernalKills: number;
   bossKills: number;
+  escalatedClashesWon: number;
   maxedTowers: string[]; // TowerType strings
+  towersBuilt: number;
+  recruitsHired: number;
   championsEvolved: number;
   flawlessWaves: number;
+  wavesCleared: number;
+  missionsWon: number;
   campaignStars: number;
-  unlockedTiers: Record<string, number>; // achievementId -> highest tier unlocked (1..4)
+  multiplayerWins: number;
+  unlockedTiers: Record<string, number>; // achievementId -> highest tier unlocked (1..5)
 }
 
+/** PlayerStats fields that are plain counters (everything except the tower list and unlock map). */
+type CounterStat = { [K in keyof PlayerStats]: PlayerStats[K] extends number ? K : never }[keyof PlayerStats];
+
+/** Which counter each enemy class adds to besides totalKills (bosses count via bossKills). */
+const KILL_COUNTERS: Partial<Record<EnemyClass, CounterStat>> = {
+  [EnemyClass.GOBLIN]: 'goblinKills',
+  [EnemyClass.ORC_WARRIOR]: 'orcKills',
+  [EnemyClass.SKELETON_ARCHER]: 'skeletonKills',
+  [EnemyClass.SHADOW_ASSASSIN]: 'assassinKills',
+  [EnemyClass.IRONCLAD_OGRE]: 'ogreKills',
+  [EnemyClass.FORGE_BOMBER]: 'ironforgeKills',
+  [EnemyClass.IRON_AUTOMATON]: 'ironforgeKills',
+  [EnemyClass.IRON_ARBALIST]: 'ironforgeKills',
+  [EnemyClass.ROCK_TROLL]: 'ironforgeKills',
+  [EnemyClass.SCARAB_SWARMER]: 'canyonKills',
+  [EnemyClass.SAND_RAIDER]: 'canyonKills',
+  [EnemyClass.DUNE_SLINGER]: 'canyonKills',
+  [EnemyClass.TOMB_GUARDIAN]: 'canyonKills',
+  [EnemyClass.VOID_WISP]: 'riftKills',
+  [EnemyClass.RIFT_STALKER]: 'riftKills',
+  [EnemyClass.SPELLBREAKER]: 'riftKills',
+  [EnemyClass.ARCANE_CONSTRUCT]: 'riftKills',
+  [EnemyClass.IMP]: 'infernalKills',
+  [EnemyClass.HELLHOUND]: 'infernalKills',
+  [EnemyClass.FIRE_CULTIST]: 'infernalKills',
+  [EnemyClass.DEMON_BRUTE]: 'infernalKills'
+};
+
+const freshStats = (): PlayerStats => ({
+  lifetimeGoldEarned: 0,
+  totalKills: 0,
+  goblinKills: 0,
+  orcKills: 0,
+  skeletonKills: 0,
+  assassinKills: 0,
+  ogreKills: 0,
+  ironforgeKills: 0,
+  canyonKills: 0,
+  riftKills: 0,
+  infernalKills: 0,
+  bossKills: 0,
+  escalatedClashesWon: 0,
+  maxedTowers: [],
+  towersBuilt: 0,
+  recruitsHired: 0,
+  championsEvolved: 0,
+  flawlessWaves: 0,
+  wavesCleared: 0,
+  missionsWon: 0,
+  campaignStars: 0,
+  multiplayerWins: 0,
+  unlockedTiers: {}
+});
+
 export class AchievementManager {
-  public stats: PlayerStats = {
-    lifetimeGoldEarned: 0,
-    goblinKills: 0,
-    orcKills: 0,
-    skeletonKills: 0,
-    assassinKills: 0,
-    ogreKills: 0,
-    bossKills: 0,
-    maxedTowers: [],
-    championsEvolved: 0,
-    flawlessWaves: 0,
-    campaignStars: 0,
-    unlockedTiers: {}
-  };
+  public stats: PlayerStats = freshStats();
 
   public onAchievementUnlocked: (achievement: AchievementDef, tierDef: AchievementTierDef) => void = () => {};
 
   constructor() {
     this.load();
+    // Silently grant tiers added since the save was written (e.g. new Platinum/Legendary tiers already earned)
+    this.checkThresholds();
+    this.save();
   }
 
   public recordGold(amount: number) {
     if (amount <= 0) return;
     this.stats.lifetimeGoldEarned += amount;
-    this.checkThresholds();
-    this.save();
+    this.commit();
   }
 
   public recordKill(enemyClass: EnemyClass | string, isBoss: boolean = false) {
+    this.stats.totalKills++;
     if (isBoss) {
       this.stats.bossKills++;
     }
-
-    switch (enemyClass) {
-      case EnemyClass.GOBLIN:
-        this.stats.goblinKills++;
-        break;
-      case EnemyClass.ORC_WARRIOR:
-        this.stats.orcKills++;
-        break;
-      case EnemyClass.SKELETON_ARCHER:
-        this.stats.skeletonKills++;
-        break;
-      case EnemyClass.SHADOW_ASSASSIN:
-        this.stats.assassinKills++;
-        break;
-      case EnemyClass.IRONCLAD_OGRE:
-        this.stats.ogreKills++;
-        break;
-    }
-
-    this.checkThresholds();
-    this.save();
+    const counter = KILL_COUNTERS[enemyClass as EnemyClass];
+    if (counter) this.stats[counter]++;
+    this.commit();
   }
 
   public recordTowerMaxed(towerType: TowerType | string) {
     const typeStr = String(towerType);
     if (!this.stats.maxedTowers.includes(typeStr)) {
       this.stats.maxedTowers.push(typeStr);
-      this.checkThresholds();
-      this.save();
+      this.commit();
     }
   }
 
-  public recordChampionEvolved() {
-    this.stats.championsEvolved++;
-    this.checkThresholds();
-    this.save();
+  public recordTowerBuilt() {
+    this.increment('towersBuilt');
   }
 
-  public recordFlawlessWave() {
-    this.stats.flawlessWaves++;
-    this.checkThresholds();
-    this.save();
+  public recordRecruitHired() {
+    this.increment('recruitsHired');
+  }
+
+  public recordChampionEvolved() {
+    this.increment('championsEvolved');
+  }
+
+  /** A PvE wave was cleared; flawless = the castle took no damage, escalated = the clash reached arena escalation. */
+  public recordWaveCleared(flawless: boolean, escalated: boolean) {
+    this.stats.wavesCleared++;
+    if (flawless) this.stats.flawlessWaves++;
+    if (escalated) this.stats.escalatedClashesWon++;
+    this.commit();
+  }
+
+  public recordMissionWon() {
+    this.increment('missionsWon');
+  }
+
+  public recordMultiplayerWin() {
+    this.increment('multiplayerWins');
   }
 
   public recordCampaignStars(totalStars: number) {
     if (totalStars > this.stats.campaignStars) {
       this.stats.campaignStars = totalStars;
-      this.checkThresholds();
-      this.save();
+      this.commit();
     }
   }
 
   public getMetricValue(metric: string): number {
-    switch (metric) {
-      case 'lifetimeGoldEarned':
-        return this.stats.lifetimeGoldEarned;
-      case 'goblinKills':
-        return this.stats.goblinKills;
-      case 'orcKills':
-        return this.stats.orcKills;
-      case 'skeletonKills':
-        return this.stats.skeletonKills;
-      case 'assassinKills':
-        return this.stats.assassinKills;
-      case 'ogreKills':
-        return this.stats.ogreKills;
-      case 'bossKills':
-        return this.stats.bossKills;
-      case 'uniqueTowersMaxed':
-        return this.stats.maxedTowers.length;
-      case 'championsEvolved':
-        return this.stats.championsEvolved;
-      case 'flawlessWaves':
-        return this.stats.flawlessWaves;
-      case 'campaignStars':
-        return this.stats.campaignStars;
-      default:
-        return 0;
-    }
+    if (metric === 'uniqueTowersMaxed') return this.stats.maxedTowers.length;
+    const value = this.stats[metric as keyof PlayerStats];
+    return typeof value === 'number' ? value : 0;
   }
 
   public getUnlockedTier(achievementId: string): number {
@@ -148,10 +176,20 @@ export class AchievementManager {
 
     for (const ach of ACHIEVEMENTS) {
       total += ach.tiers.length;
-      unlocked += (this.stats.unlockedTiers[ach.id] || 0);
+      unlocked += Math.min(this.stats.unlockedTiers[ach.id] || 0, ach.tiers.length);
     }
 
     return { unlocked, total };
+  }
+
+  private increment(counter: CounterStat) {
+    this.stats[counter]++;
+    this.commit();
+  }
+
+  private commit() {
+    this.checkThresholds();
+    this.save();
   }
 
   private checkThresholds() {
@@ -181,25 +219,23 @@ export class AchievementManager {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
-      if (data) {
-        this.stats = {
-          lifetimeGoldEarned: data.lifetimeGoldEarned ?? 0,
-          goblinKills: data.goblinKills ?? 0,
-          orcKills: data.orcKills ?? 0,
-          skeletonKills: data.skeletonKills ?? 0,
-          assassinKills: data.assassinKills ?? 0,
-          ogreKills: data.ogreKills ?? 0,
-          bossKills: data.bossKills ?? 0,
-          maxedTowers: Array.isArray(data.maxedTowers) ? data.maxedTowers : [],
-          championsEvolved: data.championsEvolved ?? 0,
-          flawlessWaves: data.flawlessWaves ?? 0,
-          campaignStars: data.campaignStars ?? 0,
-          unlockedTiers: data.unlockedTiers ?? {}
-        };
+      if (!data || typeof data !== 'object') return;
+
+      const stats = freshStats();
+      for (const key of Object.keys(stats) as (keyof PlayerStats)[]) {
+        if (typeof stats[key] === 'number' && typeof data[key] === 'number') {
+          (stats[key] as number) = data[key];
+        }
       }
+      stats.maxedTowers = Array.isArray(data.maxedTowers) ? data.maxedTowers : [];
+      stats.unlockedTiers = data.unlockedTiers && typeof data.unlockedTiers === 'object' ? data.unlockedTiers : {};
+      // Older saves never tracked a total: seed it from the per-type kill counts they did keep
+      if (typeof data.totalKills !== 'number') {
+        stats.totalKills = stats.goblinKills + stats.orcKills + stats.skeletonKills + stats.assassinKills + stats.ogreKills + stats.bossKills;
+      }
+      this.stats = stats;
     } catch (e) {
       console.warn('Could not load achievements from localStorage', e);
     }
   }
 }
-

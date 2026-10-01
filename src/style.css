@@ -806,8 +806,60 @@ body, html {
 .tech-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 20px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tech-branch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(201, 164, 90, 0.25);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: #fde68a;
+}
+
+.tech-branch-header:first-child {
+  margin-top: 0;
+}
+
+.tech-branch-spent {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.tech-pips {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.tech-pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid #64748b;
+  background: transparent;
+}
+
+.tech-pip.filled {
+  background: #facc15;
+  border-color: #facc15;
+  box-shadow: 0 0 4px rgba(250, 204, 21, 0.6);
+}
+
+.tech-action {
+  flex-shrink: 0;
+  margin-left: 12px;
 }
 
 .tech-item {
@@ -1502,6 +1554,7 @@ body, html {
 
 .trophy-tier-pills {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -2747,6 +2800,23 @@ body, html {
   border-color: #93c5fd;
   background: radial-gradient(ellipse at 50% 0%, rgba(96, 165, 250, 0.26) 0%, transparent 65%), var(--df-iron-hover);
   box-shadow: 0 0 16px rgba(96, 165, 250, 0.35);
+}
+
+.recruit-count-badge {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  height: 17px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #bfdbfe;
+  background: rgba(11, 8, 13, 0.85);
+  border: 1px solid rgba(96, 165, 250, 0.5);
+  border-radius: 5px;
+  pointer-events: none;
 }
 
 .tower-btn.unaffordable {

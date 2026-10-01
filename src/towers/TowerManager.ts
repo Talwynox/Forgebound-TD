@@ -88,7 +88,7 @@ export class TowerManager {
   public rangeIndicator: THREE.Group | null = null;
   private rangeBorderMesh: THREE.Mesh | null = null;
   private rangeFillMesh: THREE.Mesh | null = null;
-  public onChampionEvolved: () => void = () => {};
+  public onChampionEvolved: (champion: Unit) => void = () => {};
 
   get smartFocusEnabled(): boolean {
     return this.smartFocusByTeam[this.viewTeam];
@@ -983,14 +983,14 @@ export class TowerManager {
             : (tower.evoPath === 'ARCHER' ? FriendlyClass.ARCHER : FriendlyClass.MAGE);
 
           target.morphClass(newClass);
-          this.onChampionEvolved();
+          this.onChampionEvolved(target);
 
           // Apply abilities bought in THIS SPECIFIC evo tower
           if (tower.evoPath === 'SOLDIER') {
             if (tower.ability1Level > 0) {
               const tier = SOLDIER_ABILITIES.armorAura[tower.ability1Level - 1];
               target.armorAuraBonus = tier.bonus || 0;
-              target.recordBuff(`Armor Aura Lv.${tower.ability1Level} (+${tier.bonus} Armor)`);
+              target.recordBuff(`Armor Aura Lv.${tower.ability1Level} (+${+((tier.bonus || 0) * 100).toFixed(1)}% Armor to allies)`);
             }
             if (tower.ability2Level > 0) {
               const tier = SOLDIER_ABILITIES.relentless[tower.ability2Level - 1];
@@ -1018,7 +1018,7 @@ export class TowerManager {
             if (tower.ability2Level > 0) {
               const tier = ARCHER_ABILITIES.damageAura[tower.ability2Level - 1];
               target.damageAuraBonus = tier.bonus || 0;
-              target.recordBuff(`Damage Aura Lv.${tower.ability2Level} (+${tier.bonus} Attack)`);
+              target.recordBuff(`Damage Aura Lv.${tower.ability2Level} (+${+((tier.bonus || 0) * 100).toFixed(1)}% Attack to allies)`);
             }
             if (tower.ability3Level > 0) {
               const tier = ARCHER_ABILITIES.armorShred[tower.ability3Level - 1];

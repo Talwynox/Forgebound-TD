@@ -577,6 +577,13 @@ export class ArenaCastle {
     this.textTexture.needsUpdate = true;
   }
 
+  /** Heals the castle without raising its max HP (Mending Mortar). */
+  public repair(amount: number) {
+    if (this.isDestroyed || amount <= 0) return;
+    this.currentHp = Math.min(this.maxHp, this.currentHp + amount);
+    this.updateHpBar();
+  }
+
   /**
    * Adds fortification bonus to both maxHp and currentHp between waves.
    * This strengthens the castle's maximum pool without healing unhealed damage!

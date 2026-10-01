@@ -2,9 +2,9 @@ import confetti from 'canvas-confetti';
 import { TowerType, UpgradeBranch, TOWER_DEFINITIONS, TowerDef, SOLDIER_ABILITIES, ARCHER_ABILITIES, MAGE_ABILITIES } from '../towers/TowerData';
 import { TowerInstance, TowerManager, TargetPriority, TARGET_PRIORITIES, AUTO_TARGET_ORDER, hasTargetPriority } from '../towers/TowerManager';
 import { Unit, UnitManager } from '../units/UnitManager';
-import { FriendlyClass, EnemyClass, ENEMY_UNIT_STATS, getEnemyWaveScaling, armorReduction, getKillBounty } from '../units/UnitData';
+import { FriendlyClass, EnemyClass, ENEMY_UNIT_STATS, FRIENDLY_UNIT_STATS, getEnemyWaveScaling, armorReduction, getKillBounty } from '../units/UnitData';
 import { CAMPAIGN_MISSIONS, CampaignMission } from '../campaign/CampaignData';
-import { TechTreeManager } from '../campaign/TechTree';
+import { TechTreeManager, TECH_BRANCHES } from '../campaign/TechTree';
 import { audio } from '../engine/AudioSystem';
 import { PortalGuardian } from '../towers/PortalGuardianManager';
 import { AchievementManager } from '../achievements/AchievementManager';
@@ -404,11 +404,12 @@ export class UIManager {
     recruitBtn.className = `tower-btn recruit-card-btn ${!canAffordRecruit ? 'unaffordable' : ''}`;
     recruitBtn.innerHTML = `
       <div class="tower-btn-hotkey">R</div>
+      <div class="recruit-count-badge" title="Recruits in your army">👥${recruits}</div>
       <div class="tower-btn-title">🛡️ Recruit</div>
       <div class="tower-btn-cost ${!canAffordRecruit ? 'cost-locked' : ''}">🪙 ${cost}g</div>
       <div class="tower-tooltip">
         <strong>Hire Extra Recruit [Hotkey: R]</strong> (${cost}g)
-        <div class="desc">Trains +1 friendly recruit for this wave's army.<br><strong>Current Army:</strong> ${recruits} Recruits (10 Base + ${Math.max(0, recruits - 10)} Extra)</div>
+        <div class="desc">Permanently adds +1 recruit to your army for every remaining wave.<br><strong>Current Army:</strong> ${recruits} Recruits</div>
       </div>
     `;
     recruitBtn.addEventListener('click', () => {
@@ -1143,10 +1144,10 @@ export class UIManager {
       ? `
         <div class="bg-purple-950/40 p-2 rounded border border-purple-800/40 my-2 text-xs">
           <div class="font-bold text-purple-300 mb-1">🌟 Champion Traits:</div>
-          ${unit.armorAuraBonus > 0 ? `<div class="text-sky-300 font-medium">🛡️ Armor Aura: +${unit.armorAuraBonus} to nearby allies</div>` : ''}
+          ${unit.armorAuraBonus > 0 ? `<div class="text-sky-300 font-medium">🛡️ Armor Aura: +${+(unit.armorAuraBonus * 100).toFixed(1)}% Armor to nearby allies</div>` : ''}
           ${unit.rampPerHit > 0 ? `<div class="text-amber-300 font-medium">⚔️ Relentless Assault: +${+(unit.rampPerHit * 100).toFixed(2)}% dmg per hit on same target (now +${Math.round(unit.rampStacks * unit.rampPerHit * 100)}%)</div>` : ''}
           ${unit.multishotChance > 0 ? `<div class="text-emerald-300 font-medium">🏹 Multishot: ${Math.round(unit.multishotChance * 100)}% chance (${unit.multishotTargets} targets)</div>` : ''}
-          ${unit.damageAuraBonus > 0 ? `<div class="text-orange-300 font-medium">⚔️ Damage Aura: +${unit.damageAuraBonus} to nearby allies</div>` : ''}
+          ${unit.damageAuraBonus > 0 ? `<div class="text-orange-300 font-medium">⚔️ Damage Aura: +${+(unit.damageAuraBonus * 100).toFixed(1)}% Attack to nearby allies</div>` : ''}
           ${unit.unitClass === FriendlyClass.MAGE ? `
             <div class="text-purple-300 font-medium">🔮 Arcane Siphon: +${unit.manaGainPerAttack} Mana per attack (${unit.mana}/${unit.maxMana} MP)</div>
             <div class="text-orange-400 font-medium">🔥 Mega Fireball: ${unit.fireballDamageMult}x Dmg across ${unit.fireballRadius}m AoE at full Mana</div>
@@ -1263,25 +1264,34 @@ export class UIManager {
 
   showTechTree() {
     const availableStars = this.techTree.getAvailableStars();
+    const allTechs = Object.values(this.techTree.upgrades);
     let techItemsHTML = '';
 
-    for (const [id, tech] of Object.entries(this.techTree.upgrades)) {
-      const isMaxed = tech.currentLevel >= tech.maxLevel;
-      const canAfford = availableStars >= tech.costPerLevel && !isMaxed;
+    for (const branch of TECH_BRANCHES) {
+      const techs = allTechs.filter(t => t.branch === branch.id);
+      const spent = techs.reduce((sum, t) => sum + t.currentLevel * t.costPerLevel, 0);
+      techItemsHTML += `<div class="tech-branch-header"><span>${branch.label}</span><span class="tech-branch-spent">${spent} ⭐ invested</span></div>`;
 
-      techItemsHTML += `
-        <div class="tech-item">
-          <div class="tech-info">
-            <div class="tech-name">${tech.name} (Rank ${tech.currentLevel}/${tech.maxLevel})</div>
-            <div class="tech-desc">${tech.description}</div>
+      for (const tech of techs) {
+        const isMaxed = tech.currentLevel >= tech.maxLevel;
+        const canAfford = availableStars >= tech.costPerLevel && !isMaxed;
+        const pips = Array.from({ length: tech.maxLevel }, (_, i) =>
+          `<span class="tech-pip ${i < tech.currentLevel ? 'filled' : ''}"></span>`).join('');
+
+        techItemsHTML += `
+          <div class="tech-item">
+            <div class="tech-info">
+              <div class="tech-name">${tech.name} <span class="tech-pips">${pips}</span></div>
+              <div class="tech-desc">${tech.description}</div>
+            </div>
+            <div class="tech-action">
+              <button class="tech-upgrade-btn ${canAfford ? '' : 'disabled'}" data-tech="${tech.id}">
+                ${isMaxed ? 'MAXED' : `Upgrade (${tech.costPerLevel} ⭐)`}
+              </button>
+            </div>
           </div>
-          <div class="tech-action">
-            <button class="tech-upgrade-btn ${canAfford ? '' : 'disabled'}" data-tech="${id}">
-              ${isMaxed ? 'MAXED' : `Upgrade (${tech.costPerLevel} ⭐)`}
-            </button>
-          </div>
-        </div>
-      `;
+        `;
+      }
     }
 
     this.techModalEl.style.display = 'flex';
@@ -1669,7 +1679,7 @@ export class UIManager {
       threats.push({
         title: '🏹 RANGED BACKLINE',
         body: `${ranged} shoot from behind their front line but have little HP. ` +
-          'Counter: Archers (5.5m range) outrange them; Mega Fireball splash and Multishot clean up the back rows.'
+          `Counter: Archers (${FRIENDLY_UNIT_STATS[FriendlyClass.ARCHER].range}m range) outrange them; Mega Fireball splash and Multishot clean up the back rows.`
       });
     }
     if (totalEnemies >= 20) {
@@ -1714,7 +1724,7 @@ export class UIManager {
           ${battalionsHTML}
         </div>
         <div class="tactical-list">${tacticalAdvice}</div>
-        <div class="intel-scaling-note">⏱️ Clashes lasting over 45s escalate: all unit damage x2, doubling every 15s.</div>
+        <div class="intel-scaling-note">⏱️ Clashes lasting over 75s escalate: all unit and Portal Guardian damage x2, doubling every 15s.</div>
         <div class="modal-footer">
           <button id="btn-dismiss-intel" class="btn-primary">Acknowledge Intel</button>
         </div>

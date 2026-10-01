@@ -56,6 +56,9 @@ const CULTIST_HEAL_SHARE = 0.08;
 const IGNIS_AURA_RADIUS = 3.5;
 const IGNIS_AURA_BURN = 0.15;
 
+/** Multishot volleys search a bit past the archer's attack range so they still find extra targets. */
+const MULTISHOT_RANGE_BONUS = 1.5;
+
 export class Unit {
   public id: number;
   public isFriendly: boolean;
@@ -99,7 +102,7 @@ export class Unit {
   public movedThisFrame: boolean = false;
 
   // Evolution Champion Abilities (Soldier, Archer, Mage)
-  public armorAuraBonus: number = 0;
+  public armorAuraBonus: number = 0; // Soldier Ability 1: fraction of each nearby ally's own Armor granted as bonus Armor
   public rampPerHit: number = 0; // Soldier Ability 2: bonus damage gained per consecutive hit on the same target
   public rampStacks: number = 0;
   public rampTargetId: number = -1;
@@ -110,7 +113,7 @@ export class Unit {
 
   public multishotChance: number = 0;
   public multishotTargets: number = 1;
-  public damageAuraBonus: number = 0;
+  public damageAuraBonus: number = 0; // Archer Ability 2: fraction of each nearby ally's own Attack granted as bonus Attack
   public armorShredOnHit: number = 0; // Archer Ability 3: Shreds enemy armor for 4s
   public armorShredDuration: number = 4.0;
   public attackSpeedBonus: number = 0; // Archer Ability 4: Rapid Quiver attack speed multiplier
@@ -134,7 +137,7 @@ export class Unit {
   public burnDmgPerSec: number = 0;
   public lastBurnTick: number = 0;
 
-  // Active Combat Aura Buffs (received from nearby champions)
+  // Active Combat Aura Buffs (received from nearby champions, as flat values derived from the aura percentages)
   public combatAuraArmor: number = 0;
   public combatAuraAttack: number = 0;
 
@@ -505,7 +508,7 @@ export class UnitManager {
   public focusTargets: Record<TeamId, Unit | null> = { SUN: null, MOON: null };
   /** PvP: both armies are recruit-type units; every kill pays a bounty and units wear team rings. */
   public pvpMode: boolean = false;
-  /** Arena escalation: multiplies all unit-vs-unit damage when a clash drags on. */
+  /** Arena escalation: multiplies all damage dealt to units (unit attacks and Portal Guardians) when a clash drags on. */
   public damageMultiplier: number = 1;
   /** Seconds of simulated time, for ability windows. */
   private clock: number = 0;
@@ -804,14 +807,14 @@ export class UnitManager {
       if (champ.armorAuraBonus > 0) {
         for (const ally of combatFriendlies) {
           if (ally.team === champ.team && champ.worldPos.distanceTo(ally.worldPos) <= 4.5) {
-            ally.combatAuraArmor = Math.max(ally.combatAuraArmor, champ.armorAuraBonus);
+            ally.combatAuraArmor = Math.max(ally.combatAuraArmor, Math.round(ally.armor * champ.armorAuraBonus));
           }
         }
       }
       if (champ.damageAuraBonus > 0) {
         for (const ally of combatFriendlies) {
           if (ally.team === champ.team && champ.worldPos.distanceTo(ally.worldPos) <= 4.5) {
-            ally.combatAuraAttack = Math.max(ally.combatAuraAttack, champ.damageAuraBonus);
+            ally.combatAuraAttack = Math.max(ally.combatAuraAttack, Math.round(ally.attack * champ.damageAuraBonus));
           }
         }
       }
@@ -1042,7 +1045,7 @@ export class UnitManager {
     this.vfx.spawnFloatingText(unit.worldPos.clone().add(new THREE.Vector3(0, 1.4, 0)), '⚡ BLINK', '#a78bfa', 1.0);
   }
 
-  /** Applies arena escalation to unit-vs-unit damage. */
+  /** Applies arena escalation to damage dealt to a unit. */
   private escalate(dmg: number): number {
     return this.damageMultiplier === 1 ? dmg : Math.max(1, Math.round(dmg * this.damageMultiplier));
   }
@@ -1470,10 +1473,14 @@ export class UnitManager {
 
     // Archer Multishot Volley
     if (attacker.multishotChance > 0 && Math.random() < attacker.multishotChance) {
-      const otherEnemies = this.units.filter(u => u.team !== attacker.team && !u.isDead && !u.isDying && u.id !== defender.id);
-      const targets = otherEnemies
-        .filter(u => attacker.worldPos.distanceTo(u.worldPos) <= attacker.stats.range)
-        .slice(0, attacker.multishotTargets - 1);
+      const volleyRange = attacker.stats.range + MULTISHOT_RANGE_BONUS;
+      const targets = this.units
+        .filter(u => u.team !== attacker.team && !u.isDead && !u.isDying && u.id !== defender.id)
+        .map(u => ({ u, dist: attacker.worldPos.distanceTo(u.worldPos) }))
+        .filter(e => e.dist <= volleyRange)
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, attacker.multishotTargets - 1)
+        .map(e => e.u);
 
       for (const t of targets) {
         const tArmor = t.armor + t.combatAuraArmor;
@@ -1638,7 +1645,7 @@ export class UnitManager {
   public damageUnit(target: Unit, rawDmg: number, onKillEnemy: KillCallback): number {
     if (target.isDead || target.isDying) return 0;
     const defenderArmor = target.armor + (target.combatAuraArmor || 0);
-    const finalDmg = calculateDamage(rawDmg, defenderArmor);
+    const finalDmg = this.escalate(calculateDamage(rawDmg, defenderArmor));
 
     target.currentHp -= finalDmg;
     target.hitFlinchTimer = 0.16;

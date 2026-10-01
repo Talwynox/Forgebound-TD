@@ -77,7 +77,7 @@ export interface EvoAbilityTier {
   cost: number;
   name: string;
   description: string;
-  bonus?: number; // Armor aura bonus, damage aura bonus, fireball radius, ramp per hit, or general bonus
+  bonus?: number; // Armor/damage aura fraction (0.1 = +10% of the ally's stat), fireball radius, ramp per hit, or general bonus
   chance?: number; // Multishot chance or stun chance
   multiplier?: number; // Fireball damage multiplier, thorns multiplier, or burn multiplier
   targets?: number; // Multishot target count
@@ -87,16 +87,16 @@ export interface EvoAbilityTier {
 
 export const SOLDIER_ABILITIES = {
   armorAura: [
-    { level: 1, cost: 50, name: 'Armor Aura I', description: 'Radiates +5 Armor to all surrounding allies in combat.', bonus: 5 },
-    { level: 2, cost: 70, name: 'Armor Aura II', description: 'Radiates +11 Armor to all surrounding allies in combat.', bonus: 11 },
-    { level: 3, cost: 95, name: 'Armor Aura III', description: 'Radiates +18 Armor to all surrounding allies in combat.', bonus: 18 },
-    { level: 4, cost: 125, name: 'Armor Aura IV', description: 'Radiates +27 Armor to all surrounding allies in combat.', bonus: 27 },
-    { level: 5, cost: 160, name: 'Armor Aura V', description: 'Radiates +37 Armor to all surrounding allies in combat.', bonus: 37 },
-    { level: 6, cost: 200, name: 'Armor Aura VI', description: 'Radiates +49 Armor to all surrounding allies in combat.', bonus: 49 },
-    { level: 7, cost: 250, name: 'Armor Aura VII', description: 'Radiates +63 Armor to all surrounding allies in combat.', bonus: 63 },
-    { level: 8, cost: 310, name: 'Armor Aura VIII', description: 'Radiates +80 Armor to all surrounding allies in combat.', bonus: 80 },
-    { level: 9, cost: 380, name: 'Armor Aura IX', description: 'Radiates +99 Armor to all surrounding allies in combat.', bonus: 99 },
-    { level: 10, cost: 460, name: 'Armor Aura X - Aegis of the Sun', description: 'Radiates +120 Armor to all surrounding allies in combat!', bonus: 120 }
+    { level: 1, cost: 50, name: 'Armor Aura I', description: 'Radiates +4% Armor to all surrounding allies in combat.', bonus: 0.04 },
+    { level: 2, cost: 70, name: 'Armor Aura II', description: 'Radiates +5.5% Armor to all surrounding allies in combat.', bonus: 0.055 },
+    { level: 3, cost: 95, name: 'Armor Aura III', description: 'Radiates +7.5% Armor to all surrounding allies in combat.', bonus: 0.075 },
+    { level: 4, cost: 125, name: 'Armor Aura IV', description: 'Radiates +10% Armor to all surrounding allies in combat.', bonus: 0.1 },
+    { level: 5, cost: 160, name: 'Armor Aura V', description: 'Radiates +13% Armor to all surrounding allies in combat.', bonus: 0.13 },
+    { level: 6, cost: 200, name: 'Armor Aura VI', description: 'Radiates +16.5% Armor to all surrounding allies in combat.', bonus: 0.165 },
+    { level: 7, cost: 250, name: 'Armor Aura VII', description: 'Radiates +20.5% Armor to all surrounding allies in combat.', bonus: 0.205 },
+    { level: 8, cost: 310, name: 'Armor Aura VIII', description: 'Radiates +25% Armor to all surrounding allies in combat.', bonus: 0.25 },
+    { level: 9, cost: 380, name: 'Armor Aura IX', description: 'Radiates +30% Armor to all surrounding allies in combat.', bonus: 0.3 },
+    { level: 10, cost: 460, name: 'Armor Aura X - Aegis of the Sun', description: 'Radiates +35.5% Armor to all surrounding allies in combat!', bonus: 0.355 }
   ] as EvoAbilityTier[],
   relentless: [
     { level: 1, cost: 50, name: 'Relentless Assault I', description: 'Each consecutive hit on the same target deals +1% more damage (stacks; resets on a new target).', bonus: 0.01 },
@@ -150,16 +150,16 @@ export const ARCHER_ABILITIES = {
     { level: 10, cost: 460, name: 'Multishot X - Arrow Tempest', description: '75% chance to fire arrows at 5 targets simultaneously!', chance: 0.75, targets: 5 }
   ] as EvoAbilityTier[],
   damageAura: [
-    { level: 1, cost: 50, name: 'Damage Aura I', description: 'Radiates +6 Attack to all surrounding allies in combat.', bonus: 6 },
-    { level: 2, cost: 70, name: 'Damage Aura II', description: 'Radiates +13 Attack to all surrounding allies in combat.', bonus: 13 },
-    { level: 3, cost: 95, name: 'Damage Aura III', description: 'Radiates +21 Attack to all surrounding allies in combat.', bonus: 21 },
-    { level: 4, cost: 125, name: 'Damage Aura IV', description: 'Radiates +31 Attack to all surrounding allies in combat.', bonus: 31 },
-    { level: 5, cost: 160, name: 'Damage Aura V', description: 'Radiates +43 Attack to all surrounding allies in combat.', bonus: 43 },
-    { level: 6, cost: 200, name: 'Damage Aura VI', description: 'Radiates +57 Attack to all surrounding allies in combat.', bonus: 57 },
-    { level: 7, cost: 250, name: 'Damage Aura VII', description: 'Radiates +74 Attack to all surrounding allies in combat.', bonus: 74 },
-    { level: 8, cost: 310, name: 'Damage Aura VIII', description: 'Radiates +93 Attack to all surrounding allies in combat.', bonus: 93 },
-    { level: 9, cost: 380, name: 'Damage Aura IX', description: 'Radiates +115 Attack to all surrounding allies in combat.', bonus: 115 },
-    { level: 10, cost: 460, name: 'Damage Aura X - Sovereign Might', description: 'Radiates +140 Attack to all surrounding allies in combat!', bonus: 140 }
+    { level: 1, cost: 50, name: 'Damage Aura I', description: 'Radiates +4% Attack to all surrounding allies in combat.', bonus: 0.04 },
+    { level: 2, cost: 70, name: 'Damage Aura II', description: 'Radiates +5.5% Attack to all surrounding allies in combat.', bonus: 0.055 },
+    { level: 3, cost: 95, name: 'Damage Aura III', description: 'Radiates +7.5% Attack to all surrounding allies in combat.', bonus: 0.075 },
+    { level: 4, cost: 125, name: 'Damage Aura IV', description: 'Radiates +10% Attack to all surrounding allies in combat.', bonus: 0.1 },
+    { level: 5, cost: 160, name: 'Damage Aura V', description: 'Radiates +13% Attack to all surrounding allies in combat.', bonus: 0.13 },
+    { level: 6, cost: 200, name: 'Damage Aura VI', description: 'Radiates +16.5% Attack to all surrounding allies in combat.', bonus: 0.165 },
+    { level: 7, cost: 250, name: 'Damage Aura VII', description: 'Radiates +20.5% Attack to all surrounding allies in combat.', bonus: 0.205 },
+    { level: 8, cost: 310, name: 'Damage Aura VIII', description: 'Radiates +25% Attack to all surrounding allies in combat.', bonus: 0.25 },
+    { level: 9, cost: 380, name: 'Damage Aura IX', description: 'Radiates +30% Attack to all surrounding allies in combat.', bonus: 0.3 },
+    { level: 10, cost: 460, name: 'Damage Aura X - Sovereign Might', description: 'Radiates +35.5% Attack to all surrounding allies in combat!', bonus: 0.355 }
   ] as EvoAbilityTier[],
   armorShred: [
     { level: 1, cost: 50, name: 'Sundering Shot I', description: 'Attacks shred 3 enemy Armor for 4.0s (benefits all allies!).', bonus: 3, duration: 4.0 },
@@ -246,7 +246,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     description: 'Heals friendly units (+3 HP) as they pass by.',
     color: 0x22c55e, // Emerald Green
     accentColor: 0x86efac,
-    range: 3.5,
+    range: 5.0,
     rate: 1.0,
     healAmount: 3,
     branchA: [
@@ -255,7 +255,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 25,
         badge: 'Burst Heal',
         description: 'Increases instant healing to +7 HP per hit.',
-        range: 3.8,
+        range: 5.0,
         rate: 0.90,
         healAmount: 7
       },
@@ -264,7 +264,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 50,
         badge: 'Burst Heal',
         description: 'Increases instant healing to +13 HP per hit.',
-        range: 4.0,
+        range: 5.0,
         rate: 0.85,
         healAmount: 13
       },
@@ -273,7 +273,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 85,
         badge: 'Burst Heal',
         description: 'Master healing font: +20 HP burst healing per hit.',
-        range: 4.2,
+        range: 5.0,
         rate: 0.80,
         healAmount: 20
       },
@@ -282,7 +282,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 130,
         badge: 'Burst Heal',
         description: 'Divine warmth: +29 HP burst healing per hit.',
-        range: 4.3,
+        range: 5.0,
         rate: 0.75,
         healAmount: 29
       },
@@ -291,7 +291,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 180,
         badge: 'Burst Heal',
         description: 'Holy radiance: +40 HP burst healing per hit.',
-        range: 4.4,
+        range: 5.0,
         rate: 0.70,
         healAmount: 40
       },
@@ -300,7 +300,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 240,
         badge: 'Burst Heal',
         description: 'Blissful aura: +52 HP burst healing per hit.',
-        range: 4.5,
+        range: 5.0,
         rate: 0.65,
         healAmount: 52
       },
@@ -309,7 +309,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 310,
         badge: 'Burst Heal',
         description: 'Angelic fountain: +65 HP burst healing per hit.',
-        range: 4.6,
+        range: 5.0,
         rate: 0.60,
         healAmount: 65
       },
@@ -318,7 +318,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 390,
         badge: 'Burst Heal',
         description: 'Seraphic beacon: +78 HP burst healing per hit.',
-        range: 4.7,
+        range: 5.0,
         rate: 0.55,
         healAmount: 78
       },
@@ -327,7 +327,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 480,
         badge: 'Burst Heal',
         description: 'Immortal reservoir: +91 HP burst healing per hit.',
-        range: 4.8,
+        range: 5.0,
         rate: 0.50,
         healAmount: 91
       },
@@ -347,7 +347,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 20,
         badge: 'Slow Stacking',
         description: 'Heals +3 HP on hit; Lifebloom grows the heal by +1 HP every round (permanent).',
-        range: 3.5,
+        range: 5.0,
         rate: 1.0,
         healAmount: 3,
         stackingHpPerRound: 1
@@ -357,7 +357,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 50,
         badge: 'Slow Stacking',
         description: 'Heals +3 HP on hit; Lifebloom grows the heal by +3 HP every round (permanent).',
-        range: 3.6,
+        range: 5.0,
         rate: 1.0,
         healAmount: 3,
         stackingHpPerRound: 3
@@ -367,7 +367,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 80,
         badge: 'Slow Stacking',
         description: 'Heals +3 HP on hit; Lifebloom grows the heal by +6 HP every round (permanent).',
-        range: 3.6,
+        range: 5.0,
         rate: 0.98,
         healAmount: 3,
         stackingHpPerRound: 6
@@ -377,7 +377,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 115,
         badge: 'Slow Stacking',
         description: 'Heals +4 HP on hit; Lifebloom grows the heal by +9 HP every round (permanent).',
-        range: 3.7,
+        range: 5.0,
         rate: 0.96,
         healAmount: 4,
         stackingHpPerRound: 9
@@ -387,7 +387,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 165,
         badge: 'Slow Stacking',
         description: 'Heals +6 HP on hit; Lifebloom grows the heal by +12 HP every round (permanent).',
-        range: 3.7,
+        range: 5.0,
         rate: 0.94,
         healAmount: 6,
         stackingHpPerRound: 12
@@ -397,7 +397,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 225,
         badge: 'Slow Stacking',
         description: 'Heals +8 HP on hit; Lifebloom grows the heal by +16 HP every round (permanent).',
-        range: 3.8,
+        range: 5.0,
         rate: 0.92,
         healAmount: 8,
         stackingHpPerRound: 16
@@ -407,7 +407,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 295,
         badge: 'Slow Stacking',
         description: 'Heals +11 HP on hit; Lifebloom grows the heal by +20 HP every round (permanent).',
-        range: 3.8,
+        range: 5.0,
         rate: 0.90,
         healAmount: 11,
         stackingHpPerRound: 20
@@ -417,7 +417,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 375,
         badge: 'Slow Stacking',
         description: 'Heals +15 HP on hit; Lifebloom grows the heal by +24 HP every round (permanent).',
-        range: 3.9,
+        range: 5.0,
         rate: 0.88,
         healAmount: 15,
         stackingHpPerRound: 24
@@ -427,7 +427,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 465,
         badge: 'Slow Stacking',
         description: 'Heals +20 HP on hit; Lifebloom grows the heal by +28 HP every round (permanent).',
-        range: 3.9,
+        range: 5.0,
         rate: 0.85,
         healAmount: 20,
         stackingHpPerRound: 28
@@ -437,7 +437,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 580,
         badge: 'Slow Stacking',
         description: 'Heart of Yggdrasil: heals +26 HP on hit; Lifebloom grows the heal by +31 HP every round (permanent).',
-        range: 4.0,
+        range: 5.0,
         rate: 0.80,
         healAmount: 26,
         stackingHpPerRound: 31
@@ -452,7 +452,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     description: 'Forges armor plating on passing units (+4 Armor), mitigating physical damage.',
     color: 0x64748b, // Slate Steel
     accentColor: 0x38bdf8,
-    range: 3.2,
+    range: 5.0,
     rate: 1.2,
     armorAmount: 4,
     branchA: [
@@ -461,7 +461,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 30,
         badge: 'Heavy Plating',
         description: 'Forges +8 Armor per hit.',
-        range: 3.4,
+        range: 5.0,
         rate: 1.15,
         armorAmount: 8
       },
@@ -470,7 +470,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 60,
         badge: 'Heavy Plating',
         description: 'Heavy forging: +13 Armor per hit.',
-        range: 3.5,
+        range: 5.0,
         rate: 1.10,
         armorAmount: 13
       },
@@ -479,7 +479,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 95,
         badge: 'Heavy Plating',
         description: 'Hardened steel: +18 Armor per hit.',
-        range: 3.6,
+        range: 5.0,
         rate: 1.05,
         armorAmount: 18
       },
@@ -488,7 +488,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 140,
         badge: 'Heavy Plating',
         description: 'Mithril weave: +24 Armor per hit.',
-        range: 3.7,
+        range: 5.0,
         rate: 1.00,
         armorAmount: 24
       },
@@ -497,7 +497,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 195,
         badge: 'Heavy Plating',
         description: 'Dragonscale coat: +30 Armor per hit.',
-        range: 3.8,
+        range: 5.0,
         rate: 0.95,
         armorAmount: 30
       },
@@ -506,7 +506,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 260,
         badge: 'Heavy Plating',
         description: 'Obsidian shell: +37 Armor per hit.',
-        range: 3.9,
+        range: 5.0,
         rate: 0.90,
         armorAmount: 37
       },
@@ -515,7 +515,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 335,
         badge: 'Heavy Plating',
         description: 'Titanium plating: +45 Armor per hit.',
-        range: 4.0,
+        range: 5.0,
         rate: 0.85,
         armorAmount: 45
       },
@@ -524,7 +524,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 420,
         badge: 'Heavy Plating',
         description: 'Adamantine cuirass: +53 Armor per hit.',
-        range: 4.1,
+        range: 5.0,
         rate: 0.80,
         armorAmount: 53
       },
@@ -533,7 +533,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 520,
         badge: 'Heavy Plating',
         description: 'Ethereal bulwark: +61 Armor per hit.',
-        range: 4.2,
+        range: 5.0,
         rate: 0.75,
         armorAmount: 61
       },
@@ -542,7 +542,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 650,
         badge: 'Heavy Plating',
         description: 'Adamant Bastion: massive +69 Armor per hit at rapid 0.70s strike!',
-        range: 4.4,
+        range: 5.0,
         rate: 0.70,
         armorAmount: 69
       }
@@ -553,7 +553,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 45,
         badge: 'Slow Stacking',
         description: 'Grants +4 Armor on hit; tempering grows it by +2 Armor every round (permanent).',
-        range: 3.2,
+        range: 5.0,
         rate: 1.20,
         armorAmount: 4,
         stackingArmorPerRound: 2
@@ -563,7 +563,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 50,
         badge: 'Slow Stacking',
         description: 'Grants +4 Armor on hit; tempering grows it by +4 Armor every round (permanent).',
-        range: 3.3,
+        range: 5.0,
         rate: 1.18,
         armorAmount: 4,
         stackingArmorPerRound: 4
@@ -573,7 +573,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 80,
         badge: 'Slow Stacking',
         description: 'Grants +4 Armor on hit; tempering grows it by +7 Armor every round (permanent).',
-        range: 3.4,
+        range: 5.0,
         rate: 1.15,
         armorAmount: 4,
         stackingArmorPerRound: 7
@@ -583,7 +583,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 120,
         badge: 'Slow Stacking',
         description: 'Grants +4 Armor on hit; tempering grows it by +11 Armor every round (permanent).',
-        range: 3.4,
+        range: 5.0,
         rate: 1.12,
         armorAmount: 4,
         stackingArmorPerRound: 11
@@ -593,7 +593,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 170,
         badge: 'Slow Stacking',
         description: 'Grants +4 Armor on hit; tempering grows it by +16 Armor every round (permanent).',
-        range: 3.5,
+        range: 5.0,
         rate: 1.10,
         armorAmount: 4,
         stackingArmorPerRound: 16
@@ -603,7 +603,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 230,
         badge: 'Slow Stacking',
         description: 'Grants +5 Armor on hit; tempering grows it by +21 Armor every round (permanent).',
-        range: 3.5,
+        range: 5.0,
         rate: 1.05,
         armorAmount: 5,
         stackingArmorPerRound: 21
@@ -613,7 +613,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 300,
         badge: 'Slow Stacking',
         description: 'Grants +7 Armor on hit; tempering grows it by +26 Armor every round (permanent).',
-        range: 3.6,
+        range: 5.0,
         rate: 1.00,
         armorAmount: 7,
         stackingArmorPerRound: 26
@@ -623,7 +623,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 380,
         badge: 'Slow Stacking',
         description: 'Grants +9 Armor on hit; tempering grows it by +31 Armor every round (permanent).',
-        range: 3.7,
+        range: 5.0,
         rate: 0.95,
         armorAmount: 9,
         stackingArmorPerRound: 31
@@ -633,7 +633,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 470,
         badge: 'Slow Stacking',
         description: 'Grants +12 Armor on hit; tempering grows it by +35 Armor every round (permanent).',
-        range: 3.7,
+        range: 5.0,
         rate: 0.90,
         armorAmount: 12,
         stackingArmorPerRound: 35
@@ -643,7 +643,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 580,
         badge: 'Slow Stacking',
         description: 'Eternal Fortress: grants +16 Armor on hit; tempering grows it by +38 Armor every round (permanent).',
-        range: 3.8,
+        range: 5.0,
         rate: 0.85,
         armorAmount: 16,
         stackingArmorPerRound: 38
@@ -658,7 +658,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     description: 'Infuses weapons with flame, increasing unit attack damage (+4 Attack).',
     color: 0xf97316, // Fire Orange
     accentColor: 0xfde047,
-    range: 3.5,
+    range: 5.0,
     rate: 1.1,
     attackAmount: 4,
     branchA: [
@@ -667,7 +667,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 30,
         badge: 'High Impact',
         description: 'Infuses +8 Attack damage per hit.',
-        range: 3.6,
+        range: 5.0,
         rate: 1.05,
         attackAmount: 8
       },
@@ -676,7 +676,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 60,
         badge: 'High Impact',
         description: 'Blazing edge: +13 Attack damage per hit.',
-        range: 3.7,
+        range: 5.0,
         rate: 1.00,
         attackAmount: 13
       },
@@ -685,7 +685,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 95,
         badge: 'High Impact',
         description: 'Scorching strike: +19 Attack damage per hit.',
-        range: 3.8,
+        range: 5.0,
         rate: 0.95,
         attackAmount: 19
       },
@@ -694,7 +694,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 140,
         badge: 'High Impact',
         description: 'Ignited edge: +26 Attack damage per hit.',
-        range: 3.9,
+        range: 5.0,
         rate: 0.90,
         attackAmount: 26
       },
@@ -703,7 +703,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 195,
         badge: 'High Impact',
         description: 'Searing heat: +34 Attack damage per hit.',
-        range: 4.0,
+        range: 5.0,
         rate: 0.85,
         attackAmount: 34
       },
@@ -712,7 +712,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 260,
         badge: 'High Impact',
         description: 'Volcanic thrust: +43 Attack damage per hit.',
-        range: 4.1,
+        range: 5.0,
         rate: 0.80,
         attackAmount: 43
       },
@@ -721,7 +721,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 335,
         badge: 'High Impact',
         description: 'Inferno blade: +53 Attack damage per hit.',
-        range: 4.2,
+        range: 5.0,
         rate: 0.75,
         attackAmount: 53
       },
@@ -730,7 +730,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 420,
         badge: 'High Impact',
         description: 'Pyre wrath: +63 Attack damage per hit.',
-        range: 4.3,
+        range: 5.0,
         rate: 0.70,
         attackAmount: 63
       },
@@ -739,7 +739,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 520,
         badge: 'High Impact',
         description: 'Solar conflagration: +73 Attack damage per hit.',
-        range: 4.4,
+        range: 5.0,
         rate: 0.65,
         attackAmount: 73
       },
@@ -748,7 +748,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 650,
         badge: 'High Impact',
         description: 'Inferno Sovereign: colossal +83 Attack damage per hit at rapid 0.60s strike!',
-        range: 4.6,
+        range: 5.0,
         rate: 0.60,
         attackAmount: 83
       }
@@ -759,7 +759,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 45,
         badge: 'Slow Stacking',
         description: 'Grants +4 Attack on hit; frenzy grows it by +2 Attack every round (permanent).',
-        range: 3.5,
+        range: 5.0,
         rate: 1.10,
         attackAmount: 4,
         stackingAttackPerRound: 2
@@ -769,7 +769,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 50,
         badge: 'Slow Stacking',
         description: 'Grants +4 Attack on hit; frenzy grows it by +4 Attack every round (permanent).',
-        range: 3.5,
+        range: 5.0,
         rate: 1.08,
         attackAmount: 4,
         stackingAttackPerRound: 4
@@ -779,7 +779,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 80,
         badge: 'Slow Stacking',
         description: 'Grants +4 Attack on hit; frenzy grows it by +7 Attack every round (permanent).',
-        range: 3.6,
+        range: 5.0,
         rate: 1.05,
         attackAmount: 4,
         stackingAttackPerRound: 7
@@ -789,7 +789,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 120,
         badge: 'Slow Stacking',
         description: 'Grants +4 Attack on hit; frenzy grows it by +11 Attack every round (permanent).',
-        range: 3.6,
+        range: 5.0,
         rate: 1.02,
         attackAmount: 4,
         stackingAttackPerRound: 11
@@ -799,7 +799,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 170,
         badge: 'Slow Stacking',
         description: 'Grants +4 Attack on hit; frenzy grows it by +16 Attack every round (permanent).',
-        range: 3.7,
+        range: 5.0,
         rate: 1.00,
         attackAmount: 4,
         stackingAttackPerRound: 16
@@ -809,7 +809,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 230,
         badge: 'Slow Stacking',
         description: 'Grants +5 Attack on hit; frenzy grows it by +21 Attack every round (permanent).',
-        range: 3.7,
+        range: 5.0,
         rate: 0.96,
         attackAmount: 5,
         stackingAttackPerRound: 21
@@ -819,7 +819,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 300,
         badge: 'Slow Stacking',
         description: 'Grants +7 Attack on hit; frenzy grows it by +26 Attack every round (permanent).',
-        range: 3.8,
+        range: 5.0,
         rate: 0.92,
         attackAmount: 7,
         stackingAttackPerRound: 26
@@ -829,7 +829,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 380,
         badge: 'Slow Stacking',
         description: 'Grants +9 Attack on hit; frenzy grows it by +31 Attack every round (permanent).',
-        range: 3.8,
+        range: 5.0,
         rate: 0.88,
         attackAmount: 9,
         stackingAttackPerRound: 31
@@ -839,7 +839,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 470,
         badge: 'Slow Stacking',
         description: 'Grants +12 Attack on hit; frenzy grows it by +35 Attack every round (permanent).',
-        range: 3.9,
+        range: 5.0,
         rate: 0.84,
         attackAmount: 12,
         stackingAttackPerRound: 35
@@ -849,7 +849,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 580,
         badge: 'Slow Stacking',
         description: 'Cataclysm Core: grants +16 Attack on hit; frenzy grows it by +38 Attack every round (permanent).',
-        range: 4.0,
+        range: 5.0,
         rate: 0.80,
         attackAmount: 16,
         stackingAttackPerRound: 38
@@ -1365,7 +1365,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
     description: 'Generates extra gold (+2g on hit) to fuel your defensive economy.',
     color: 0xeab308, // Gold
     accentColor: 0xfef08a,
-    range: 3.5,
+    range: 5.0,
     rate: 1.2,
     goldPerHit: 2,
     branchA: [
@@ -1374,7 +1374,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 40,
         badge: 'Gold on Hit',
         description: 'Generates +4 Gold every time it hits a passing unit.',
-        range: 3.6,
+        range: 5.0,
         rate: 1.15,
         goldPerHit: 4
       },
@@ -1383,7 +1383,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 65,
         badge: 'Gold on Hit',
         description: 'Generates +7 Gold every time it hits a passing unit.',
-        range: 3.7,
+        range: 5.0,
         rate: 1.10,
         goldPerHit: 7
       },
@@ -1392,7 +1392,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 100,
         badge: 'Gold on Hit',
         description: 'Generates +11 Gold every time it hits a passing unit.',
-        range: 3.8,
+        range: 5.0,
         rate: 1.05,
         goldPerHit: 11
       },
@@ -1401,7 +1401,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 145,
         badge: 'Gold on Hit',
         description: 'Generates +16 Gold every time it hits a passing unit.',
-        range: 3.9,
+        range: 5.0,
         rate: 1.00,
         goldPerHit: 16
       },
@@ -1410,7 +1410,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 200,
         badge: 'Gold on Hit',
         description: 'Generates +22 Gold every time it hits a passing unit.',
-        range: 4.0,
+        range: 5.0,
         rate: 0.95,
         goldPerHit: 22
       },
@@ -1419,7 +1419,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 265,
         badge: 'Gold on Hit',
         description: 'Generates +29 Gold every time it hits a passing unit.',
-        range: 4.1,
+        range: 5.0,
         rate: 0.90,
         goldPerHit: 29
       },
@@ -1428,7 +1428,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 340,
         badge: 'Gold on Hit',
         description: 'Generates +37 Gold every time it hits a passing unit.',
-        range: 4.2,
+        range: 5.0,
         rate: 0.85,
         goldPerHit: 37
       },
@@ -1437,7 +1437,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 425,
         badge: 'Gold on Hit',
         description: 'Generates +44 Gold every time it hits a passing unit.',
-        range: 4.3,
+        range: 5.0,
         rate: 0.80,
         goldPerHit: 44
       },
@@ -1446,7 +1446,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 520,
         badge: 'Gold on Hit',
         description: 'Generates +51 Gold every time it hits a passing unit.',
-        range: 4.4,
+        range: 5.0,
         rate: 0.75,
         goldPerHit: 51
       },
@@ -1455,7 +1455,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 630,
         badge: 'Gold on Hit',
         description: 'Philosopher Touch: generates +58 Gold on rapid strike (+58g every 0.70s)!',
-        range: 4.5,
+        range: 5.0,
         rate: 0.70,
         goldPerHit: 58
       }
@@ -1466,7 +1466,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 40,
         badge: 'Round Interest',
         description: 'Safeguards capital: yields 5% interest on your reserve at round end (min 10g, max 40g). No on-hit gold.',
-        range: 3.3,
+        range: 5.0,
         rate: 1.25,
         roundInterestPercent: 0.05,
         roundFlatGold: 10,
@@ -1477,7 +1477,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 70,
         badge: 'Round Interest',
         description: 'Secure vaults: yields 6% interest on your reserve at round end (min 15g, max 70g). No on-hit gold.',
-        range: 3.4,
+        range: 5.0,
         rate: 1.20,
         roundInterestPercent: 0.06,
         roundFlatGold: 15,
@@ -1488,7 +1488,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 110,
         badge: 'Round Interest',
         description: 'Fortified repository: yields 7% interest on your reserve at round end (min 20g, max 115g). No on-hit gold.',
-        range: 3.5,
+        range: 5.0,
         rate: 1.18,
         roundInterestPercent: 0.07,
         roundFlatGold: 20,
@@ -1499,7 +1499,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 160,
         badge: 'Round Interest',
         description: 'Treasury reserve: yields 8% interest on your reserve at round end (min 30g, max 175g). No on-hit gold.',
-        range: 3.5,
+        range: 5.0,
         rate: 1.15,
         roundInterestPercent: 0.08,
         roundFlatGold: 30,
@@ -1510,7 +1510,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 220,
         badge: 'Round Interest',
         description: 'High-capital bank: yields 9% interest on your reserve at round end (min 40g, max 250g). No on-hit gold.',
-        range: 3.6,
+        range: 5.0,
         rate: 1.12,
         roundInterestPercent: 0.09,
         roundFlatGold: 40,
@@ -1521,7 +1521,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 290,
         badge: 'Round Interest',
         description: 'Guild bullion vault: yields 10% interest on your reserve at round end (min 50g, max 345g). No on-hit gold.',
-        range: 3.6,
+        range: 5.0,
         rate: 1.10,
         roundInterestPercent: 0.10,
         roundFlatGold: 50,
@@ -1532,7 +1532,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 370,
         badge: 'Round Interest',
         description: 'Royal exchange: yields 11% interest on your reserve at round end (min 60g, max 455g). No on-hit gold.',
-        range: 3.7,
+        range: 5.0,
         rate: 1.05,
         roundInterestPercent: 0.11,
         roundFlatGold: 60,
@@ -1543,7 +1543,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 460,
         badge: 'Round Interest',
         description: 'Crown sovereign fund: yields 12% interest on your reserve at round end (min 75g, max 580g). No on-hit gold.',
-        range: 3.7,
+        range: 5.0,
         rate: 1.00,
         roundInterestPercent: 0.12,
         roundFlatGold: 75,
@@ -1554,7 +1554,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 560,
         badge: 'Round Interest',
         description: 'Monarch exchequer: yields 13% interest on your reserve at round end (min 90g, max 725g). No on-hit gold.',
-        range: 3.8,
+        range: 5.0,
         rate: 0.95,
         roundInterestPercent: 0.13,
         roundFlatGold: 90,
@@ -1565,7 +1565,7 @@ export const TOWER_DEFINITIONS: Record<TowerType, TowerDef> = {
         cost: 680,
         badge: 'Round Interest',
         description: 'Imperial Treasury: yields 15% interest on your reserve at round end (min 110g, max 890g). No on-hit gold.',
-        range: 3.8,
+        range: 5.0,
         rate: 0.90,
         roundInterestPercent: 0.15,
         roundFlatGold: 110,
