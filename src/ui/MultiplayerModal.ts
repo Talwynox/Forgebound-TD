@@ -1,6 +1,7 @@
 import { NetworkManager } from '../network/NetworkManager';
 import { GameMode, TeamId, PlayerSlot, TEAM_COLORS, MAX_NAME_LENGTH } from '../network/NetworkTypes';
 import { escapeHtml } from './html';
+import { MAP_THEME_IDS, MAP_THEME_LABELS, LobbyTheme, isLobbyTheme } from '../engine/MapThemes';
 
 export class MultiplayerModal {
   private container: HTMLElement;
@@ -180,6 +181,8 @@ export class MultiplayerModal {
           </div>
         </div>
 
+        ${this.renderThemePicker(isHost)}
+
         <!-- Team Rosters -->
         <div class="mp-rosters ${isPvp ? 'pvp-split' : 'coop-full'}">
           <!-- Team Sun (West) -->
@@ -227,6 +230,27 @@ export class MultiplayerModal {
             <button class="mp-leave-btn" id="btn-leave-room">Leave Room</button>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  /** Battlefield picker: the host chooses, everyone else sees the current choice. */
+  private renderThemePicker(isHost: boolean): string {
+    const options: LobbyTheme[] = [...MAP_THEME_IDS, 'RANDOM'];
+    const buttons = options.map(theme => {
+      const label = theme === 'RANDOM' ? { name: 'Random', icon: '🎲' } : MAP_THEME_LABELS[theme];
+      const active = this.network.theme === theme;
+      return `
+        <button class="mp-theme-btn ${active ? 'active' : ''}" data-theme="${theme}" ${isHost ? '' : 'disabled'}>
+          <span class="mp-theme-icon">${label.icon}</span>
+          <span class="mp-theme-name">${label.name}</span>
+        </button>
+      `;
+    }).join('');
+    return `
+      <div class="mp-theme-row">
+        <div class="mp-theme-label">🗺️ BATTLEFIELD ${isHost ? '' : '<span class="mp-theme-note">— chosen by the host</span>'}</div>
+        <div class="mp-theme-grid">${buttons}</div>
       </div>
     `;
   }
@@ -374,6 +398,16 @@ export class MultiplayerModal {
     this.modalEl.querySelector('#btn-join-moon')?.addEventListener('click', () => {
       this.network.setLocalTeam('MOON');
       this.render();
+    });
+
+    // Battlefield theme (host only)
+    this.modalEl.querySelectorAll<HTMLButtonElement>('.mp-theme-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const theme = btn.dataset.theme;
+        if (!this.network.isHost || !isLobbyTheme(theme)) return;
+        this.network.setTheme(theme);
+        this.render();
+      });
     });
 
     // Ready toggle

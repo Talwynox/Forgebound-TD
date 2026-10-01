@@ -15,6 +15,7 @@ import { TowerType, UpgradeBranch, TOWER_DEFINITIONS } from './towers/TowerData'
 import { PortalGuardian, PortalGuardianManager } from './towers/PortalGuardianManager';
 import { AchievementManager } from './achievements/AchievementManager';
 import { ArenaCastle } from './engine/ArenaCastle';
+import type { MapThemeId } from './engine/MapThemes';
 import { NetworkManager, SessionEndReason } from './network/NetworkManager';
 import {
   GameAction,
@@ -100,6 +101,8 @@ class GameApp {
   private multiplayerBoardActive: boolean = false;
   /** The board is laid out for PvP: mirrored Moon maze, two castles, army-vs-army rounds. */
   private pvpActive: boolean = false;
+  /** Battlefield theme of the current multiplayer match (picked by the host in the lobby). */
+  private multiplayerTheme: MapThemeId = 'FRONTIER';
 
   // Game State
   private currentMission: CampaignMission;
@@ -576,7 +579,7 @@ class GameApp {
   private setupNetworkHandlers() {
     const nm = this.networkManager;
 
-    nm.onMatchStarted = (mode, missionId) => this.startMultiplayerMatch(mode, missionId);
+    nm.onMatchStarted = (mode, missionId, theme) => this.startMultiplayerMatch(mode, missionId, theme);
 
     // Host: validate & execute actions from any player (including itself); replicate their VFX.
     nm.onGameAction = (peerId, action) => {
@@ -641,7 +644,8 @@ class GameApp {
     }
   }
 
-  private startMultiplayerMatch(mode: GameMode, missionId: number) {
+  private startMultiplayerMatch(mode: GameMode, missionId: number, theme: MapThemeId) {
+    this.multiplayerTheme = theme;
     this.ui.multiplayerModal.close();
     this.ui.hideResultModals();
     this.fx.clear();
@@ -991,11 +995,12 @@ class GameApp {
     for (const id of Array.from(this.towerManager.towers.keys())) {
       this.towerManager.sellTower(id);
     }
-    // Each campaign mission has its own maze and look; PvP always uses the classic mirrored frontier
+    // Each campaign mission has its own maze and look; PvP always uses the classic mirrored frontier maze.
+    // Multiplayer matches are dressed in the battlefield the host picked in the lobby.
     const layout = this.pvpActive ? 'FRONTIER' : mission.mazeLayout;
     this.grids.SUN.setLayout(layout);
     this.grids.MOON.setLayout(layout);
-    this.renderer.applyMapTheme(this.pvpActive ? 'FRONTIER' : mission.theme);
+    this.renderer.applyMapTheme(this.multiplayerBoardActive ? this.multiplayerTheme : mission.theme);
     this.renderer.buildRoadVisuals(this.grids.SUN);
 
     this.prepareWaveEnemiesInArena();

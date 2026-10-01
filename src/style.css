@@ -1953,6 +1953,76 @@ body, html {
   margin-bottom: 4px;
 }
 
+/* Battlefield (map theme) picker in the lobby */
+.mp-theme-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mp-theme-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #94a3b8;
+}
+
+.mp-theme-note {
+  font-weight: 600;
+  letter-spacing: 0;
+  color: #64748b;
+}
+
+.mp-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.mp-theme-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border-radius: 10px;
+  background: var(--df-inset, rgba(15, 23, 42, 0.8));
+  border: 1px solid rgba(201, 164, 90, 0.2);
+  color: var(--df-text, #f8fafc);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mp-theme-btn:not(:disabled):hover {
+  border-color: var(--df-gold, #f59e0b);
+  box-shadow: 0 0 12px var(--df-ember-glow, rgba(245, 158, 11, 0.2));
+}
+
+.mp-theme-btn.active {
+  border-color: var(--df-gold, #f59e0b);
+  background: linear-gradient(180deg, rgba(201, 164, 90, 0.18) 0%, rgba(20, 14, 18, 0.9) 100%);
+  box-shadow: 0 0 14px rgba(201, 164, 90, 0.25);
+}
+
+.mp-theme-btn:disabled {
+  cursor: default;
+}
+
+.mp-theme-btn:disabled:not(.active) {
+  opacity: 0.45;
+}
+
+.mp-theme-icon {
+  font-size: 22px;
+}
+
+.mp-theme-name {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
+}
+
 .mp-rosters.pvp-split {
   grid-template-columns: 1fr 1fr;
 }
@@ -2855,6 +2925,15 @@ body {
   .mp-rosters {
     grid-template-columns: 1fr !important;
     flex-direction: column;
+  }
+
+  .mp-theme-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .mp-room-banner {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .modal-actions {

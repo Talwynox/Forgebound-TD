@@ -1,6 +1,6 @@
 /**
  * Per-mission look of the world: sky & fog, ambient light, the maze island's ground tint and the
- * road's stones. FRONTIER is the original night palette (also used for PvP).
+ * road's stones. FRONTIER is the original night palette (and the multiplayer default).
  */
 export type MapThemeId = 'FRONTIER' | 'IRONFORGE' | 'CANYON' | 'RIFT' | 'CITADEL';
 
@@ -63,3 +63,25 @@ export const MAP_THEMES: Record<MapThemeId, MapTheme> = {
     rune: 0xff4a14, runeGlow: 0xdc2626
   }
 };
+
+export const MAP_THEME_IDS: MapThemeId[] = ['FRONTIER', 'IRONFORGE', 'CANYON', 'RIFT', 'CITADEL'];
+
+/** Display names for picking a battlefield (multiplayer lobby). */
+export const MAP_THEME_LABELS: Record<MapThemeId, { name: string; icon: string }> = {
+  FRONTIER: { name: 'Frontier Outpost', icon: '🌲' },
+  IRONFORGE: { name: 'Ironforge Pass', icon: '🏔️' },
+  CANYON: { name: 'Golden Canyon', icon: '🏜️' },
+  RIFT: { name: 'Arcane Rift', icon: '🔮' },
+  CITADEL: { name: 'Infernal Citadel', icon: '🔥' }
+};
+
+/** A lobby's battlefield choice: a specific theme, or one rolled by the host at launch. */
+export type LobbyTheme = MapThemeId | 'RANDOM';
+
+export function isMapThemeId(value: unknown): value is MapThemeId {
+  return typeof value === 'string' && (MAP_THEME_IDS as string[]).includes(value);
+}
+
+export function isLobbyTheme(value: unknown): value is LobbyTheme {
+  return value === 'RANDOM' || isMapThemeId(value);
+}

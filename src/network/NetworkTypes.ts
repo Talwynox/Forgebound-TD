@@ -2,6 +2,7 @@ import { GridCoord } from '../grid/Grid';
 import { TowerType, UpgradeBranch } from '../towers/TowerData';
 import { TeamId } from '../game/Teams';
 import type { TargetPriority } from '../towers/TowerManager';
+import type { LobbyTheme, MapThemeId } from '../engine/MapThemes';
 
 export type { TeamId } from '../game/Teams';
 export type GameMode = 'COOP' | 'PVP';
@@ -116,9 +117,9 @@ export type NetworkMessage =
   | { type: 'ACTION_JOIN_LOBBY'; name: string }
   | { type: 'ACTION_SELECT_TEAM'; team: TeamId }
   | { type: 'ACTION_SET_READY'; ready: boolean }
-  | { type: 'LOBBY_STATE'; mode: GameMode; players: PlayerSlot[] }
+  | { type: 'LOBBY_STATE'; mode: GameMode; theme: LobbyTheme; players: PlayerSlot[] }
   | { type: 'LOBBY_REJECTED'; reason: string }
-  | { type: 'MATCH_START'; mode: GameMode; missionId: number; players: PlayerSlot[] }
+  | { type: 'MATCH_START'; mode: GameMode; missionId: number; theme: MapThemeId; players: PlayerSlot[] }
 
   // Gameplay
   | { type: 'GAME_ACTION'; action: GameAction }

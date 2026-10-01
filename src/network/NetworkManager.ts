@@ -13,6 +13,7 @@ import {
   MAX_NAME_LENGTH
 } from './NetworkTypes';
 import { audio } from '../engine/AudioSystem';
+import { MAP_THEME_IDS, LobbyTheme, MapThemeId, isLobbyTheme, isMapThemeId } from '../engine/MapThemes';
 
 export type SessionEndReason = 'left' | 'host-lost' | 'rejected';
 
@@ -27,6 +28,8 @@ export function sanitizePlayerName(raw: unknown, fallback: string): string {
 export class NetworkManager {
   public conn: P2PConnection;
   public mode: GameMode = 'COOP';
+  /** Battlefield the host picked in the lobby (visual only; maze layouts are unaffected). */
+  public theme: LobbyTheme = 'FRONTIER';
   public localTeam: TeamId = 'SUN';
   public players: Map<string, PlayerSlot> = new Map();
   public localName: string = 'Commander';
@@ -41,7 +44,7 @@ export class NetworkManager {
 
   // Callbacks hooked by GameApp / UI
   public onLobbyUpdated: () => void = () => {};
-  public onMatchStarted: (mode: GameMode, missionId: number) => void = () => {};
+  public onMatchStarted: (mode: GameMode, missionId: number, theme: MapThemeId) => void = () => {};
   /** Host only: a gameplay action to validate and execute (from a guest or the host itself). */
   public onGameAction: (peerId: string, action: GameAction) => void = () => {};
   /** Clients only: a discrete world event broadcast by the host. */
@@ -227,6 +230,12 @@ export class NetworkManager {
     this.broadcastLobbyState();
   }
 
+  public setTheme(theme: LobbyTheme) {
+    if (this.isInRoom && !this.isHost) return;
+    this.theme = theme;
+    this.broadcastLobbyState();
+  }
+
   public getUnreadyPlayers(): PlayerSlot[] {
     return this.getPlayerList().filter(p => !p.isReady);
   }
@@ -237,8 +246,10 @@ export class NetworkManager {
       p.gold = STARTING_GOLD;
     }
     this.inMatch = true;
-    this.conn.broadcast({ type: 'MATCH_START', mode: this.mode, missionId, players: this.getPlayerList() });
-    this.onMatchStarted(this.mode, missionId);
+    // Random is rolled once here so every player gets the same battlefield
+    const theme = this.theme === 'RANDOM' ? MAP_THEME_IDS[Math.floor(Math.random() * MAP_THEME_IDS.length)] : this.theme;
+    this.conn.broadcast({ type: 'MATCH_START', mode: this.mode, missionId, theme, players: this.getPlayerList() });
+    this.onMatchStarted(this.mode, missionId, theme);
   }
 
   /** Match is over (victory/defeat) but everyone stays in the room for a rematch. */
@@ -272,7 +283,7 @@ export class NetworkManager {
 
   private broadcastLobbyState() {
     if (!this.isHost) return;
-    this.conn.broadcast({ type: 'LOBBY_STATE', mode: this.mode, players: this.getPlayerList() });
+    this.conn.broadcast({ type: 'LOBBY_STATE', mode: this.mode, theme: this.theme, players: this.getPlayerList() });
     this.onLobbyUpdated();
   }
 
@@ -416,6 +427,7 @@ export class NetworkManager {
     switch (msg.type) {
       case 'LOBBY_STATE':
         this.mode = msg.mode;
+        this.theme = isLobbyTheme(msg.theme) ? msg.theme : 'FRONTIER';
         this.applyPlayerList(msg.players);
         this.onLobbyUpdated();
         break;
@@ -428,7 +440,7 @@ export class NetworkManager {
         this.mode = msg.mode;
         this.applyPlayerList(msg.players);
         this.inMatch = true;
-        this.onMatchStarted(msg.mode, msg.missionId);
+        this.onMatchStarted(msg.mode, msg.missionId, isMapThemeId(msg.theme) ? msg.theme : 'FRONTIER');
         break;
 
       case 'STATE_SNAPSHOT': {
